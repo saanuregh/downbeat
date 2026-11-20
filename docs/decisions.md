@@ -194,3 +194,15 @@ run is not overdue.
 Every refused control API request is logged; `RequestRefused` carries how many there were since
 the last report and is recorded at most once a minute per caller and status, so a flood of bad
 requests cannot flood the audit table.
+
+## 33. Lease and heartbeat per queue (supersedes 7)
+
+`Settings::queues` maps a queue to its own `QueueTimings` (heartbeat and lease), as the design
+allowed; every other queue uses the definition-wide values. `check` refuses a lease shorter than
+two heartbeats.
+
+## 34. A pause of everything
+
+`POST /v1/pause` and `POST /v1/resume` hold and release every run of every job, from the design's
+list of things to add during the build. The pause is a row of kind `all`, added by migration 2,
+which older engines ignore.

@@ -121,6 +121,9 @@ impl Registry {
         if let Some(problem) = definition.settings.shutdown_problem() {
             problems.add("settings", problem);
         }
+        for problem in definition.settings.timing_problems() {
+            problems.add("settings", problem);
+        }
 
         if !problems.0.is_empty() {
             let mut list: Vec<Problem> = problems.0.into_iter().collect();

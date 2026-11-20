@@ -1,5 +1,6 @@
 //! `Definition`: the complete description of one product's job system.
 
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::future::Future;
 use std::sync::Arc;
@@ -168,6 +169,16 @@ pub struct Settings {
     pub poll: Duration,
     /// A reused child process is replaced after this many runs.
     pub recycle_child_after: u32,
+    /// A heartbeat and lease for particular queues, when theirs differ: a queue of short jobs can
+    /// use a short lease, so a lost worker's runs come back sooner.
+    pub queues: BTreeMap<String, QueueTimings>,
+}
+
+/// How often a queue's runs are renewed, and how long they stay owned without a renewal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueTimings {
+    pub heartbeat: Duration,
+    pub lease: Duration,
 }
 
 impl Default for Settings {
@@ -180,6 +191,7 @@ impl Default for Settings {
             stop_within: Duration::from_secs(30),
             poll: Duration::from_secs(1),
             recycle_child_after: 500,
+            queues: BTreeMap::new(),
         }
     }
 }
@@ -188,10 +200,27 @@ impl Settings {
     /// Shutdown keeps this long to release runs back to the queue.
     pub(crate) const RELEASE_TIME: Duration = Duration::from_secs(5);
 
+    /// The heartbeat and lease of a queue's runs.
+    pub(crate) fn timings(&self, queue: &str) -> QueueTimings {
+        self.queues.get(queue).copied().unwrap_or(QueueTimings { heartbeat: self.heartbeat, lease: self.lease })
+    }
+
     /// The reaper takes a run back only after its lease has been expired this long, so the old
     /// worker has killed its copy by then.
     pub(crate) fn reaper_margin(&self) -> Duration {
         self.kill_grace + Duration::from_secs(10)
+    }
+
+    /// Why a lease could not be kept with these settings, if it could not.
+    pub(crate) fn timing_problems(&self) -> Vec<String> {
+        let default = ("every queue".to_owned(), QueueTimings { heartbeat: self.heartbeat, lease: self.lease });
+        std::iter::once(default)
+            .chain(self.queues.iter().map(|(queue, timings)| (format!("queue {queue}"), *timings)))
+            .filter(|(_, timings)| timings.lease < timings.heartbeat * 2)
+            .map(|(what, timings)| {
+                format!("the lease of {what} ({:?}) must be at least two heartbeats ({:?})", timings.lease, timings.heartbeat)
+            })
+            .collect()
     }
 
     /// Why a worker cannot start with these settings, if it cannot.
@@ -206,5 +235,27 @@ impl Settings {
                 self.stop_within
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_queue_may_have_its_own_heartbeat_and_lease() {
+        let quick = QueueTimings { heartbeat: Duration::from_secs(5), lease: Duration::from_secs(30) };
+        let settings = Settings { queues: [("quick".to_owned(), quick)].into(), ..Settings::default() };
+        assert_eq!(settings.timings("quick"), quick);
+        assert_eq!(settings.timings("default").lease, Duration::from_secs(180));
+        assert!(settings.timing_problems().is_empty());
+    }
+
+    #[test]
+    fn a_lease_shorter_than_two_heartbeats_is_a_problem() {
+        let tight = QueueTimings { heartbeat: Duration::from_secs(20), lease: Duration::from_secs(30) };
+        let settings = Settings { queues: [("tight".to_owned(), tight)].into(), ..Settings::default() };
+        assert_eq!(settings.timing_problems().len(), 1);
+        assert!(settings.timing_problems()[0].contains("queue tight"));
     }
 }

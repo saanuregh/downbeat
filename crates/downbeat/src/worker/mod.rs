@@ -152,7 +152,7 @@ async fn serve_slot(context: Arc<WorkerContext>, queue: String) {
     let mut warm: Option<ChildHandle> =
         ChildHandle::start(&context.spawner, context.registry.environment.as_deref()).await.ok();
     while !context.shutdown.stop_claiming.is_cancelled() {
-        match runs::claim(&context.pool, &queue, &context.id, settings.lease, &context.jobs).await {
+        match runs::claim(&context.pool, &queue, &context.id, settings.timings(&queue).lease, &context.jobs).await {
             Ok(Some(run)) => execute(&context, &mut warm, run).await,
             Ok(None) => {
                 tokio::select! {
@@ -172,7 +172,8 @@ async fn serve_slot(context: Arc<WorkerContext>, queue: String) {
 async fn execute(context: &WorkerContext, warm: &mut Option<ChildHandle>, run: RunRow) {
     let held = Held { run_id: run.run_id, fence: run.fence, worker: &context.id };
     let settings = &context.registry.settings;
-    let mut lease = Lease::keep(&context.pool, held, settings.heartbeat, settings.lease);
+    let timings = settings.timings(&run.queue);
+    let mut lease = Lease::keep(&context.pool, held, timings.heartbeat, timings.lease);
     let decision = match context.registry.job(&run.job_name) {
         Some(job) => drive(context, warm, &run, job, &mut lease).await,
         None => Decision::child_failed("this worker's build does not have the job"),
@@ -222,7 +223,7 @@ async fn drive(
     };
 
     let held = Held { run_id: run.run_id, fence: run.fence, worker: &context.id };
-    match runs::function_started(&context.pool, held, context.registry.settings.lease).await {
+    match runs::function_started(&context.pool, held, context.registry.settings.timings(&run.queue).lease).await {
         Ok(FunctionStart::Started) => {}
         Ok(FunctionStart::TurnTaken) => return waiting_turn(context, run, job).await,
         Ok(FunctionStart::Lost) => return Decision::Nothing,

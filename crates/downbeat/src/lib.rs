@@ -30,7 +30,7 @@ mod units;
 mod worker;
 
 pub use client::{InAppClient, InAppStart};
-pub use definition::{Definition, Settings};
+pub use definition::{Definition, QueueTimings, Settings};
 pub use dependencies::{Dependencies, Dependency};
 pub use events::{Event, EventDelivery, FinishedRun};
 pub use job::{

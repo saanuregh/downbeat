@@ -102,8 +102,20 @@ Definition::new().zone("UTC").settings(downbeat::Settings {
 | `poll` | 1 s | How often schedulers and worker slots look for work. |
 | `recycle_child_after` | 500 | A reused child process is replaced after this many runs. |
 
-The settings apply to every queue. A per-queue lease is not implemented
-([decision 7](../decisions.md#7-engine-timings-are-set-for-the-whole-definition)).
+| `queues` | none | A heartbeat and lease for particular queues, when theirs differ. |
+
+A queue of short jobs can use a short lease, so a lost worker's runs come back sooner. `check`
+refuses a lease shorter than two heartbeats.
+
+```rust
+use downbeat::{QueueTimings, Settings};
+use std::time::Duration;
+
+Settings {
+    queues: [("quick".to_owned(), QueueTimings { heartbeat: Duration::from_secs(5), lease: Duration::from_secs(30) })].into(),
+    ..Settings::default()
+}
+```
 
 A long job cannot be drained in a short stop window, so every deploy of its worker interrupts it.
 That is cheap when the job saves checkpoints: the run is released, picked up by a new worker, and
