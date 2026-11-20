@@ -13,7 +13,7 @@ use proc_macro::TokenStream;
 ///
 /// ```ignore
 /// #[job(queue = "heavy", timeout = 2.hours(), attempts = 3)]
-/// async fn bhav_candles(run: Run, archive: Archive, pools: &Pools) -> Result<Candles> { … }
+/// async fn build_candles(run: Run, prices: Prices, pools: &Pools) -> Result<Candles> { todo!() }
 /// ```
 #[proc_macro_attribute]
 pub fn job(attribute: TokenStream, item: TokenStream) -> TokenStream {
@@ -22,11 +22,11 @@ pub fn job(attribute: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Turns a function that returns a [`Program`] into a job done by that program.
+/// Turns a function that returns a `downbeat::Program` into a job done by that program.
 ///
 /// ```ignore
 /// #[command(preset = heavy)]
-/// fn eod_ohlc(input: OhlcInput) -> Program<Ohlc> { Program::new("./compute").arg(input.date) }
+/// fn export_csv(input: Candles) -> Program<()> { Program::new("./export").arg(input.day) }
 /// ```
 #[proc_macro_attribute]
 pub fn command(attribute: TokenStream, item: TokenStream) -> TokenStream {

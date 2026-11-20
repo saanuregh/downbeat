@@ -42,6 +42,11 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: API docs build without warnings
+        run: cargo doc --no-deps -p downbeat -p downbeat-api -p downbeat-client -p downbeat-macros
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       - name: Example schedule snapshot is current
         run: cargo run -q -p market -- check --verify-snapshot examples/market/schedules.snapshot > /dev/null
 
