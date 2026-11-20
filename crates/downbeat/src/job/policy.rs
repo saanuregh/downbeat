@@ -48,16 +48,16 @@ impl Policy {
     pub const DEFAULT: Policy = Policy {
         queue: "default",
         priority: 0,
-        timeout: Duration::from_secs(5 * 60),
+        timeout: Duration::from_mins(5),
         attempts: 1,
-        backoff: Backoff { first: Duration::from_secs(30), max: Duration::from_secs(10 * 60) },
+        backoff: Backoff { first: Duration::from_secs(30), max: Duration::from_mins(10) },
         retry_on: RetryOnSet::ERROR,
-        recheck_every: Duration::from_secs(60),
-        give_up_after: Duration::from_secs(24 * 3600),
+        recheck_every: Duration::from_mins(1),
+        give_up_after: Duration::from_hours(24),
         turn: Turn::SameWork,
         fresh_process: false,
         max_memory: None,
-        keep_runs_for: Duration::from_secs(30 * 86_400),
+        keep_runs_for: Duration::from_hours(30 * 24),
         keep_runs_at_most: None,
         expect_success_every: None,
         supports_dry_run: false,
@@ -216,7 +216,7 @@ pub mod presets {
 
     /// A job on a short interval: a 1-minute timeout and only the newest 20 runs kept.
     pub const frequent: Policy = Policy {
-        timeout: Duration::from_secs(60),
+        timeout: Duration::from_mins(1),
         keep_runs_at_most: Some(20),
         ..Policy::DEFAULT
     };
@@ -224,14 +224,14 @@ pub mod presets {
     /// A long, CPU- or memory-heavy job: queue `heavy`, a 2-hour timeout, a fresh process per run.
     pub const heavy: Policy = Policy {
         queue: "heavy",
-        timeout: Duration::from_secs(2 * 3600),
+        timeout: Duration::from_hours(2),
         fresh_process: true,
         ..Policy::DEFAULT
     };
 
     /// A job calling an outside service that is sometimes slow or down.
     pub const external: Policy = Policy {
-        timeout: Duration::from_secs(10 * 60),
+        timeout: Duration::from_mins(10),
         attempts: 3,
         retry_on: RetryOnSet::of(&[RetryOn::Error, RetryOn::Timeout]),
         ..Policy::DEFAULT

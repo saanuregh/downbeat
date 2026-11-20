@@ -43,6 +43,7 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
     call.sig.ident = format_ident!("call");
     call.vis = syn::parse_quote!(pub);
     call.attrs.retain(|attribute| attribute.path().is_ident("allow"));
+    call.attrs.push(syn::parse_quote!(#[allow(unknown_lints, clippy::unused_async, clippy::unused_async_trait_impl)]));
 
     let erased = match kind {
         Kind::Function => function_parts(&function, &signature, &input_type, output_type, &turn_value),
@@ -57,7 +58,6 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         #visibility struct #handle;
 
-        #[allow(clippy::unused_async)]
         impl #handle {
             /// The job's function, as written.
             #[doc(hidden)]
@@ -83,7 +83,7 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
 /// `async fn name(run: Run, input: In, dep: &Dep, …) -> Result<Out>`
 fn function_signature(function: &ItemFn) -> syn::Result<Signature> {
     if function.sig.asyncness.is_none() {
-        return Err(syn::Error::new_spanned(&function.sig.fn_token, "a #[job] function is async; a #[command] function is not"));
+        return Err(syn::Error::new_spanned(function.sig.fn_token, "a #[job] function is async; a #[command] function is not"));
     }
     let mut parameters = function.sig.inputs.iter();
     match parameters.next() {
@@ -103,7 +103,7 @@ fn function_signature(function: &ItemFn) -> syn::Result<Signature> {
 /// `fn name(input: In) -> Program<Out>`
 fn command_signature(function: &ItemFn) -> syn::Result<Signature> {
     if function.sig.asyncness.is_some() {
-        return Err(syn::Error::new_spanned(&function.sig.asyncness, "a #[command] function only describes the program, so it is not async"));
+        return Err(syn::Error::new_spanned(function.sig.asyncness, "a #[command] function only describes the program, so it is not async"));
     }
     let (input, dependencies) = inputs_and_dependencies(function.sig.inputs.iter())?;
     if let Some(dependency) = dependencies.first() {
@@ -169,14 +169,12 @@ fn last_segment(ty: &Type) -> Option<String> {
 }
 
 fn turn_value(arguments: &Arguments, input_type: &Type) -> TokenStream {
-    match &arguments.one_per {
-        Some(field) => quote! {
-            ::core::option::Option::Some(|value: &::downbeat::__private::Value| {
-                let input: #input_type = ::downbeat::__private::decode_value(value)?;
-                ::downbeat::__private::field_text(&input.#field)
-            })
-        },
-        None => quote!(::core::option::Option::None),
+    let Some(field) = &arguments.one_per else { return quote!(::core::option::Option::None) };
+    quote! {
+        ::core::option::Option::Some(|value: &::downbeat::__private::Value| {
+            let input: #input_type = ::downbeat::__private::decode_value(value)?;
+            ::downbeat::__private::field_text(&input.#field)
+        })
     }
 }
 
@@ -197,7 +195,6 @@ fn function_parts(function: &ItemFn, signature: &Signature, input_type: &Type, o
     let test_input = if signature.input.is_some() { quote!(input,) } else { quote!() };
 
     quote! {
-        #[allow(clippy::unused_async)]
         impl #handle {
             /// Calls the function directly, in this process, for a test.
             #visibility async fn test(

@@ -16,6 +16,8 @@ pub(crate) enum Stop {
     Skip(String),
     NotReady(String),
     Error(String),
+    /// The input did not decode into the job's type.
+    BadInput(String),
 }
 
 impl<E: Display + Debug + Send + Sync + 'static> From<E> for JobError {
@@ -58,7 +60,7 @@ impl<T> From<Result<T>> for Outcome<T> {
             Ok(output) => Outcome::Succeeded(output),
             Err(JobError(Stop::Skip(reason))) => Outcome::Skipped(reason),
             Err(JobError(Stop::NotReady(reason))) => Outcome::NotReady(reason),
-            Err(JobError(Stop::Error(error))) => Outcome::Failed(error),
+            Err(JobError(Stop::Error(error) | Stop::BadInput(error))) => Outcome::Failed(error),
         }
     }
 }

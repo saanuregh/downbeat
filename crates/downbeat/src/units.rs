@@ -57,7 +57,8 @@ pub fn format_duration(duration: Duration) -> String {
     let mut out = String::new();
     for (unit, size) in [("d", 86_400), ("h", 3600), ("m", 60), ("s", 1)] {
         if seconds >= size {
-            out.push_str(&format!("{}{unit}", seconds / size));
+            out += &(seconds / size).to_string();
+            out += unit;
             seconds %= size;
         }
     }

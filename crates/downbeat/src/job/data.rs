@@ -5,7 +5,7 @@
 //! struct; fields marked `#[job_data(not_compared)]` are left out of the comparison.
 
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// A value a job takes as input or returns as output.
@@ -176,11 +176,6 @@ pub(crate) fn unknown_fields(sent: &Value, decoded: &Value) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     }
-}
-
-/// An empty JSON object, the stored form of "no checkpoint" and similar.
-pub(crate) fn empty_object() -> Value {
-    Value::Object(Map::new())
 }
 
 #[cfg(test)]

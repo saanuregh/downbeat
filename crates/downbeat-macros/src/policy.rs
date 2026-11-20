@@ -119,10 +119,7 @@ fn unknown(path: &syn::Path, key: &str) -> syn::Error {
 
 /// The function that builds the job's policy.
 pub(crate) fn policy_function(arguments: &Arguments) -> TokenStream {
-    let base = match &arguments.preset {
-        Some(preset) => quote!(#preset),
-        None => quote!(::downbeat::Policy::DEFAULT),
-    };
+    let base = arguments.preset.as_ref().map_or_else(|| quote!(::downbeat::Policy::DEFAULT), |preset| quote!(#preset));
     let settings = &arguments.settings;
     quote! {
         fn __policy() -> ::downbeat::Policy {

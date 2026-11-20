@@ -535,6 +535,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "downbeat-e2e"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "downbeat",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "downbeat-macros"
 version = "0.1.0"
 dependencies = [

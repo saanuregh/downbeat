@@ -40,7 +40,7 @@ pub struct Dependencies {
 impl std::fmt::Debug for Dependencies {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let names: Vec<&str> = self.factories.values().map(|(_, name)| *name).collect();
-        f.debug_struct("Dependencies").field("provided", &names).finish()
+        f.debug_struct("Dependencies").field("provided", &names).finish_non_exhaustive()
     }
 }
 

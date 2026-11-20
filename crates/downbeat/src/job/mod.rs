@@ -26,7 +26,7 @@ pub use policy::{Backoff, Policy, RetryOn, RetryOnSet, Turn, presets};
 pub use program::{EXIT_NOT_READY, Program, ProgramSpec};
 pub(crate) use program::env_names;
 pub use run::{MAX_VALUE_BYTES, Run, Start, Started};
-pub(crate) use run::{RunLink, StartRequest, decode, encode_small};
+pub(crate) use run::{RunLink, StartRequest, decode};
 
 use crate::dependencies::{Dependencies, Dependency};
 
@@ -68,10 +68,16 @@ pub(crate) enum Body {
     Function(FunctionBody),
     /// A program the worker starts, described by the command's function.
     Command {
-        program: fn(Value) -> std::result::Result<ProgramSpec, String>,
+        program: ProgramFn,
         output: fn(Value) -> std::result::Result<Value, String>,
     },
 }
+
+/// A command's function with its types erased: from the input, the program to start.
+pub type ProgramFn = fn(Value) -> std::result::Result<ProgramSpec, String>;
+
+/// For `one_per = field`: the field's value in an input, as text.
+pub type TurnValueFn = fn(&Value) -> std::result::Result<String, String>;
 
 /// A job function with its types erased: decode the input, fetch the dependencies, call it,
 /// encode the output.
@@ -84,7 +90,7 @@ pub(crate) struct InputOps {
     /// The hash that identifies an input's work.
     pub(crate) hash: fn(&Value) -> std::result::Result<String, String>,
     /// For `one_per = field`: the field's value, as text.
-    pub(crate) turn_value: Option<fn(&Value) -> std::result::Result<String, String>>,
+    pub(crate) turn_value: Option<TurnValueFn>,
 }
 
 impl JobSpec {
@@ -93,7 +99,7 @@ impl JobSpec {
     pub fn function<J: Job>(
         policy: Policy,
         dependencies: Vec<Dependency>,
-        turn_value: Option<fn(&Value) -> std::result::Result<String, String>>,
+        turn_value: Option<TurnValueFn>,
         body: FunctionBody,
     ) -> Self {
         Self::new::<J>(policy, dependencies, turn_value, Body::Function(body))
@@ -103,8 +109,8 @@ impl JobSpec {
     #[doc(hidden)]
     pub fn command<J: Job>(
         policy: Policy,
-        turn_value: Option<fn(&Value) -> std::result::Result<String, String>>,
-        program: fn(Value) -> std::result::Result<ProgramSpec, String>,
+        turn_value: Option<TurnValueFn>,
+        program: ProgramFn,
     ) -> Self {
         let output = |value: Value| normalize::<J::Output>(value, false);
         Self::new::<J>(policy, Vec::new(), turn_value, Body::Command { program, output })
@@ -113,7 +119,7 @@ impl JobSpec {
     fn new<J: Job>(
         policy: Policy,
         dependencies: Vec<Dependency>,
-        turn_value: Option<fn(&Value) -> std::result::Result<String, String>>,
+        turn_value: Option<TurnValueFn>,
         body: Body,
     ) -> Self {
         JobSpec {
@@ -160,7 +166,7 @@ pub fn encode_output<T: JobData>(output: &T) -> Result<Value> {
 /// Decode a job's input, for the code `#[job]` generates.
 #[doc(hidden)]
 pub fn decode_input<T: JobData>(input: Value) -> Result<T> {
-    decode(input).map_err(|error| JobError::msg(format!("the input does not decode: {error}")))
+    decode(input).map_err(|error| JobError(Stop::BadInput(format!("the input does not decode: {error}"))))
 }
 
 /// Decode a value into its type, with the error as text; used by the code `#[job]` generates.

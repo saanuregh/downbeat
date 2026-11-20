@@ -45,8 +45,10 @@ pub(crate) struct Entry {
 #[derive(Clone)]
 pub(crate) struct Condition {
     pub(crate) name: String,
-    pub(crate) test: Arc<dyn Fn(&Value) -> Result<bool, String> + Send + Sync>,
+    pub(crate) test: ConditionTest,
 }
+
+pub(crate) type ConditionTest = Arc<dyn Fn(&Value) -> Result<bool, String> + Send + Sync>;
 
 impl Pipeline {
     pub(crate) fn new(name: &str) -> Self {
@@ -87,30 +89,28 @@ impl<J, P> std::fmt::Debug for JobBuilder<'_, J, P> {
     }
 }
 
-impl<'a, J: Job, P> JobBuilder<'a, J, P> {
+// Each method records its effect at once, so ignoring the returned builder is fine.
+#[allow(clippy::return_self_not_must_use)]
+impl<J: Job, P> JobBuilder<'_, J, P> {
     /// Start the job at a schedule's times. The schedule must supply the job's input.
-    #[must_use]
     pub fn schedule(self, schedule: Schedule<J::Input>) -> Self {
         self.entry.schedules.push(schedule.spec);
         self
     }
 
     /// Skip a run whose input is the same as the one this job last succeeded on.
-    #[must_use]
     pub fn if_changed(self) -> Self {
         self.entry.if_changed = true;
         self
     }
 
     /// Only run if another job has done its part.
-    #[must_use]
     pub fn needs(self, need: Need<J::Input>) -> Self {
         self.entry.needs.push(need.spec);
         self
     }
 
     /// Only run if this named test of the input holds; otherwise the run is skipped with its name.
-    #[must_use]
     pub fn only_if<F>(self, name: &str, test: F) -> Self
     where
         F: Fn(&J::Input) -> bool + Send + Sync + 'static,

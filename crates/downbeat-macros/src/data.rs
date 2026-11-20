@@ -17,7 +17,7 @@ pub(crate) fn expand(item: TokenStream) -> syn::Result<TokenStream> {
     {
         for field in &named.named {
             let ident = field.ident.as_ref().expect("named field");
-            let serialized = serde_name(field)?.unwrap_or_else(|| ident.to_string().trim_start_matches("r#").to_owned());
+            let serialized = serde_name(field).unwrap_or_else(|| ident.to_string().trim_start_matches("r#").to_owned());
             let compared = !has_not_compared(field)?;
             if !compared {
                 not_compared.push(serialized.clone());
@@ -28,10 +28,8 @@ pub(crate) fn expand(item: TokenStream) -> syn::Result<TokenStream> {
                 ::downbeat::FieldShape { name: #serialized.to_owned(), type_name: #ty_text.to_owned(), compared: #compared }
             });
         }
-    } else {
-        for attribute in input.attrs.iter().filter(|a| a.path().is_ident("job_data")) {
-            return Err(syn::Error::new_spanned(attribute, "#[job_data(…)] belongs on a field of a struct"));
-        }
+    } else if let Some(attribute) = input.attrs.iter().find(|a| a.path().is_ident("job_data")) {
+        return Err(syn::Error::new_spanned(attribute, "#[job_data(…)] belongs on a field of a struct"));
     }
 
     let identity = (!not_compared.is_empty()).then(|| {
@@ -69,7 +67,7 @@ fn has_not_compared(field: &syn::Field) -> syn::Result<bool> {
 }
 
 /// The name serde writes for a field, when `#[serde(rename = "…")]` changes it.
-fn serde_name(field: &syn::Field) -> syn::Result<Option<String>> {
+fn serde_name(field: &syn::Field) -> Option<String> {
     let mut renamed = None;
     for attribute in field.attrs.iter().filter(|a| a.path().is_ident("serde")) {
         // Other serde options are serde's business; only `rename` matters here.
@@ -83,5 +81,5 @@ fn serde_name(field: &syn::Field) -> syn::Result<Option<String>> {
             Ok(())
         });
     }
-    Ok(renamed)
+    renamed
 }

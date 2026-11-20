@@ -24,10 +24,13 @@ pub enum WhenUnmet {
 #[derive(Clone)]
 pub(crate) enum NeedTest {
     /// The needed job succeeded for exactly this input (its hash), computed from the child's input.
-    DoneFor(Arc<dyn Fn(&Value) -> Result<String, String> + Send + Sync>),
+    DoneFor(NeededInput),
     /// The needed job, which takes no input, succeeded within this long.
     DoneWithin(Duration),
 }
+
+/// From the needing job's input, the hash of the input the needed job must have succeeded for.
+pub(crate) type NeededInput = Arc<dyn Fn(&Value) -> Result<String, String> + Send + Sync>;
 
 /// A need with its types erased.
 #[derive(Clone)]

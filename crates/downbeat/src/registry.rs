@@ -132,6 +132,11 @@ impl Registry {
         })
     }
 
+    /// Shutdown keeps this long to release runs back to the queue.
+    pub(crate) fn release_time() -> std::time::Duration {
+        Settings::RELEASE_TIME
+    }
+
     pub(crate) fn job(&self, name: &str) -> Option<&RegisteredJob> {
         self.jobs.get(name)
     }

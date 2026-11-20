@@ -1,0 +1,20 @@
+[package]
+name = "downbeat-e2e"
+description = "End-to-end tests: a small product binary run as real scheduler and worker processes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+downbeat.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

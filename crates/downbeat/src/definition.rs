@@ -12,6 +12,7 @@ use crate::events::{EventDelivery, FinishedRun};
 use crate::pipeline::Pipeline;
 
 pub(crate) type Callback<T> = Arc<dyn Fn(T) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub(crate) type PipelineFn = fn(&mut Pipeline);
 pub(crate) type Redact = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 /// The complete description of one product's job system: its zone, its environments, how to build
@@ -23,7 +24,7 @@ pub struct Definition {
     pub(crate) zone: String,
     pub(crate) environments: Vec<String>,
     pub(crate) dependencies: Dependencies,
-    pub(crate) pipelines: Vec<(String, fn(&mut Pipeline))>,
+    pub(crate) pipelines: Vec<(String, PipelineFn)>,
     pub(crate) on_finish: Option<Callback<FinishedRun>>,
     pub(crate) on_event: Option<Callback<EventDelivery>>,
     pub(crate) log_link: Option<String>,
@@ -61,7 +62,7 @@ impl Definition {
     /// The zone schedules are written in, such as `"Asia/Kolkata"`.
     #[must_use]
     pub fn zone(mut self, zone: &str) -> Self {
-        self.zone = zone.to_owned();
+        zone.clone_into(&mut self.zone);
         self
     }
 
