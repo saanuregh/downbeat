@@ -127,7 +127,6 @@ async fn take_back_lost(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
 #[derive(sqlx::FromRow)]
 struct QueuedRow {
     run_id: Uuid,
-    job_name: String,
     chain_id: Uuid,
     fence: i64,
     due_at: DateTime<Utc>,
@@ -139,7 +138,7 @@ struct QueuedRow {
 /// Queued runs never started whose occurrence has expired.
 async fn expire(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     let rows: Vec<QueuedRow> = sqlx::query_as(
-        "SELECT run_id, job_name, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
+        "SELECT run_id, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
           WHERE state = 'queued' AND starts = 0 AND expires_at < now() LIMIT $1",
     )
     .bind(BATCH)
@@ -166,7 +165,7 @@ async fn give_up(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     }
     for (limit, jobs) in by_limit {
         let rows: Vec<QueuedRow> = sqlx::query_as(
-            "SELECT run_id, job_name, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
+            "SELECT run_id, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
               WHERE state = 'queued' AND job_name = ANY($1) AND created_at < now() - $2 LIMIT $3",
         )
         .bind(&jobs)
@@ -185,7 +184,7 @@ async fn give_up(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
 /// Queued runs of a job that no worker seen in the last hour has in its build.
 async fn unregistered(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     let rows: Vec<QueuedRow> = sqlx::query_as(
-        "SELECT r.run_id, r.job_name, r.chain_id, r.fence, r.due_at, r.expires_at, r.queued_reason, r.queued_because
+        "SELECT r.run_id, r.chain_id, r.fence, r.due_at, r.expires_at, r.queued_reason, r.queued_because
            FROM downbeat.run r
           WHERE r.state = 'queued' AND r.created_at < now() - interval '1 hour'
             AND EXISTS (SELECT 1 FROM downbeat.worker w WHERE w.role = 'worker')

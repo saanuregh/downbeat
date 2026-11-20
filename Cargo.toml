@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "tests/e2e"]
+members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "tests/e2e"]
 
 [workspace.package]
 version = "0.1.0"
@@ -26,7 +26,7 @@ chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 hex = "0.4"
-jsonwebtoken = "10"
+ed25519-dalek = { version = "2", features = ["pem", "rand_core"] }
 libc = "0.2"
 proc-macro2 = "1"
 quote = "1"
@@ -38,6 +38,7 @@ sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
 syn = { version = "2", features = ["full", "extra-traits"] }
 thiserror = "2"
+toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tower = "0.5"

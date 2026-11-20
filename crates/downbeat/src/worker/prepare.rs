@@ -16,7 +16,12 @@ use crate::store::runs::{self, Held, Requeue, RunRow};
 
 /// Prepares the run. `Ok` carries the input to call the function with; `Err` what to do instead.
 #[allow(clippy::result_large_err)] // Once per run; boxing the decision would only add noise.
-pub(crate) async fn prepare(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, job: &RegisteredJob) -> Result<Value, Decision> {
+pub(crate) async fn prepare(
+    context: &WorkerContext,
+    child: &mut ChildHandle,
+    run: &RunRow,
+    job: &RegisteredJob,
+) -> Result<Value, Decision> {
     let parents = match (&job.link, run.started_by.as_str()) {
         (Some(link), "link") => Some(handed_over(context, run, link.kind).await?),
         _ => None,
@@ -86,16 +91,23 @@ fn view(parent: &HistoryRow, kind: LinkKind) -> Value {
 }
 
 #[allow(clippy::result_large_err)]
-async fn check_conditions(context: &WorkerContext, run: &RunRow, job: &RegisteredJob, prepared: &Prepared, turn: &str) -> Result<(), Decision> {
+async fn check_conditions(
+    context: &WorkerContext,
+    run: &RunRow,
+    job: &RegisteredJob,
+    prepared: &Prepared,
+    turn: &str,
+) -> Result<(), Decision> {
     if let Some(name) = &prepared.failed_condition {
         return Err(Decision::End(Ending::skipped("condition_false", reasons::condition_false(name))));
     }
     let pool = &context.pool;
     for (need, hash) in job.needs.iter().zip(&prepared.need_hashes) {
         let (met, what) = match (&need.test, hash) {
-            (NeedTest::DoneFor(_), Some(hash)) => {
-                (history::succeeded_for(pool, need.job, hash).await.map_err(Decision::database)?, "for the input this run needs".to_owned())
-            }
+            (NeedTest::DoneFor(_), Some(hash)) => (
+                history::succeeded_for(pool, need.job, hash).await.map_err(Decision::database)?,
+                "for the input this run needs".to_owned(),
+            ),
             (NeedTest::DoneWithin(within), _) => (
                 history::succeeded_within(pool, need.job, *within).await.map_err(Decision::database)?,
                 format!("within {}", crate::units::format_duration(*within)),
@@ -112,7 +124,10 @@ async fn check_conditions(context: &WorkerContext, run: &RunRow, job: &Registere
             WhenUnmet::Wait => Decision::Requeue(Requeue {
                 delay: job.spec.policy.recheck_every,
                 because: "need_not_met",
-                reason: format!("Waiting: {unmet}; checking again every {}.", crate::units::format_duration(job.spec.policy.recheck_every)),
+                reason: format!(
+                    "Waiting: {unmet}; checking again every {}.",
+                    crate::units::format_duration(job.spec.policy.recheck_every)
+                ),
                 failed: false,
                 interrupted: false,
                 call: None,
@@ -122,10 +137,14 @@ async fn check_conditions(context: &WorkerContext, run: &RunRow, job: &Registere
     let compared = matches!(run.started_by.as_str(), "schedule" | "link");
     if job.if_changed && compared {
         let per_value = matches!(job.spec.policy.turn, crate::job::Turn::OnePer(_)).then_some(turn);
-        if let Some((Some(last_hash), at)) = history::last_success(pool, &run.job_name, per_value).await.map_err(Decision::database)?
+        if let Some((Some(last_hash), at)) =
+            history::last_success(pool, &run.job_name, per_value).await.map_err(Decision::database)?
             && last_hash == prepared.input_hash
         {
-            return Err(Decision::End(Ending::skipped("input_unchanged", reasons::input_unchanged(at, context.registry.zone))));
+            return Err(Decision::End(Ending::skipped(
+                "input_unchanged",
+                reasons::input_unchanged(at, context.registry.zone),
+            )));
         }
     }
     Ok(())

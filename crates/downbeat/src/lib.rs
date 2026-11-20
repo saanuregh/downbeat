@@ -11,8 +11,8 @@ mod child;
 mod cli;
 mod client;
 mod definition;
-mod describe;
 mod dependencies;
+mod describe;
 mod events;
 mod job;
 mod pipeline;
@@ -33,12 +33,13 @@ pub use definition::{Definition, Settings};
 pub use dependencies::{Dependencies, Dependency};
 pub use events::{Event, EventDelivery, FinishedRun};
 pub use job::{
-    Backoff, EXIT_NOT_READY, FieldShape, FunctionBody, Job, JobData, JobError, JobSpec, MAX_VALUE_BYTES, Outcome, Policy,
-    Program, ProgramSpec, Result, RetryOn, RetryOnSet, Run, Shape, Start, Started, Turn, not_ready, presets, skip,
+    Backoff, EXIT_NOT_READY, FieldShape, FunctionBody, Job, JobData, JobError, JobSpec, MAX_VALUE_BYTES, Outcome,
+    Policy, Program, ProgramSpec, Result, RetryOn, RetryOnSet, Run, Shape, Start, Started, Turn, not_ready, presets,
+    skip,
 };
 pub use pipeline::{
-    DoneFor, DoneWithin, Ended, Failure, HasParents, JobBuilder, LinkKind, MapExt, Mapped, Need, NoParents, Parents, Pipeline,
-    WhenUnmet,
+    DoneFor, DoneWithin, Ended, Failure, HasParents, JobBuilder, LinkKind, MapExt, Mapped, Need, NoParents, Parents,
+    Pipeline, WhenUnmet,
 };
 pub use schedule::{Day, Occurrence, Schedule, daily_at, every};
 pub use units::{Bytes, BytesExt, DurationExt};
@@ -101,8 +102,9 @@ pub fn policy_of(spec: &JobSpec) -> &Policy {
 /// Everything a product's job and pipeline code uses, in one import.
 pub mod prelude {
     pub use crate::{
-        BytesExt, Day, Definition, DoneFor, DoneWithin, DurationExt, Ended, Failure, Job, JobData, JobError, MapExt, Occurrence, Outcome,
-        Pipeline, Program, Result, RetryOn, Run, Started, command, daily_at, every, job, not_ready, presets, skip,
+        BytesExt, Day, Definition, DoneFor, DoneWithin, DurationExt, Ended, Failure, Job, JobData, JobError, MapExt,
+        Occurrence, Outcome, Pipeline, Program, Result, RetryOn, Run, Started, command, daily_at, every, job,
+        not_ready, presets, skip,
     };
     pub use chrono::{NaiveDate, Weekday};
 }
@@ -110,7 +112,9 @@ pub mod prelude {
 /// What the macros' generated code refers to. Not part of the public API.
 #[doc(hidden)]
 pub mod __private {
-    pub use crate::job::{decode_input, decode_value, encode_output, field_text, without_fields};
+    pub use crate::job::{
+        ProgramFn, TurnValueFn, decode_input, decode_value, encode_output, field_text, without_fields,
+    };
     pub use futures::future::BoxFuture;
     pub use serde_json::{Value, to_value};
     pub use std::sync::Arc;

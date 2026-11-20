@@ -52,7 +52,12 @@ pub(crate) fn waiting_turn(holder: Option<Uuid>, whole_job: bool) -> String {
 }
 
 pub(crate) fn another_attempt(attempt: u32, attempts: u16, error: &str, next: DateTime<Utc>, zone: Tz) -> String {
-    format!("Attempt {attempt} of {attempts} failed ({}); attempt {} at {}.", first_line(error), attempt + 1, clock(next, zone))
+    format!(
+        "Attempt {attempt} of {attempts} failed ({}); attempt {} at {}.",
+        first_line(error),
+        attempt + 1,
+        clock(next, zone)
+    )
 }
 
 pub(crate) fn failed(error: &str, attempt: u32, attempts: u16) -> String {
@@ -73,8 +78,12 @@ pub(crate) fn timed_out(after: Duration, attempt: u32, attempts: u16) -> String 
 
 pub(crate) fn crashed(code: Option<i32>, signal: Option<i32>, after: Duration) -> String {
     match (code, signal) {
-        (_, Some(signal)) => format!("Failed: the process was killed by signal {signal} after {}.", format_duration(after)),
-        (Some(code), None) => format!("Failed: the process exited with status {code} after {}.", format_duration(after)),
+        (_, Some(signal)) => {
+            format!("Failed: the process was killed by signal {signal} after {}.", format_duration(after))
+        }
+        (Some(code), None) => {
+            format!("Failed: the process exited with status {code} after {}.", format_duration(after))
+        }
         (None, None) => format!("Failed: the process ended unexpectedly after {}.", format_duration(after)),
     }
 }
@@ -122,7 +131,9 @@ pub(crate) fn expired(due_at: DateTime<Utc>, expires_at: DateTime<Utc>, zone: Tz
 
 pub(crate) fn gave_up(after: Duration, last_reason: Option<&str>) -> String {
     match last_reason {
-        Some(reason) => format!("Failed: gave up after {}; last reason: {}", format_duration(after), reason.trim_end_matches('.')),
+        Some(reason) => {
+            format!("Failed: gave up after {}; last reason: {}", format_duration(after), reason.trim_end_matches('.'))
+        }
         None => format!("Failed: gave up after {} of waiting.", format_duration(after)),
     }
 }

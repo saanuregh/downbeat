@@ -83,7 +83,10 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
 /// `async fn name(run: Run, input: In, dep: &Dep, …) -> Result<Out>`
 fn function_signature(function: &ItemFn) -> syn::Result<Signature> {
     if function.sig.asyncness.is_none() {
-        return Err(syn::Error::new_spanned(function.sig.fn_token, "a #[job] function is async; a #[command] function is not"));
+        return Err(syn::Error::new_spanned(
+            function.sig.fn_token,
+            "a #[job] function is async; a #[command] function is not",
+        ));
     }
     let mut parameters = function.sig.inputs.iter();
     match parameters.next() {
@@ -103,11 +106,17 @@ fn function_signature(function: &ItemFn) -> syn::Result<Signature> {
 /// `fn name(input: In) -> Program<Out>`
 fn command_signature(function: &ItemFn) -> syn::Result<Signature> {
     if function.sig.asyncness.is_some() {
-        return Err(syn::Error::new_spanned(function.sig.asyncness, "a #[command] function only describes the program, so it is not async"));
+        return Err(syn::Error::new_spanned(
+            function.sig.asyncness,
+            "a #[command] function only describes the program, so it is not async",
+        ));
     }
     let (input, dependencies) = inputs_and_dependencies(function.sig.inputs.iter())?;
     if let Some(dependency) = dependencies.first() {
-        return Err(syn::Error::new_spanned(dependency, "a #[command] function takes only its input; the program gets what it needs from its environment"));
+        return Err(syn::Error::new_spanned(
+            dependency,
+            "a #[command] function takes only its input; the program gets what it needs from its environment",
+        ));
     }
     let output = result_output(&function.sig.output, "Program")?;
     Ok(Signature { input, dependencies, output })
@@ -178,10 +187,17 @@ fn turn_value(arguments: &Arguments, input_type: &Type) -> TokenStream {
     }
 }
 
-fn function_parts(function: &ItemFn, signature: &Signature, input_type: &Type, output_type: &Type, turn_value: &TokenStream) -> TokenStream {
+fn function_parts(
+    function: &ItemFn,
+    signature: &Signature,
+    input_type: &Type,
+    output_type: &Type,
+    turn_value: &TokenStream,
+) -> TokenStream {
     let handle = &function.sig.ident;
     let visibility = &function.vis;
-    let dependency_names: Vec<_> = (0..signature.dependencies.len()).map(|index| format_ident!("__dependency_{index}")).collect();
+    let dependency_names: Vec<_> =
+        (0..signature.dependencies.len()).map(|index| format_ident!("__dependency_{index}")).collect();
     let dependency_types = &signature.dependencies;
     let (decode, input_argument, input_parameter) = if signature.input.is_some() {
         (
@@ -231,7 +247,13 @@ fn function_parts(function: &ItemFn, signature: &Signature, input_type: &Type, o
     }
 }
 
-fn command_parts(function: &ItemFn, signature: &Signature, input_type: &Type, output_type: &Type, turn_value: &TokenStream) -> TokenStream {
+fn command_parts(
+    function: &ItemFn,
+    signature: &Signature,
+    input_type: &Type,
+    output_type: &Type,
+    turn_value: &TokenStream,
+) -> TokenStream {
     let handle = &function.sig.ident;
     let visibility = &function.vis;
     let (decode, argument, parameter) = if signature.input.is_some() {

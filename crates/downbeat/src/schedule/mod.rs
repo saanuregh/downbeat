@@ -76,7 +76,8 @@ pub enum Day {
     Shifted(TimeDelta),
 }
 
-pub(crate) type CalendarCall = Arc<dyn Fn(NaiveDate, Arc<Dependencies>) -> BoxFuture<'static, Result<Day, String>> + Send + Sync>;
+pub(crate) type CalendarCall =
+    Arc<dyn Fn(NaiveDate, Arc<Dependencies>) -> BoxFuture<'static, Result<Day, String>> + Send + Sync>;
 
 /// A day rule with its types erased.
 #[derive(Clone)]

@@ -169,11 +169,9 @@ pub fn without_fields(mut value: Value, fields: &[&str]) -> Value {
 /// arrive in a request are decoded strictly.
 pub(crate) fn unknown_fields(sent: &Value, decoded: &Value) -> Vec<String> {
     match (sent, decoded) {
-        (Value::Object(sent), Value::Object(known)) => sent
-            .keys()
-            .filter(|key| !known.contains_key(*key))
-            .cloned()
-            .collect(),
+        (Value::Object(sent), Value::Object(known)) => {
+            sent.keys().filter(|key| !known.contains_key(*key)).cloned().collect()
+        }
         _ => Vec::new(),
     }
 }

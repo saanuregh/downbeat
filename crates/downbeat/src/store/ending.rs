@@ -93,8 +93,6 @@ pub(crate) struct HistoryRow {
     pub(crate) input_hash: Option<String>,
     pub(crate) turn_key: Option<String>,
     pub(crate) dry_run: bool,
-    pub(crate) ignore_conditions: bool,
-    pub(crate) without_children: bool,
     pub(crate) starts: i32,
     pub(crate) failures: i16,
     pub(crate) lost_count: i16,
@@ -113,20 +111,28 @@ pub(crate) struct HistoryRow {
     pub(crate) finished_at: DateTime<Utc>,
     pub(crate) marked_by: Option<String>,
     pub(crate) note: Option<String>,
-    pub(crate) joined_run: Option<Uuid>,
-    pub(crate) notify_after: Option<DateTime<Utc>>,
 }
 
 /// Takes the chain's lock. Everything that changes a chain takes it first, so two parents that end
 /// at the same instant never miss each other.
 pub(crate) async fn lock_chain(connection: &mut PgConnection, chain_id: Uuid) -> sqlx::Result<()> {
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))").bind(chain_id).execute(connection).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(chain_id)
+        .execute(connection)
+        .await?;
     Ok(())
 }
 
 /// Ends a run, if it still has this fence. Returns the history row, or `None` when the run had
 /// changed hands and nothing was written.
-pub(crate) async fn end(pool: &PgPool, registry: &Registry, run_id: Uuid, chain_id: Uuid, fence: i64, ending: Ending) -> sqlx::Result<Option<HistoryRow>> {
+pub(crate) async fn end(
+    pool: &PgPool,
+    registry: &Registry,
+    run_id: Uuid,
+    chain_id: Uuid,
+    fence: i64,
+    ending: Ending,
+) -> sqlx::Result<Option<HistoryRow>> {
     let mut transaction = pool.begin().await?;
     lock_chain(&mut transaction, chain_id).await?;
     let ended = end_locked(&mut transaction, registry, run_id, fence, &ending).await?;
@@ -142,11 +148,12 @@ pub(crate) async fn end_locked(
     fence: i64,
     ending: &Ending,
 ) -> sqlx::Result<Option<HistoryRow>> {
-    let Some(run): Option<RunRow> = sqlx::query_as("DELETE FROM downbeat.run WHERE run_id = $1 AND fence = $2 RETURNING *")
-        .bind(run_id)
-        .bind(fence)
-        .fetch_optional(&mut *connection)
-        .await?
+    let Some(run): Option<RunRow> =
+        sqlx::query_as("DELETE FROM downbeat.run WHERE run_id = $1 AND fence = $2 RETURNING *")
+            .bind(run_id)
+            .bind(fence)
+            .fetch_optional(&mut *connection)
+            .await?
     else {
         return Ok(None);
     };
@@ -202,12 +209,17 @@ pub(crate) async fn end_locked(
 }
 
 /// Creates each child whose parents have now all ended the way its link asks, in this chain.
-pub(crate) async fn create_children(connection: &mut PgConnection, registry: &Registry, ended: &HistoryRow) -> sqlx::Result<()> {
-    let cancelled: Option<DateTime<Utc>> = sqlx::query_scalar("SELECT cancelled_at FROM downbeat.chain WHERE chain_id = $1")
-        .bind(ended.chain_id)
-        .fetch_optional(&mut *connection)
-        .await?
-        .flatten();
+pub(crate) async fn create_children(
+    connection: &mut PgConnection,
+    registry: &Registry,
+    ended: &HistoryRow,
+) -> sqlx::Result<()> {
+    let cancelled: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT cancelled_at FROM downbeat.chain WHERE chain_id = $1")
+            .bind(ended.chain_id)
+            .fetch_optional(&mut *connection)
+            .await?
+            .flatten();
     if cancelled.is_some() {
         return Ok(());
     }
@@ -275,12 +287,17 @@ async fn already_in_chain(connection: &mut PgConnection, job: &str, chain_id: Uu
 }
 
 /// How a job last ended in a chain, unless it has a run there that has not ended.
-async fn latest_ending(connection: &mut PgConnection, job: &str, chain_id: Uuid) -> sqlx::Result<Option<(Uuid, String)>> {
-    let unfinished: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE job_name = $1 AND chain_id = $2)")
-        .bind(job)
-        .bind(chain_id)
-        .fetch_one(&mut *connection)
-        .await?;
+async fn latest_ending(
+    connection: &mut PgConnection,
+    job: &str,
+    chain_id: Uuid,
+) -> sqlx::Result<Option<(Uuid, String)>> {
+    let unfinished: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE job_name = $1 AND chain_id = $2)")
+            .bind(job)
+            .bind(chain_id)
+            .fetch_one(&mut *connection)
+            .await?;
     if unfinished {
         return Ok(None);
     }

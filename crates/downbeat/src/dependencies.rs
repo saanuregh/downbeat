@@ -54,9 +54,9 @@ impl Dependencies {
     {
         let factory: Factory = Arc::new(move || {
             let built = factory();
-            Box::pin(async move {
-                built.await.map(|value| Arc::new(value) as Shared).map_err(|error| error.to_string())
-            })
+            Box::pin(
+                async move { built.await.map(|value| Arc::new(value) as Shared).map_err(|error| error.to_string()) },
+            )
         });
         let id = TypeId::of::<T>();
         self.factories.insert(id, (factory, type_name::<T>()));

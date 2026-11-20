@@ -20,7 +20,14 @@ pub(crate) fn schedule(schedule: &CompiledSchedule) -> String {
             write!(text, "every {}", format_duration(*interval)).ok();
         }
         Times::Every { interval, window: Some((start, end)) } => {
-            write!(text, "every {} from {} to {}", format_duration(*interval), start.format("%H:%M"), end.format("%H:%M")).ok();
+            write!(
+                text,
+                "every {} from {} to {}",
+                format_duration(*interval),
+                start.format("%H:%M"),
+                end.format("%H:%M")
+            )
+            .ok();
         }
     }
     if let Some(days) = &schedule.weekdays {

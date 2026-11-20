@@ -14,8 +14,12 @@ struct Migration {
     breaking: bool,
 }
 
-const MIGRATIONS: &[Migration] =
-    &[Migration { version: 1, name: "initial", sql: include_str!("../../migrations/0001_initial.sql"), breaking: false }];
+const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    name: "initial",
+    sql: include_str!("../../migrations/0001_initial.sql"),
+    breaking: false,
+}];
 
 /// Arbitrary, fixed: the advisory lock that serialises migrations across processes.
 const MIGRATION_LOCK: i64 = 0x646f_776e_6265_6174; // "downbeat"
@@ -50,7 +54,9 @@ async fn apply(connection: &mut sqlx::PgConnection) -> anyhow::Result<()> {
         );
     }
 
-    for migration in MIGRATIONS.iter().filter(|migration| !applied.iter().any(|(version, _)| *version == migration.version)) {
+    for migration in
+        MIGRATIONS.iter().filter(|migration| !applied.iter().any(|(version, _)| *version == migration.version))
+    {
         let mut transaction = sqlx::Connection::begin(&mut *connection).await?;
         sqlx::raw_sql(migration.sql).execute(&mut *transaction).await?;
         sqlx::query("INSERT INTO downbeat.migration (version, name, breaking) VALUES ($1, $2, $3)")

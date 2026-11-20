@@ -46,17 +46,42 @@ pub(crate) enum ToChild {
 pub(crate) enum FromChild {
     /// The child has built the definition and is ready for runs.
     Ready,
-    Prepared { run_id: Uuid, result: Result<Prepared, String> },
-    Program { run_id: Uuid, result: Result<ProgramSpec, String> },
+    Prepared {
+        run_id: Uuid,
+        result: Result<Prepared, String>,
+    },
+    Program {
+        run_id: Uuid,
+        result: Result<ProgramSpec, String>,
+    },
     /// The function has been called.
-    Started { run_id: Uuid },
-    Progress { run_id: Uuid, text: String },
+    Started {
+        run_id: Uuid,
+    },
+    Progress {
+        run_id: Uuid,
+        text: String,
+    },
     /// A checkpoint; with a request number when the function waits for it to be stored.
-    Checkpoint { run_id: Uuid, state: Value, request: Option<u64> },
+    Checkpoint {
+        run_id: Uuid,
+        state: Value,
+        request: Option<u64>,
+    },
     /// `run.start(…)`, with the input already checked and hashed.
-    Start { run_id: Uuid, request: u64, start: ChildStart },
-    Ended { run_id: Uuid, ending: ChildEnding },
-    Checked { run_id: Uuid, result: Result<Value, String> },
+    Start {
+        run_id: Uuid,
+        request: u64,
+        start: ChildStart,
+    },
+    Ended {
+        run_id: Uuid,
+        ending: ChildEnding,
+    },
+    Checked {
+        run_id: Uuid,
+        result: Result<Value, String>,
+    },
 }
 
 /// What preparing a run found.
@@ -110,7 +135,9 @@ pub(crate) async fn write<W: AsyncWrite + Unpin, M: Serialize>(writer: &mut W, m
 }
 
 /// The next message, or `None` when the other side has closed the pipe.
-pub(crate) async fn read<R: AsyncRead + Unpin, M: for<'de> Deserialize<'de>>(reader: &mut R) -> std::io::Result<Option<M>> {
+pub(crate) async fn read<R: AsyncRead + Unpin, M: for<'de> Deserialize<'de>>(
+    reader: &mut R,
+) -> std::io::Result<Option<M>> {
     let mut length = [0_u8; 4];
     match reader.read_exact(&mut length).await {
         Ok(_) => {}

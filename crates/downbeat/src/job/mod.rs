@@ -20,11 +20,11 @@ use serde_json::Value;
 
 pub use data::{FieldShape, JobData, Shape, without_fields};
 pub(crate) use data::{identity_hash, unknown_fields};
-pub use outcome::{JobError, Outcome, Result, not_ready, skip};
 pub(crate) use outcome::Stop;
+pub use outcome::{JobError, Outcome, Result, not_ready, skip};
 pub use policy::{Backoff, Policy, RetryOn, RetryOnSet, Turn, presets};
-pub use program::{EXIT_NOT_READY, Program, ProgramSpec};
 pub(crate) use program::env_names;
+pub use program::{EXIT_NOT_READY, Program, ProgramSpec};
 pub use run::{MAX_VALUE_BYTES, Run, Start, Started};
 pub(crate) use run::{RunLink, StartRequest, decode};
 
@@ -54,6 +54,8 @@ pub struct JobSpec {
     pub(crate) dependencies: Vec<Dependency>,
     pub(crate) body: Body,
     pub(crate) input_ops: InputOps,
+    /// Decode and re-encode an output: for a person recording one by hand.
+    pub(crate) normalize_output: fn(Value, bool) -> std::result::Result<Value, String>,
 }
 
 impl std::fmt::Debug for JobSpec {
@@ -67,10 +69,7 @@ pub(crate) enum Body {
     /// A Rust function, called in a child process.
     Function(FunctionBody),
     /// A program the worker starts, described by the command's function.
-    Command {
-        program: ProgramFn,
-        output: fn(Value) -> std::result::Result<Value, String>,
-    },
+    Command { program: ProgramFn, output: fn(Value) -> std::result::Result<Value, String> },
 }
 
 /// A command's function with its types erased: from the input, the program to start.
@@ -107,21 +106,12 @@ impl JobSpec {
 
     /// A job done by a program. Used by `#[command]`.
     #[doc(hidden)]
-    pub fn command<J: Job>(
-        policy: Policy,
-        turn_value: Option<TurnValueFn>,
-        program: ProgramFn,
-    ) -> Self {
+    pub fn command<J: Job>(policy: Policy, turn_value: Option<TurnValueFn>, program: ProgramFn) -> Self {
         let output = |value: Value| normalize::<J::Output>(value, false);
         Self::new::<J>(policy, Vec::new(), turn_value, Body::Command { program, output })
     }
 
-    fn new<J: Job>(
-        policy: Policy,
-        dependencies: Vec<Dependency>,
-        turn_value: Option<TurnValueFn>,
-        body: Body,
-    ) -> Self {
+    fn new<J: Job>(policy: Policy, dependencies: Vec<Dependency>, turn_value: Option<TurnValueFn>, body: Body) -> Self {
         JobSpec {
             name: J::NAME,
             policy,
@@ -131,6 +121,7 @@ impl JobSpec {
             dependencies,
             body,
             input_ops: InputOps { normalize: normalize::<J::Input>, hash: hash::<J::Input>, turn_value },
+            normalize_output: normalize::<J::Output>,
         }
     }
 
@@ -140,6 +131,7 @@ impl JobSpec {
 }
 
 /// Decode a value into `T` and encode it again, so what is stored is what the type would write.
+#[allow(clippy::needless_pass_by_value)] // Its type is the `fn(Value, bool)` stored in `InputOps`.
 pub(crate) fn normalize<T: JobData>(value: Value, strict: bool) -> std::result::Result<Value, String> {
     let typed: T = decode(value.clone())?;
     let encoded = serde_json::to_value(&typed).map_err(|error| error.to_string())?;

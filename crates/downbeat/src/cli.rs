@@ -104,7 +104,8 @@ struct ApiArgs {
 fn parse_queues(text: &str) -> Result<Queues, String> {
     let mut queues = Vec::new();
     for part in text.split(',').filter(|part| !part.trim().is_empty()) {
-        let (name, slots) = part.split_once('=').ok_or_else(|| format!("'{part}' should be name=slots, such as default=4"))?;
+        let (name, slots) =
+            part.split_once('=').ok_or_else(|| format!("'{part}' should be name=slots, such as default=4"))?;
         let slots: u32 = slots.trim().parse().map_err(|_| format!("'{slots}' is not a number of slots"))?;
         if slots == 0 {
             return Err(format!("queue {name} needs at least one slot"));
@@ -148,7 +149,9 @@ fn init_logging() {
 async fn dispatch(command: Command, definition: fn() -> Definition) -> anyhow::Result<ExitCode> {
     match command {
         Command::Check { snapshot, verify_snapshot } => Ok(crate::check::run(definition(), snapshot, verify_snapshot)),
-        Command::RunOnce { job, input, environment } => crate::check::run_once(definition(), environment.as_deref(), &job, input.as_deref()).await,
+        Command::RunOnce { job, input, environment } => {
+            crate::check::run_once(definition(), environment.as_deref(), &job, input.as_deref()).await
+        }
         Command::Health { common } => health(&common, definition()).await,
         Command::Worker { worker, common } => serve(definition, &common, Some(worker.queues.0), None).await,
         Command::Scheduler { also, worker, api, common } => {
@@ -166,7 +169,12 @@ fn build_registry(definition: Definition, environment: Option<&str>) -> anyhow::
 }
 
 /// Starts the scheduler role, the worker role, or both, until SIGTERM or Ctrl-C.
-async fn serve(definition: fn() -> Definition, common: &Common, queues: Option<Vec<(String, u32)>>, api: Option<ApiArgs>) -> anyhow::Result<ExitCode> {
+async fn serve(
+    definition: fn() -> Definition,
+    common: &Common,
+    queues: Option<Vec<(String, u32)>>,
+    api: Option<ApiArgs>,
+) -> anyhow::Result<ExitCode> {
     let registry = build_registry(definition(), common.environment.as_deref())?;
     let slots: u32 = queues.iter().flatten().map(|(_, slots)| *slots).sum();
     let store = Store::connect(&common.database_url, 4 + slots * 2).await?;
@@ -199,7 +207,8 @@ async fn reaper(pool: sqlx::PgPool, registry: Arc<Registry>, stop: CancellationT
 
 /// SIGTERM or Ctrl-C: the worker stops claiming, and the scheduler stops once the worker is done.
 async fn wait_for_signal(shutdown: Shutdown, stop_scheduler: CancellationToken) {
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a SIGTERM handler");
+    let mut terminate =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a SIGTERM handler");
     tokio::select! {
         _ = terminate.recv() => {}
         _ = tokio::signal::ctrl_c() => {}
@@ -214,7 +223,8 @@ async fn health(common: &Common, definition: Definition) -> anyhow::Result<ExitC
     let registry = build_registry(definition, common.environment.as_deref())?;
     let options: sqlx::postgres::PgConnectOptions = common.database_url.parse()?;
     let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_with(options).await?;
-    let host = std::fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().to_owned()).unwrap_or_default();
+    let host =
+        std::fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().to_owned()).unwrap_or_default();
     let fresh: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM downbeat.worker WHERE worker_id LIKE $1 || '-%' AND last_seen_at > now() - $2)",
     )

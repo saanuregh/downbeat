@@ -15,7 +15,10 @@ async fn a_run_whose_worker_died_is_taken_back_and_continues_from_its_checkpoint
     let first = App::start(&database);
 
     let run = client.start(counts, Seconds { seconds: 6 }).await.unwrap();
-    let checkpointed = format!("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND checkpoint IS NOT NULL)", run.run_id());
+    let checkpointed = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND checkpoint IS NOT NULL)",
+        run.run_id()
+    );
     eventually(&database.pool, &checkpointed, Duration::from_secs(20)).await;
     first.kill();
 
@@ -34,7 +37,10 @@ async fn a_shutdown_releases_a_long_run_for_another_worker() {
     let first = App::start(&database);
 
     let run = client.start(counts, Seconds { seconds: 6 }).await.unwrap();
-    let checkpointed = format!("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND checkpoint IS NOT NULL)", run.run_id());
+    let checkpointed = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND checkpoint IS NOT NULL)",
+        run.run_id()
+    );
     eventually(&database.pool, &checkpointed, Duration::from_secs(20)).await;
     first.stop();
 

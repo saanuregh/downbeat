@@ -40,7 +40,12 @@ pub(crate) struct StartOptions {
 impl StartOptions {
     /// Rule 1 of "the same work is done once" does not apply to a deliberate run.
     fn deliberate(&self) -> bool {
-        self.even_if_queued || self.dry_run || self.without_children || self.ignore_conditions || self.not_before.is_some() || self.timeout.is_some()
+        self.even_if_queued
+            || self.dry_run
+            || self.without_children
+            || self.ignore_conditions
+            || self.not_before.is_some()
+            || self.timeout.is_some()
     }
 }
 
@@ -79,12 +84,14 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
     }
     let mut transaction = pool.begin().await?;
     if let Some((actor, key)) = &request.idempotency {
-        let earlier: Option<Uuid> = sqlx::query_scalar("SELECT run_id FROM downbeat.idempotency WHERE actor = $1 AND job_name = $2 AND key = $3")
-            .bind(actor)
-            .bind(&request.job)
-            .bind(key)
-            .fetch_optional(&mut *transaction)
-            .await?;
+        let earlier: Option<Uuid> = sqlx::query_scalar(
+            "SELECT run_id FROM downbeat.idempotency WHERE actor = $1 AND job_name = $2 AND key = $3",
+        )
+        .bind(actor)
+        .bind(&request.job)
+        .bind(key)
+        .fetch_optional(&mut *transaction)
+        .await?;
         if let Some(run_id) = earlier {
             return Ok(StartResult { started: Started::New(run_id), repeated: true });
         }
@@ -124,7 +131,16 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
     }
     if matches!(request.started_by, StartedBy::Person | StartedBy::Program) {
         let action = if matches!(created, Created::Joined { .. }) { "start_joined" } else { "start" };
-        crate::store::audit::record(&mut transaction, request.actor.as_deref().unwrap_or("unknown"), action, Some(&request.job), Some(created.run_id()), None, serde_json::json!({ "options": format!("{options:?}") })).await?;
+        crate::store::audit::record(
+            &mut transaction,
+            request.actor.as_deref().unwrap_or("unknown"),
+            action,
+            Some(&request.job),
+            Some(created.run_id()),
+            None,
+            serde_json::json!({ "options": format!("{options:?}") }),
+        )
+        .await?;
     }
     transaction.commit().await?;
     let started = match created {

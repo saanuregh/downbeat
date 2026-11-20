@@ -62,10 +62,16 @@ impl CompiledSchedule {
         };
         let instants: Vec<DateTime<Utc>> = match (&self.times, plan) {
             (_, DayPlan::Off(_)) => Vec::new(),
-            (Times::DailyAt(_), DayPlan::Times(times)) => times.iter().map(|time| self.instant(date, *time, TimeDelta::zero())).collect(),
+            (Times::DailyAt(_), DayPlan::Times(times)) => {
+                times.iter().map(|time| self.instant(date, *time, TimeDelta::zero())).collect()
+            }
             (Times::DailyAt(times), _) => times.iter().map(|time| self.instant(date, *time, shift)).collect(),
-            (Times::Every { interval, window: Some(_) }, DayPlan::Window(start, end)) => self.window(date, *interval, *start, *end, TimeDelta::zero()),
-            (Times::Every { interval, window: Some((start, end)) }, _) => self.window(date, *interval, *start, *end, shift),
+            (Times::Every { interval, window: Some(_) }, DayPlan::Window(start, end)) => {
+                self.window(date, *interval, *start, *end, TimeDelta::zero())
+            }
+            (Times::Every { interval, window: Some((start, end)) }, _) => {
+                self.window(date, *interval, *start, *end, shift)
+            }
             (Times::Every { interval, window: None }, _) => self.all_day(date, *interval),
         };
         let mut occurrences: Vec<Occurrence> = instants
@@ -86,7 +92,14 @@ impl CompiledSchedule {
         resolve(self.zone, date.and_time(time) + shift)
     }
 
-    fn window(&self, date: NaiveDate, interval: Duration, start: NaiveTime, end: NaiveTime, shift: TimeDelta) -> Vec<DateTime<Utc>> {
+    fn window(
+        &self,
+        date: NaiveDate,
+        interval: Duration,
+        start: NaiveTime,
+        end: NaiveTime,
+        shift: TimeDelta,
+    ) -> Vec<DateTime<Utc>> {
         let first = self.instant(date, start, shift);
         let end_date = if end < start { date.succ_opt().unwrap_or(date) } else { date };
         let last = self.instant(end_date, end, shift);

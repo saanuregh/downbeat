@@ -57,7 +57,14 @@ async fn overdue_jobs(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
         .await?;
         if !quiet {
             let mut connection = pool.acquire().await?;
-            audit::event(&mut connection, &Event::JobOverdue { job: (*name).to_owned(), last_success }, Some(name), None, None).await?;
+            audit::event(
+                &mut connection,
+                &Event::JobOverdue { job: (*name).to_owned(), last_success },
+                Some(name),
+                None,
+                None,
+            )
+            .await?;
         }
     }
     Ok(())

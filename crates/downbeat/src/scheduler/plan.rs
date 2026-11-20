@@ -27,15 +27,22 @@ pub(crate) struct OverrideRow {
     pub(crate) times: Vec<NaiveTime>,
     pub(crate) note: String,
     pub(crate) created_by: String,
-    pub(crate) created_at: DateTime<Utc>,
 }
 
 pub(crate) async fn overrides_for(pool: &PgPool, schedule: &str) -> sqlx::Result<Vec<OverrideRow>> {
-    sqlx::query_as("SELECT * FROM downbeat.schedule_override WHERE schedule = $1 ORDER BY on_date").bind(schedule).fetch_all(pool).await
+    sqlx::query_as("SELECT * FROM downbeat.schedule_override WHERE schedule = $1 ORDER BY on_date")
+        .bind(schedule)
+        .fetch_all(pool)
+        .await
 }
 
 /// The plan for one date.
-pub(crate) async fn plan_for(registry: &Registry, schedule: &CompiledSchedule, overrides: &[OverrideRow], date: NaiveDate) -> Result<(DayPlan, PlanSource), String> {
+pub(crate) async fn plan_for(
+    registry: &Registry,
+    schedule: &CompiledSchedule,
+    overrides: &[OverrideRow],
+    date: NaiveDate,
+) -> Result<(DayPlan, PlanSource), String> {
     if let Some(row) = overrides.iter().find(|row| row.on_date == date && row.schedule == schedule.name) {
         let plan = match row.change.as_str() {
             "off" => DayPlan::Off(row.note.clone()),
@@ -75,7 +82,12 @@ pub(crate) async fn occurrences_between(
 }
 
 /// The first occurrence after `after`, looking ahead at most a year and a few days.
-pub(crate) async fn next_after(registry: &Registry, schedule: &CompiledSchedule, overrides: &[OverrideRow], after: DateTime<Utc>) -> Result<Option<DateTime<Utc>>, String> {
+pub(crate) async fn next_after(
+    registry: &Registry,
+    schedule: &CompiledSchedule,
+    overrides: &[OverrideRow],
+    after: DateTime<Utc>,
+) -> Result<Option<DateTime<Utc>>, String> {
     let first = after.with_timezone(&schedule.zone).date_naive().pred_opt().unwrap_or(NaiveDate::MIN);
     for date in first.iter_days().take(370) {
         let (plan, _) = plan_for(registry, schedule, overrides, date).await?;

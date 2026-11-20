@@ -70,16 +70,34 @@ async fn if_changed_skips_a_child_whose_input_did_not_change() {
     let input = Text { text: "same".into() };
     let first = client.start(echo, input.clone()).await.unwrap();
     let first = finished(&database.pool, first.run_id(), SOON).await;
-    support::eventually(&database.pool, &format!("SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'after_change' AND chain_id = '{}')", first.chain_id), SOON).await;
+    support::eventually(
+        &database.pool,
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'after_change' AND chain_id = '{}')",
+            first.chain_id
+        ),
+        SOON,
+    )
+    .await;
 
     let second = client.start(echo, input).await.unwrap();
     let second = finished(&database.pool, second.run_id(), SOON).await;
-    support::eventually(&database.pool, &format!("SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'after_change' AND chain_id = '{}')", second.chain_id), SOON).await;
-    let (because,): (Option<String>,) = sqlx::query_as("SELECT skipped_because FROM downbeat.run_history WHERE job_name = 'after_change' AND chain_id = $1")
-        .bind(second.chain_id)
-        .fetch_one(&database.pool)
-        .await
-        .unwrap();
+    support::eventually(
+        &database.pool,
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'after_change' AND chain_id = '{}')",
+            second.chain_id
+        ),
+        SOON,
+    )
+    .await;
+    let (because,): (Option<String>,) = sqlx::query_as(
+        "SELECT skipped_because FROM downbeat.run_history WHERE job_name = 'after_change' AND chain_id = $1",
+    )
+    .bind(second.chain_id)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
     assert_eq!(because.as_deref(), Some("input_unchanged"));
 }
 
@@ -177,7 +195,15 @@ async fn a_run_that_is_not_ready_waits_without_spending_an_attempt() {
     let path = std::env::temp_dir().join(format!("ready-{}", uuid::Uuid::new_v4()));
 
     let run = client.start(waits_for_file, Text { text: path.display().to_string() }).await.unwrap();
-    support::eventually(&database.pool, &format!("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND queued_because = 'not_ready')", run.run_id()), SOON).await;
+    support::eventually(
+        &database.pool,
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND queued_because = 'not_ready')",
+            run.run_id()
+        ),
+        SOON,
+    )
+    .await;
     std::fs::write(&path, "here").unwrap();
     let done = finished(&database.pool, run.run_id(), SOON).await;
     assert_eq!(done.status, "succeeded");
@@ -198,7 +224,15 @@ async fn a_command_runs_its_program_and_reads_its_output() {
     assert_eq!(done.output.unwrap()["text"], "from the program");
 
     let waiting = client.start(exits, ExitPlan { code: 75, output: String::new() }).await.unwrap();
-    support::eventually(&database.pool, &format!("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND queued_because = 'not_ready')", waiting.run_id()), SOON).await;
+    support::eventually(
+        &database.pool,
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND queued_because = 'not_ready')",
+            waiting.run_id()
+        ),
+        SOON,
+    )
+    .await;
 
     let broken = client.start(exits, ExitPlan { code: 3, output: String::new() }).await.unwrap();
     let failed = finished(&database.pool, broken.run_id(), SOON).await;

@@ -33,7 +33,8 @@ async fn an_idempotency_key_returns_the_first_run() {
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
 
     let first = client.start(echo, Text { text: "a".into() }).idempotency_key("order-1").await.unwrap();
-    let again = client.start(echo, Text { text: "a".into() }).idempotency_key("order-1").even_if_queued().await.unwrap();
+    let again =
+        client.start(echo, Text { text: "a".into() }).idempotency_key("order-1").even_if_queued().await.unwrap();
     assert_eq!(first.run_id(), again.run_id());
 }
 

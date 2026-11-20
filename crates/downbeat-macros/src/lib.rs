@@ -17,7 +17,9 @@ use proc_macro::TokenStream;
 /// ```
 #[proc_macro_attribute]
 pub fn job(attribute: TokenStream, item: TokenStream) -> TokenStream {
-    job::expand(attribute.into(), item.into(), job::Kind::Function).unwrap_or_else(syn::Error::into_compile_error).into()
+    job::expand(attribute.into(), item.into(), job::Kind::Function)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
 /// Turns a function that returns a [`Program`] into a job done by that program.

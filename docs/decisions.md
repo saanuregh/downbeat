@@ -82,3 +82,35 @@ Every role migrates at start. A product that prefers a separate migration step, 
 ## 14. Fixed command words go in `.args([…])`, including options
 
 Restating decision 4 for authors: `Program::new("tool").args(["eod", "--date"]).arg(input.date)`.
+
+## 15. Request tokens are produced with `ed25519-dalek`, not `jsonwebtoken`
+
+The token is still a standard compact JWS/JWT (RFC 7515, RFC 7519) following RFC 8725. The
+`jsonwebtoken` crate's only Ed25519 backend also pulls in the `rsa` crate, which carries an
+unfixed timing advisory (RUSTSEC-2023-0071). Signing and checking one fixed format is about a
+hundred lines over `ed25519-dalek`, all in `downbeat-api`, shared by the scheduler, the client and
+the console. The header names the algorithm `Ed25519` (RFC 9864); `EdDSA` is accepted too.
+
+## 16. `htu` holds the request's path and query
+
+DPoP's `htu` is an absolute URI. A scheduler usually sits behind a proxy or load balancer that
+changes the host, and `aud` already pins the token to one scheduler, so the token binds the path
+and query only.
+
+## 17. The callers file is TOML
+
+`--callers callers.toml` lists `audience` and one `[[caller]]` table per trusted caller: `name`,
+`keys` (base64url Ed25519 public keys), `max_scope` and optional `jobs`. Unknown fields are
+rejected so a typo cannot silently widen or narrow a grant.
+
+## 18. The Rust client starts jobs by name
+
+`downbeat-client` does not depend on the engine, so it cannot name a job by its handle. It starts
+a job by name with any `Serialize` input; the scheduler checks the input against the job's type and
+answers 422 when it does not fit. Typed starts through a shared crate of job handles are left for
+when a product asks for them.
+
+## 19. Rate limit per actor
+
+The listener allows each actor 20 requests a second on average with bursts of 100, in memory per
+scheduler. It protects against a runaway caller, not a determined one; that is the network's job.

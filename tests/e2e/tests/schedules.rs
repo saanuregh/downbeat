@@ -32,6 +32,9 @@ async fn a_schedule_limited_to_another_environment_does_not_fire() {
     let database = Database::fresh().await;
     let _app = App::start(&database);
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.run_history WHERE job_name = 'ticker'").fetch_one(&database.pool).await.unwrap();
+    let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.run_history WHERE job_name = 'ticker'")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
     assert_eq!(runs, 0);
 }

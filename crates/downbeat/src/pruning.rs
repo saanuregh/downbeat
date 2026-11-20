@@ -19,10 +19,18 @@ pub(crate) async fn prune(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
             prune_beyond_count(pool, name, i64::from(count)).await?;
         }
     }
-    sqlx::query("DELETE FROM downbeat.run_history WHERE joined_run IS NOT NULL AND finished_at < now() - interval '2 days'").execute(pool).await?;
+    sqlx::query(
+        "DELETE FROM downbeat.run_history WHERE joined_run IS NOT NULL AND finished_at < now() - interval '2 days'",
+    )
+    .execute(pool)
+    .await?;
     sqlx::query("DELETE FROM downbeat.idempotency WHERE created_at < now() - interval '7 days'").execute(pool).await?;
-    sqlx::query("DELETE FROM downbeat.schedule_override WHERE on_date < (now() - interval '30 days')::date").execute(pool).await?;
-    sqlx::query("DELETE FROM downbeat.audit WHERE at < now() - interval '1 year' AND notify_after IS NULL").execute(pool).await?;
+    sqlx::query("DELETE FROM downbeat.schedule_override WHERE on_date < (now() - interval '30 days')::date")
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM downbeat.audit WHERE at < now() - interval '1 year' AND notify_after IS NULL")
+        .execute(pool)
+        .await?;
     sqlx::query("DELETE FROM downbeat.pause WHERE until < now()").execute(pool).await?;
     sqlx::query("DELETE FROM downbeat.worker WHERE last_seen_at < now() - interval '1 day'").execute(pool).await?;
     Ok(())

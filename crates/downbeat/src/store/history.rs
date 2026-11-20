@@ -11,7 +11,11 @@ use super::interval;
 
 /// The job's latest success: its input hash and when it finished. With a turn key, only runs that
 /// held that turn count (for `one_per`, "the same value").
-pub(crate) async fn last_success(pool: &PgPool, job: &str, turn_key: Option<&str>) -> sqlx::Result<Option<(Option<String>, DateTime<Utc>)>> {
+pub(crate) async fn last_success(
+    pool: &PgPool,
+    job: &str,
+    turn_key: Option<&str>,
+) -> sqlx::Result<Option<(Option<String>, DateTime<Utc>)>> {
     sqlx::query_as(
         "SELECT input_hash, finished_at FROM downbeat.run_history
           WHERE job_name = $1 AND status = 'succeeded' AND ($2::text IS NULL OR turn_key = $2)
@@ -48,7 +52,8 @@ pub(crate) async fn succeeded_within(pool: &PgPool, job: &str, within: Duration)
 
 /// Finished runs by id, in the order asked for.
 pub(crate) async fn by_ids(pool: &PgPool, ids: &[Uuid]) -> sqlx::Result<Vec<HistoryRow>> {
-    let rows: Vec<HistoryRow> = sqlx::query_as("SELECT * FROM downbeat.run_history WHERE run_id = ANY($1)").bind(ids).fetch_all(pool).await?;
+    let rows: Vec<HistoryRow> =
+        sqlx::query_as("SELECT * FROM downbeat.run_history WHERE run_id = ANY($1)").bind(ids).fetch_all(pool).await?;
     Ok(ids.iter().filter_map(|id| rows.iter().find(|row| row.run_id == *id).cloned()).collect())
 }
 

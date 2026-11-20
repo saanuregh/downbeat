@@ -12,8 +12,8 @@ use serde_json::Value;
 use crate::job::{Job, JobSpec, decode};
 use crate::schedule::{Schedule, ScheduleSpec};
 
-pub use link::{Ended, Failure, LinkKind, MapExt, Mapped, Parents};
 pub(crate) use link::LinkSpec;
+pub use link::{Ended, Failure, LinkKind, MapExt, Mapped, Parents};
 pub use need::{DoneFor, DoneWithin, Need, WhenUnmet};
 pub(crate) use need::{NeedSpec, NeedTest};
 
@@ -134,7 +134,12 @@ impl<'a, J: Job> JobBuilder<'a, J, NoParents> {
     where
         J: Job<Input = Failure>,
     {
-        self.link(LinkSpec { kind: LinkKind::AfterFailure, parents: vec![Parent::NAME], adapt: first_value(), mapped: false })
+        self.link(LinkSpec {
+            kind: LinkKind::AfterFailure,
+            parents: vec![Parent::NAME],
+            adapt: first_value(),
+            mapped: false,
+        })
     }
 
     /// Start the job when its parent has ended in any way.
@@ -142,7 +147,12 @@ impl<'a, J: Job> JobBuilder<'a, J, NoParents> {
     where
         J: Job<Input = Ended<Parent::Output>>,
     {
-        self.link(LinkSpec { kind: LinkKind::AfterAny, parents: vec![Parent::NAME], adapt: first_value(), mapped: false })
+        self.link(LinkSpec {
+            kind: LinkKind::AfterAny,
+            parents: vec![Parent::NAME],
+            adapt: first_value(),
+            mapped: false,
+        })
     }
 
     fn link(self, link: LinkSpec) -> JobBuilder<'a, J, HasParents> {

@@ -41,15 +41,22 @@ pub(crate) fn run(definition: Definition, snapshot: Option<PathBuf>, verify: Opt
 }
 
 /// Calls one job's function here, in the foreground.
-pub(crate) async fn run_once(definition: Definition, environment: Option<&str>, job: &str, input: Option<&str>) -> anyhow::Result<ExitCode> {
-    let registry = Registry::build(definition, environment).map_err(|problems| anyhow::anyhow!("the definition has problems: {problems:?}"))?;
+pub(crate) async fn run_once(
+    definition: Definition,
+    environment: Option<&str>,
+    job: &str,
+    input: Option<&str>,
+) -> anyhow::Result<ExitCode> {
+    let registry = Registry::build(definition, environment)
+        .map_err(|problems| anyhow::anyhow!("the definition has problems: {problems:?}"))?;
     let registry = Arc::new(registry);
     let found = registry.job(job).ok_or_else(|| anyhow::anyhow!("there is no job named {job}"))?;
     let input: Value = match input {
         Some(text) => serde_json::from_str(text)?,
         None => Value::Null,
     };
-    let input = (found.spec.input_ops.normalize)(input, true).map_err(|error| anyhow::anyhow!("the input does not fit {job}: {error}"))?;
+    let input = (found.spec.input_ops.normalize)(input, true)
+        .map_err(|error| anyhow::anyhow!("the input does not fit {job}: {error}"))?;
     match &found.spec.body {
         Body::Function(body) => {
             let outcome: Outcome<Value> = body(Run::for_test(), input, Arc::clone(&registry.dependencies)).await.into();

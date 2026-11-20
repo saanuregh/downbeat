@@ -40,6 +40,7 @@ impl InAppClient {
 
     /// Start a job. Await the result, optionally after `.priority(…)`, `.even_if_queued()`,
     /// `.actor(…)` or `.idempotency_key(…)`.
+    #[allow(clippy::needless_pass_by_value)] // By value, as `run.start` takes it.
     pub fn start<J: Job>(&self, _job: J, input: J::Input) -> InAppStart<'_> {
         InAppStart {
             client: self,
@@ -100,7 +101,11 @@ impl<'a> IntoFuture for InAppStart<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let job = self.client.registry.job(self.job).ok_or_else(|| anyhow::anyhow!("there is no job named {}", self.job))?;
+            let job = self
+                .client
+                .registry
+                .job(self.job)
+                .ok_or_else(|| anyhow::anyhow!("there is no job named {}", self.job))?;
             let ops = &job.spec.input_ops;
             let input = (ops.normalize)(self.input.map_err(anyhow::Error::msg)?, true).map_err(anyhow::Error::msg)?;
             let input_hash = (ops.hash)(&input).map_err(anyhow::Error::msg)?;

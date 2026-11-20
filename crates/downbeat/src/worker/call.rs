@@ -31,15 +31,24 @@ pub(crate) enum CallOutcome {
     /// The function (or program) ended by itself.
     Ended(ChildEnding),
     /// The process died without the worker killing it.
-    Crashed { code: Option<i32>, signal: Option<i32> },
+    Crashed {
+        code: Option<i32>,
+        signal: Option<i32>,
+    },
     TimedOut,
-    OutOfMemory { limit_mib: u64 },
+    OutOfMemory {
+        limit_mib: u64,
+    },
     /// The lease said stop.
     Stopped(StopReason),
     /// The worker is shutting down.
     Interrupted,
     /// A command's program exited with a failure status.
-    ProgramFailed { code: Option<i32>, signal: Option<i32>, stderr_tail: String },
+    ProgramFailed {
+        code: Option<i32>,
+        signal: Option<i32>,
+        stderr_tail: String,
+    },
 }
 
 impl CallOutcome {
@@ -70,7 +79,10 @@ impl Limits {
             Some(Timeout::After(timeout)) => Some(timeout),
             None => Some(job.spec.policy.timeout),
         };
-        Limits { deadline: timeout.map(|timeout| Instant::now() + timeout), max_memory: job.spec.policy.max_memory.map(|bytes| bytes.0) }
+        Limits {
+            deadline: timeout.map(|timeout| Instant::now() + timeout),
+            max_memory: job.spec.policy.max_memory.map(|bytes| bytes.0),
+        }
     }
 
     fn over_memory(&self, process: &Process) -> Option<u64> {
@@ -88,7 +100,14 @@ async fn deadline(at: Option<Instant>) {
 }
 
 /// Calls a job function in its child.
-pub(crate) async fn function(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, job: &RegisteredJob, input: Value, lease: &mut Lease) -> CallOutcome {
+pub(crate) async fn function(
+    context: &WorkerContext,
+    child: &mut ChildHandle,
+    run: &RunRow,
+    job: &RegisteredJob,
+    input: Value,
+    lease: &mut Lease,
+) -> CallOutcome {
     let limits = Limits::of(run, job);
     let go = ToChild::Go { run: run_info(run), input, checkpoint: run.checkpoint.clone() };
     if child.send(&go).await.is_err() {
@@ -167,7 +186,14 @@ async fn crashed(child: &mut ChildHandle) -> CallOutcome {
 }
 
 /// Runs a command: its function (in the child) names the program; the worker starts it.
-pub(crate) async fn command(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, job: &RegisteredJob, input: Value, lease: &mut Lease) -> CallOutcome {
+pub(crate) async fn command(
+    context: &WorkerContext,
+    child: &mut ChildHandle,
+    run: &RunRow,
+    job: &RegisteredJob,
+    input: Value,
+    lease: &mut Lease,
+) -> CallOutcome {
     let limits = Limits::of(run, job);
     if child.send(&ToChild::Go { run: run_info(run), input: input.clone(), checkpoint: None }).await.is_err() {
         return crashed(child).await;
@@ -221,7 +247,11 @@ async fn run_program(
     let mut process = match context.spawner.spawn(Launch { command, socket: None }).await {
         Ok(process) => process,
         Err(error) => {
-            return CallOutcome::ProgramFailed { code: None, signal: None, stderr_tail: format!("the program could not be started: {error}") };
+            return CallOutcome::ProgramFailed {
+                code: None,
+                signal: None,
+                stderr_tail: format!("the program could not be started: {error}"),
+            };
         }
     };
     if let Some(mut stdin) = process.child_pipes.stdin.take() {
@@ -278,7 +308,9 @@ async fn read_output(child: &mut ChildHandle, run: &RunRow, output_file: &PathBu
     } else {
         match serde_json::from_str(&text) {
             Ok(value) => value,
-            Err(error) => return CallOutcome::Ended(ChildEnding::BadInput(format!("the program's output is not JSON: {error}"))),
+            Err(error) => {
+                return CallOutcome::Ended(ChildEnding::BadInput(format!("the program's output is not JSON: {error}")));
+            }
         }
     };
     if let Some(reason) = written.get("skip").and_then(Value::as_str) {
@@ -293,7 +325,9 @@ async fn read_output(child: &mut ChildHandle, run: &RunRow, output_file: &PathBu
             Some(FromChild::Checked { run_id, result }) if run_id == run.run_id => {
                 return CallOutcome::Ended(match result {
                     Ok(output) => ChildEnding::Output(output),
-                    Err(error) => ChildEnding::BadInput(format!("the program's output does not fit the command's output type: {error}")),
+                    Err(error) => ChildEnding::BadInput(format!(
+                        "the program's output does not fit the command's output type: {error}"
+                    )),
                 });
             }
             Some(_) => {}

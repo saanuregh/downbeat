@@ -17,6 +17,7 @@ use super::{Job, JobData, JobError, Result};
 ///
 /// Cheap to clone. A function receives it as its first argument.
 #[derive(Clone)]
+#[allow(clippy::struct_field_names)] // `dry_run` is the term the API uses.
 pub struct Run {
     pub(crate) id: Uuid,
     pub(crate) attempt: u32,
@@ -121,6 +122,7 @@ impl Run {
 
     /// Start another job. Calling it again on a later attempt of this run does not start a second
     /// run: the engine keys the request on this run and the position of the call.
+    #[allow(clippy::needless_pass_by_value)] // The input is the request's: passing it is handing it over.
     pub fn start<J: Job>(&self, job: J, input: J::Input) -> Start<'_> {
         let _ = job;
         Start {
@@ -231,7 +233,8 @@ impl<'a> IntoFuture for Start<'a> {
 }
 
 pub(crate) fn encode_small<T: Serialize + ?Sized>(value: &T, what: &str) -> Result<Value> {
-    let value = serde_json::to_value(value).map_err(|error| JobError::msg(format!("the {what} could not be encoded: {error}")))?;
+    let value = serde_json::to_value(value)
+        .map_err(|error| JobError::msg(format!("the {what} could not be encoded: {error}")))?;
     let size = value.to_string().len();
     if size > MAX_VALUE_BYTES {
         return Err(JobError::msg(format!("the {what} is {size} bytes; the limit is {MAX_VALUE_BYTES}")));

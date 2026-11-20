@@ -24,7 +24,7 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
     let id = format!("scheduler-{}", crate::worker::worker_id());
     tracing::info!(schedules = registry.schedules.len(), environment = ?registry.environment, "scheduler started");
 
-    let poll = registry.settings.poll;
+    let tick = registry.settings.poll;
     let mut tasks = tokio::task::JoinSet::new();
     tasks.spawn(every(REGISTER_EVERY, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
@@ -33,21 +33,21 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
             async move { fire::register(&pool, &registry).await.map_err(anyhow::Error::from) }
         }
     }));
-    tasks.spawn(every(poll, stop.clone(), {
+    tasks.spawn(every(tick, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
             async move { fire::fire_due(&pool, &registry).await.map_err(anyhow::Error::from) }
         }
     }));
-    tasks.spawn(every(poll, stop.clone(), {
+    tasks.spawn(every(tick, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
             async move { callbacks::deliver(&pool, &registry).await.map_err(anyhow::Error::from) }
         }
     }));
-    tasks.spawn(every(poll * 2, stop.clone(), {
+    tasks.spawn(every(tick * 2, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));

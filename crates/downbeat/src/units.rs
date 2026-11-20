@@ -49,7 +49,7 @@ impl BytesExt for u64 {
 }
 
 /// Short human form used in snapshots and reasons: `90s`, `30m`, `2h`, `1d`, `1h30m`.
-pub fn format_duration(duration: Duration) -> String {
+pub(crate) fn format_duration(duration: Duration) -> String {
     let mut seconds = duration.as_secs();
     if seconds == 0 {
         return "0s".to_owned();

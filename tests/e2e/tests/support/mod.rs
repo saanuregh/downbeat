@@ -77,6 +77,30 @@ impl Drop for App {
     }
 }
 
+/// The test product with the control API on a free local port, and a client for it.
+pub async fn with_api(database: &Database) -> (App, downbeat_client::Client) {
+    let (app, client, _) = with_api_at(database).await;
+    (app, client)
+}
+
+/// The same, with the API's address.
+pub async fn with_api_at(database: &Database) -> (App, downbeat_client::Client, String) {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let listen = format!("127.0.0.1:{port}");
+    let app =
+        App::with(database, &["scheduler", "worker", "--queues", "default=2", "--local", "--listen", &listen], "test");
+    let deadline = tokio::time::Instant::now() + SOON;
+    loop {
+        match downbeat_client::Client::builder(&format!("http://{listen}")).local().connect().await {
+            Ok(client) => return (app, client, listen),
+            Err(error) => {
+                assert!(tokio::time::Instant::now() < deadline, "the API did not come up: {error}");
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+}
+
 /// A finished run, as the tests look at it.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Finished {
@@ -100,14 +124,19 @@ pub struct Finished {
 pub async fn finished(pool: &PgPool, run_id: Uuid, within: Duration) -> Finished {
     let deadline = tokio::time::Instant::now() + within;
     loop {
-        let row: Option<Finished> =
-            sqlx::query_as("SELECT * FROM downbeat.run_history WHERE run_id = $1").bind(run_id).fetch_optional(pool).await.unwrap();
+        let row: Option<Finished> = sqlx::query_as("SELECT * FROM downbeat.run_history WHERE run_id = $1")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
         if let Some(row) = row {
             return row;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("run {run_id} did not finish within {within:?}: {:?}", unfinished(pool, run_id).await);
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "run {run_id} did not finish within {within:?}: {:?}",
+            unfinished(pool, run_id).await
+        );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }

@@ -41,10 +41,7 @@ impl ProgramSpec {
         if self.options_allowed {
             return None;
         }
-        self.from_values
-            .iter()
-            .map(|index| self.args[*index].as_str())
-            .find(|arg| arg.starts_with('-'))
+        self.from_values.iter().map(|index| self.args[*index].as_str()).find(|arg| arg.starts_with('-'))
     }
 }
 

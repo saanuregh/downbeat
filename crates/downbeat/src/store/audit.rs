@@ -29,7 +29,13 @@ pub(crate) async fn record(
 }
 
 /// Records an event of the engine's own, to be delivered to `on_event`.
-pub(crate) async fn event(connection: &mut PgConnection, event: &Event, job: Option<&str>, run_id: Option<Uuid>, schedule: Option<&str>) -> sqlx::Result<()> {
+pub(crate) async fn event(
+    connection: &mut PgConnection,
+    event: &Event,
+    job: Option<&str>,
+    run_id: Option<Uuid>,
+    schedule: Option<&str>,
+) -> sqlx::Result<()> {
     let detail = serde_json::to_value(event).unwrap_or(Value::Null);
     sqlx::query(
         "INSERT INTO downbeat.audit (actor, action, job_name, run_id, schedule, detail, notify_after)

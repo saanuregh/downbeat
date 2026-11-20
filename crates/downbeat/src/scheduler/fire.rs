@@ -99,7 +99,8 @@ async fn fire(
     if !paused {
         let missed = plan::occurrences_between(registry, schedule, &overrides, watermark, now).await?;
         if let Some((latest, earlier)) = missed.split_last() {
-            let expired = plan::expiry_of(schedule).is_some_and(|expiry| latest.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX) < now);
+            let expired = plan::expiry_of(schedule)
+                .is_some_and(|expiry| latest.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX) < now);
             let mut dropped: Vec<&Occurrence> = earlier.iter().filter(|o| now - o.at > REPORT_DROPPED_AFTER).collect();
             if expired {
                 dropped.push(latest);
@@ -107,24 +108,38 @@ async fn fire(
                 create_run(connection, registry, schedule, latest).await?;
             }
             if let (Some(first), Some(last)) = (dropped.first(), dropped.last()) {
-                let event = Event::OccurrencesDropped { schedule: schedule.name.clone(), count: i64::try_from(dropped.len()).unwrap_or(i64::MAX), first: first.at, last: last.at };
-                audit::event(connection, &event, Some(schedule.job), None, Some(&schedule.name)).await.map_err(|error| error.to_string())?;
+                let event = Event::OccurrencesDropped {
+                    schedule: schedule.name.clone(),
+                    count: i64::try_from(dropped.len()).unwrap_or(i64::MAX),
+                    first: first.at,
+                    last: last.at,
+                };
+                audit::event(connection, &event, Some(schedule.job), None, Some(&schedule.name))
+                    .await
+                    .map_err(|error| error.to_string())?;
             }
         }
     }
     let next = plan::next_after(registry, schedule, &overrides, now).await?;
-    sqlx::query("UPDATE downbeat.schedule_state SET watermark = GREATEST(watermark, $2), next_due_at = $3 WHERE schedule = $1")
-        .bind(&schedule.name)
-        .bind(now)
-        .bind(next)
-        .execute(&mut *connection)
-        .await
-        .map_err(|error| error.to_string())?;
+    sqlx::query(
+        "UPDATE downbeat.schedule_state SET watermark = GREATEST(watermark, $2), next_due_at = $3 WHERE schedule = $1",
+    )
+    .bind(&schedule.name)
+    .bind(now)
+    .bind(next)
+    .execute(&mut *connection)
+    .await
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 
 /// Creates the run for an occurrence, applying rule 1: a request for work already queued joins it.
-pub(crate) async fn create_run(connection: &mut PgConnection, registry: &Registry, schedule: &CompiledSchedule, occurrence: &Occurrence) -> Result<Created, String> {
+pub(crate) async fn create_run(
+    connection: &mut PgConnection,
+    registry: &Registry,
+    schedule: &CompiledSchedule,
+    occurrence: &Occurrence,
+) -> Result<Created, String> {
     let job = registry.job(schedule.job).ok_or_else(|| format!("there is no job named {}", schedule.job))?;
     let input = match &schedule.input {
         Some(input) => input(occurrence)?,
@@ -135,7 +150,8 @@ pub(crate) async fn create_run(connection: &mut PgConnection, registry: &Registr
     let input_hash = (ops.hash)(&input)?;
     let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose()?;
     let policy = &job.spec.policy;
-    let expires_at = plan::expiry_of(schedule).map(|expiry| occurrence.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
+    let expires_at =
+        plan::expiry_of(schedule).map(|expiry| occurrence.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
     let run = NewRun {
         job: schedule.job.to_owned(),
         queue: policy.queue.to_owned(),
@@ -166,7 +182,12 @@ pub(crate) async fn create_run(connection: &mut PgConnection, registry: &Registr
 
 /// A scheduled request that joined a queued run leaves a `skipped (joined)` row, so the calendar
 /// can show where the occurrence went.
-async fn record_joined(connection: &mut PgConnection, run: &NewRun, joined: uuid::Uuid, chain_id: uuid::Uuid) -> sqlx::Result<()> {
+async fn record_joined(
+    connection: &mut PgConnection,
+    run: &NewRun,
+    joined: uuid::Uuid,
+    chain_id: uuid::Uuid,
+) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO downbeat.run_history (run_id, job_name, queue, priority, due_at, started_by, schedule, chain_id, input,
                                            input_hash, created_at, status, skipped_because, reason, joined_run)

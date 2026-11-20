@@ -74,7 +74,7 @@ async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Resu
             ToChild::Go { run, input, checkpoint } => {
                 let cancelled = CancellationToken::new();
                 current = Some((run.run_id, cancelled.clone()));
-                go(&registry, run, input, checkpoint, cancelled, &outgoing, &pending);
+                go(&registry, &run, input, checkpoint, cancelled, &outgoing, &pending);
             }
             ToChild::CheckOutput { run_id, job, output } => {
                 let result = check_output(&registry, &job, output);
@@ -106,10 +106,17 @@ async fn write_messages(mut writer: OwnedWriteHalf, mut receiver: mpsc::Unbounde
 }
 
 /// Builds the run's input, and evaluates its conditions and needs, where the types are known.
-fn prepare(registry: &Registry, run: &RunInfo, input: Option<Value>, parents: Option<Vec<Value>>) -> Result<Prepared, String> {
+fn prepare(
+    registry: &Registry,
+    run: &RunInfo,
+    input: Option<Value>,
+    parents: Option<Vec<Value>>,
+) -> Result<Prepared, String> {
     let job = registry.job(&run.job).ok_or_else(|| format!("this build has no job named {}", run.job))?;
     let input = match (parents, &job.link) {
-        (Some(handed_over), Some(link)) => (link.adapt)(handed_over).map_err(|error| format!("the link's data does not fit: {error}"))?,
+        (Some(handed_over), Some(link)) => {
+            (link.adapt)(handed_over).map_err(|error| format!("the link's data does not fit: {error}"))?
+        }
         _ => input.unwrap_or(Value::Null),
     };
     let input = (job.spec.input_ops.normalize)(input, false)?;
@@ -142,7 +149,7 @@ fn check_output(registry: &Registry, job: &str, output: Value) -> Result<Value, 
 
 fn go(
     registry: &Arc<Registry>,
-    info: RunInfo,
+    info: &RunInfo,
     input: Value,
     checkpoint: Option<Value>,
     cancelled: CancellationToken,
@@ -151,7 +158,10 @@ fn go(
 ) {
     let run_id = info.run_id;
     let Some(job) = registry.job(&info.job) else {
-        let _ = outgoing.send(FromChild::Ended { run_id, ending: ChildEnding::BadInput(format!("this build has no job named {}", info.job)) });
+        let _ = outgoing.send(FromChild::Ended {
+            run_id,
+            ending: ChildEnding::BadInput(format!("this build has no job named {}", info.job)),
+        });
         return;
     };
     match &job.spec.body {
@@ -165,7 +175,14 @@ fn go(
             let _ = outgoing.send(FromChild::Program { run_id, result });
         }
         Body::Function(body) => {
-            let link = Arc::new(ChildLink { run_id, outgoing: outgoing.clone(), pending: Arc::clone(pending), registry: Arc::clone(registry), next: AtomicU64::new(0), starts: AtomicU64::new(0) });
+            let link = Arc::new(ChildLink {
+                run_id,
+                outgoing: outgoing.clone(),
+                pending: Arc::clone(pending),
+                registry: Arc::clone(registry),
+                next: AtomicU64::new(0),
+                starts: AtomicU64::new(0),
+            });
             let run = Run {
                 id: run_id,
                 attempt: info.attempt,
@@ -267,7 +284,15 @@ impl RunLink for ChildLink {
             let input_hash = (ops.hash)(&input).map_err(JobError::msg)?;
             let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose().map_err(JobError::msg)?;
             let position = self.starts.fetch_add(1, Ordering::SeqCst);
-            let start = ChildStart { job: request.job, input, input_hash, turn_value, priority: request.priority, even_if_queued: request.even_if_queued, position };
+            let start = ChildStart {
+                job: request.job,
+                input,
+                input_hash,
+                turn_value,
+                priority: request.priority,
+                even_if_queued: request.even_if_queued,
+                position,
+            };
             let answer = self.ask(|request| FromChild::Start { run_id: self.run_id, request, start });
             match answer.await {
                 Ok(Ok(Some(started))) => Ok(started),

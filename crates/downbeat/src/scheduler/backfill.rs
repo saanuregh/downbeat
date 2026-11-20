@@ -29,9 +29,10 @@ pub(crate) struct BackfillRow {
 /// Moves every running backfill one step, when its current date has finished.
 pub(crate) async fn drive(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     let mut transaction = pool.begin().await?;
-    let backfills: Vec<BackfillRow> = sqlx::query_as("SELECT * FROM downbeat.backfill WHERE state = 'running' FOR UPDATE SKIP LOCKED")
-        .fetch_all(&mut *transaction)
-        .await?;
+    let backfills: Vec<BackfillRow> =
+        sqlx::query_as("SELECT * FROM downbeat.backfill WHERE state = 'running' FOR UPDATE SKIP LOCKED")
+            .fetch_all(&mut *transaction)
+            .await?;
     for backfill in backfills {
         if let Some(chain) = backfill.current_chain {
             let unfinished: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE chain_id = $1)")
@@ -51,7 +52,8 @@ pub(crate) async fn drive(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
             if let Some(failed) = failed
                 && !backfill.continue_on_failure
             {
-                let reason = format!("Stopped at {}: {failed}.", backfill.next_date.pred_opt().unwrap_or(backfill.next_date));
+                let reason =
+                    format!("Stopped at {}: {failed}.", backfill.next_date.pred_opt().unwrap_or(backfill.next_date));
                 finish(&mut transaction, backfill.backfill_id, "failed", &reason).await?;
                 continue;
             }
@@ -67,7 +69,9 @@ pub(crate) async fn drive(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
                     .await?;
             }
             Ok(None) => finish(&mut transaction, backfill.backfill_id, "done", "Every date has run.").await?,
-            Err(error) => finish(&mut transaction, backfill.backfill_id, "failed", &format!("Stopped: {error}.")).await?,
+            Err(error) => {
+                finish(&mut transaction, backfill.backfill_id, "failed", &format!("Stopped: {error}.")).await?
+            }
         }
     }
     transaction.commit().await
@@ -84,8 +88,15 @@ async fn finish(connection: &mut sqlx::PgConnection, backfill_id: i64, state: &s
 }
 
 /// Creates the run for the next date that the schedule does not turn off. `None` once past the end.
-async fn start_next_date(connection: &mut sqlx::PgConnection, registry: &Registry, backfill: &BackfillRow) -> Result<Option<(Uuid, NaiveDate)>, String> {
-    let schedule = registry.schedules.get(&backfill.schedule).ok_or_else(|| format!("schedule {} is not in this build", backfill.schedule))?;
+async fn start_next_date(
+    connection: &mut sqlx::PgConnection,
+    registry: &Registry,
+    backfill: &BackfillRow,
+) -> Result<Option<(Uuid, NaiveDate)>, String> {
+    let schedule = registry
+        .schedules
+        .get(&backfill.schedule)
+        .ok_or_else(|| format!("schedule {} is not in this build", backfill.schedule))?;
     let job = registry.job(schedule.job).ok_or_else(|| format!("job {} is not in this build", schedule.job))?;
     let overrides = Vec::new();
     let mut date = backfill.next_date;
@@ -102,7 +113,8 @@ async fn start_next_date(connection: &mut sqlx::PgConnection, registry: &Registr
             let input_hash = (ops.hash)(&input)?;
             let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose()?;
             let policy = &job.spec.policy;
-            let expires_at = plan::expiry_of(schedule).map(|expiry| Utc::now() + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
+            let expires_at = plan::expiry_of(schedule)
+                .map(|expiry| Utc::now() + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
             let run = NewRun {
                 job: schedule.job.to_owned(),
                 queue: policy.queue.to_owned(),

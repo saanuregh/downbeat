@@ -18,7 +18,9 @@ pub(crate) async fn deliver(pool: &PgPool, registry: &Registry) -> sqlx::Result<
 
 async fn deliver_finished(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     let Some(on_finish) = &registry.on_finish else {
-        sqlx::query("UPDATE downbeat.run_history SET notify_after = NULL WHERE notify_after IS NOT NULL").execute(pool).await?;
+        sqlx::query("UPDATE downbeat.run_history SET notify_after = NULL WHERE notify_after IS NOT NULL")
+            .execute(pool)
+            .await?;
         return Ok(());
     };
     let rows: Vec<HistoryRow> = sqlx::query_as(
@@ -46,7 +48,10 @@ async fn deliver_finished(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
             }
         };
         if delivered {
-            sqlx::query("UPDATE downbeat.run_history SET notify_after = NULL WHERE run_id = $1").bind(run_id).execute(pool).await?;
+            sqlx::query("UPDATE downbeat.run_history SET notify_after = NULL WHERE run_id = $1")
+                .bind(run_id)
+                .execute(pool)
+                .await?;
         }
     }
     Ok(())
@@ -79,7 +84,9 @@ struct EventRow {
 
 async fn deliver_events(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     let Some(on_event) = &registry.on_event else {
-        sqlx::query("UPDATE downbeat.audit SET notify_after = NULL WHERE notify_after IS NOT NULL").execute(pool).await?;
+        sqlx::query("UPDATE downbeat.audit SET notify_after = NULL WHERE notify_after IS NOT NULL")
+            .execute(pool)
+            .await?;
         return Ok(());
     };
     let rows: Vec<EventRow> = sqlx::query_as(
@@ -111,7 +118,10 @@ async fn deliver_events(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
             },
         };
         if delivered {
-            sqlx::query("UPDATE downbeat.audit SET notify_after = NULL WHERE audit_id = $1").bind(row.audit_id).execute(pool).await?;
+            sqlx::query("UPDATE downbeat.audit SET notify_after = NULL WHERE audit_id = $1")
+                .bind(row.audit_id)
+                .execute(pool)
+                .await?;
         }
     }
     Ok(())

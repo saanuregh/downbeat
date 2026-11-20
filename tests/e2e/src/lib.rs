@@ -3,8 +3,8 @@
 
 use std::time::Duration;
 
-use downbeat::prelude::*;
 use downbeat::Settings;
+use downbeat::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
@@ -76,7 +76,8 @@ pub async fn empty(_run: Run, input: Text) -> Result<Text> {
 
 #[job(attempts = 3, backoff = 1.seconds())]
 pub async fn flaky(_run: Run, input: Flaky) -> Result<u32> {
-    let calls: u32 = std::fs::read_to_string(&input.counter).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0) + 1;
+    let calls: u32 =
+        std::fs::read_to_string(&input.counter).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0) + 1;
     std::fs::write(&input.counter, calls.to_string())?;
     if calls <= input.fail_times {
         return Err(JobError::msg(format!("call {calls} fails on purpose")));
@@ -153,6 +154,16 @@ pub async fn ticker(_run: Run) -> Result<()> {
     Ok(())
 }
 
+#[job]
+pub async fn report(_run: Run) -> Result<()> {
+    Ok(())
+}
+
+#[job]
+pub async fn dated(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+    Ok(day)
+}
+
 #[command]
 pub fn exits(plan: ExitPlan) -> Program<Text> {
     Program::new("/bin/sh")
@@ -187,6 +198,12 @@ fn failures(pipeline: &mut Pipeline) {
 
 fn clock(pipeline: &mut Pipeline) {
     pipeline.job(ticker).schedule(every(1.seconds()).in_environments(["schedules"]));
+    pipeline.job(report).schedule(daily_at(["09:00", "17:00"]));
+    pipeline.job(dated).schedule(
+        daily_at(["06:00"])
+            .on_weekdays([Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri])
+            .input(Occurrence::date),
+    );
 }
 
 /// The test product's definition, with short timings so tests run quickly.

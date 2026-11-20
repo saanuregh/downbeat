@@ -66,8 +66,9 @@ pub(crate) fn parse(attribute: TokenStream) -> syn::Result<Arguments> {
                         continue;
                     }
                     "one_per" => {
-                        let field: Ident = syn::parse2(quote!(#value))
-                            .map_err(|_| syn::Error::new_spanned(&value, "one_per names a field of the input: `one_per = broker_id`"))?;
+                        let field: Ident = syn::parse2(quote!(#value)).map_err(|_| {
+                            syn::Error::new_spanned(&value, "one_per names a field of the input: `one_per = broker_id`")
+                        })?;
                         let text = field.to_string();
                         arguments.one_per = Some(field);
                         quote!(policy.turn = ::downbeat::Turn::OnePer(#text);)
@@ -83,7 +84,9 @@ pub(crate) fn parse(attribute: TokenStream) -> syn::Result<Arguments> {
                     "max_memory" => quote!(policy.max_memory = ::core::option::Option::Some(#value);),
                     "keep_runs_for" => quote!(policy.keep_runs_for = #value;),
                     "keep_runs_at_most" => quote!(policy.keep_runs_at_most = ::core::option::Option::Some(#value);),
-                    "expect_success_every" => quote!(policy.expect_success_every = ::core::option::Option::Some(#value);),
+                    "expect_success_every" => {
+                        quote!(policy.expect_success_every = ::core::option::Option::Some(#value);)
+                    }
                     _ => return Err(unknown(&pair.path, &key)),
                 };
                 arguments.settings.push(setting);
@@ -104,7 +107,10 @@ fn retry_on(value: &Expr) -> syn::Result<TokenStream> {
         let kind: Ident = syn::parse2(quote!(#element))
             .map_err(|_| syn::Error::new_spanned(element, "retry_on lists Error, Timeout, Crash or Memory"))?;
         if !["Error", "Timeout", "Crash", "Memory"].contains(&kind.to_string().as_str()) {
-            return Err(syn::Error::new_spanned(element, "retry_on lists Error, Timeout, Crash or Memory; a panic is never retried"));
+            return Err(syn::Error::new_spanned(
+                element,
+                "retry_on lists Error, Timeout, Crash or Memory; a panic is never retried",
+            ));
         }
         kinds.push(quote!(::downbeat::RetryOn::#kind));
     }

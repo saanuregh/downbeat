@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 downbeat.workspace = true
+downbeat-client.workspace = true
+reqwest.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 serde.workspace = true

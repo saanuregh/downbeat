@@ -123,6 +123,8 @@ CREATE INDEX run_history_finished ON downbeat.run_history (finished_at DESC);
 CREATE INDEX run_history_chain ON downbeat.run_history (chain_id);
 -- Failures.
 CREATE INDEX run_history_failed ON downbeat.run_history (finished_at DESC) WHERE status = 'failed';
+-- The calendar: what each occurrence of a schedule became.
+CREATE INDEX run_history_schedule ON downbeat.run_history (schedule, due_at) WHERE schedule IS NOT NULL;
 -- Delivering on_finish.
 CREATE INDEX run_history_notify ON downbeat.run_history (notify_after) WHERE notify_after IS NOT NULL;
 

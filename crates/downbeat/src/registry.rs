@@ -11,8 +11,8 @@ use crate::dependencies::Dependencies;
 use crate::events::{EventDelivery, FinishedRun};
 use crate::job::JobSpec;
 use crate::pipeline::{Condition, Entry, LinkSpec, NeedSpec, NeedTest, Pipeline};
-use crate::schedule::{CompiledSchedule, ScheduleForm, ScheduleSpec, Times};
 use crate::schedule::times::parse_time;
+use crate::schedule::{CompiledSchedule, ScheduleForm, ScheduleSpec, Times};
 
 /// A job with everything the pipelines say about it.
 pub(crate) struct RegisteredJob {
@@ -96,7 +96,13 @@ impl Registry {
                 let job_name = entry.job.name;
                 names.push(job_name);
                 if let Some(existing) = jobs.get(job_name) {
-                    problems.add(job_name, format!("named in pipeline '{}' and again in '{name}'; a job belongs to one pipeline", existing.pipeline));
+                    problems.add(
+                        job_name,
+                        format!(
+                            "named in pipeline '{}' and again in '{name}'; a job belongs to one pipeline",
+                            existing.pipeline
+                        ),
+                    );
                     continue;
                 }
                 let registered = register(entry, name, zone, &definition, environment, &mut schedules, &mut problems);
@@ -222,7 +228,13 @@ fn register(
     }
 }
 
-fn compile_schedule(name: &str, job: &'static str, spec: ScheduleSpec, zone: Tz, problems: &mut Problems) -> Option<CompiledSchedule> {
+fn compile_schedule(
+    name: &str,
+    job: &'static str,
+    spec: ScheduleSpec,
+    zone: Tz,
+    problems: &mut Problems,
+) -> Option<CompiledSchedule> {
     let zone = match &spec.zone {
         Some(own) => parse_zone(own, name, problems),
         None => zone,
@@ -281,7 +293,10 @@ fn compile_schedule(name: &str, job: &'static str, spec: ScheduleSpec, zone: Tz,
 }
 
 /// Checks links and needs, and returns each job's children.
-fn check_graph(jobs: &BTreeMap<&'static str, RegisteredJob>, problems: &mut Problems) -> HashMap<&'static str, Vec<&'static str>> {
+fn check_graph(
+    jobs: &BTreeMap<&'static str, RegisteredJob>,
+    problems: &mut Problems,
+) -> HashMap<&'static str, Vec<&'static str>> {
     let mut children: HashMap<&'static str, Vec<&'static str>> = HashMap::new();
     for (name, job) in jobs {
         if let Some(link) = &job.link {
@@ -289,7 +304,10 @@ fn check_graph(jobs: &BTreeMap<&'static str, RegisteredJob>, problems: &mut Prob
                 if jobs.contains_key(parent) {
                     children.entry(parent).or_default().push(name);
                 } else {
-                    problems.add(*name, format!("its parent '{parent}' is named in no pipeline; add pipeline.job({parent})"));
+                    problems.add(
+                        *name,
+                        format!("its parent '{parent}' is named in no pipeline; add pipeline.job({parent})"),
+                    );
                 }
             }
             let distinct: BTreeSet<_> = link.parents.iter().collect();
@@ -301,7 +319,8 @@ fn check_graph(jobs: &BTreeMap<&'static str, RegisteredJob>, problems: &mut Prob
             if !jobs.contains_key(need.job) {
                 problems.add(*name, format!("it needs '{}', which is named in no pipeline", need.job));
             } else if matches!(need.test, NeedTest::DoneFor(_)) && !jobs[need.job].spec.takes_input {
-                problems.add(*name, format!("'{}' takes no input; use done_within(…) instead of done_for(…)", need.job));
+                problems
+                    .add(*name, format!("'{}' takes no input; use done_within(…) instead of done_for(…)", need.job));
             }
         }
     }
@@ -377,7 +396,13 @@ fn check_dependencies(
     for (name, job) in jobs {
         for dependency in &job.spec.dependencies {
             if !dependencies.provides(*dependency) {
-                problems.add(*name, format!("it takes &{} but the definition does not provide one; add definition.provide(…)", dependency.type_name));
+                problems.add(
+                    *name,
+                    format!(
+                        "it takes &{} but the definition does not provide one; add definition.provide(…)",
+                        dependency.type_name
+                    ),
+                );
             }
         }
     }
@@ -385,7 +410,13 @@ fn check_dependencies(
         if let Some(rule) = &schedule.calendar
             && !dependencies.provides(rule.dependency)
         {
-            problems.add(name, format!("its day rule {} takes &{} but the definition does not provide one", rule.name, rule.dependency.type_name));
+            problems.add(
+                name,
+                format!(
+                    "its day rule {} takes &{} but the definition does not provide one",
+                    rule.name, rule.dependency.type_name
+                ),
+            );
         }
     }
 }

@@ -104,7 +104,9 @@ fn end_of_day(pipeline: &mut Pipeline) {
         .if_changed()
         .needs(snapshot_candles.done_for(|a: &Archive| a.day))
         .only_if("has files", |a: &Archive| a.count > 0);
-    pipeline.job(snapshot_candles).schedule(daily_at(["17:15"]).expire_after(3.hours()).input(|o| TradingDay(o.date())));
+    pipeline
+        .job(snapshot_candles)
+        .schedule(daily_at(["17:15"]).expire_after(3.hours()).input(|o| TradingDay(o.date())));
     pipeline.job(eod_ohlc).after(bhav_archive.map(|a: Archive| OhlcInput { date: a.day.0, broker_id: 1 }));
     pipeline.job(eod_report).after(bhav_archive.map(|a: Archive| OhlcInput { date: a.day.0, broker_id: 2 }));
     pipeline.job(day_report).after((bhav_archive, bhav_candles));

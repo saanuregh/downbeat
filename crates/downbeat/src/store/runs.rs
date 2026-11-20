@@ -22,14 +22,12 @@ pub(crate) struct RunRow {
     pub(crate) state: String,
     pub(crate) run_at: DateTime<Utc>,
     pub(crate) due_at: DateTime<Utc>,
-    pub(crate) expires_at: Option<DateTime<Utc>>,
     pub(crate) started_by: String,
     pub(crate) schedule: Option<String>,
     pub(crate) chain_id: Uuid,
     pub(crate) parents: Vec<Uuid>,
     pub(crate) input: Option<Value>,
     pub(crate) input_hash: Option<String>,
-    pub(crate) same_work_key: Option<String>,
     pub(crate) turn_key: Option<String>,
     pub(crate) dry_run: bool,
     pub(crate) ignore_conditions: bool,
@@ -41,19 +39,16 @@ pub(crate) struct RunRow {
     pub(crate) interruptions: i16,
     pub(crate) fence: i64,
     pub(crate) lease_owner: Option<String>,
-    pub(crate) lease_expires_at: Option<DateTime<Utc>>,
     pub(crate) function_started_at: Option<DateTime<Utc>>,
     pub(crate) first_started_at: Option<DateTime<Utc>>,
     pub(crate) queued_because: Option<String>,
     pub(crate) queued_reason: Option<String>,
     pub(crate) progress: Option<String>,
     pub(crate) checkpoint: Option<Value>,
-    pub(crate) cancel_requested_by: Option<String>,
     pub(crate) slow_reported: bool,
     pub(crate) call_log: Value,
     pub(crate) actor: Option<String>,
     pub(crate) created_at: DateTime<Utc>,
-    pub(crate) claimed_at: Option<DateTime<Utc>>,
 }
 
 impl RunRow {
@@ -231,7 +226,10 @@ pub(crate) async fn create(connection: &mut PgConnection, run: &NewRun) -> sqlx:
         Ok(Created::New { run_id: returned_id, chain_id: returned_chain })
     } else {
         if new_chain {
-            sqlx::query("DELETE FROM downbeat.chain WHERE chain_id = $1").bind(chain_id).execute(&mut *connection).await?;
+            sqlx::query("DELETE FROM downbeat.chain WHERE chain_id = $1")
+                .bind(chain_id)
+                .execute(&mut *connection)
+                .await?;
         }
         Ok(Created::Joined { run_id: returned_id, chain_id: returned_chain })
     }
@@ -243,7 +241,13 @@ pub(crate) fn same_work_key(job: &str, input_hash: Option<&str>) -> String {
 }
 
 /// Claims the most urgent due run in a queue that this worker can run, or nothing.
-pub(crate) async fn claim(pool: &PgPool, queue: &str, worker: &str, lease: Duration, jobs: &[String]) -> sqlx::Result<Option<RunRow>> {
+pub(crate) async fn claim(
+    pool: &PgPool,
+    queue: &str,
+    worker: &str,
+    lease: Duration,
+    jobs: &[String],
+) -> sqlx::Result<Option<RunRow>> {
     sqlx::query_as(
         "UPDATE downbeat.run r
             SET state = 'running', fence = fence + 1, lease_owner = $2, lease_expires_at = now() + $3,
@@ -290,7 +294,13 @@ pub(crate) struct Held<'a> {
 }
 
 /// Stores what preparing a run produced: its input, input hash and turn.
-pub(crate) async fn prepared(pool: &PgPool, held: Held<'_>, input: &Value, input_hash: &str, turn_key: &str) -> sqlx::Result<bool> {
+pub(crate) async fn prepared(
+    pool: &PgPool,
+    held: Held<'_>,
+    input: &Value,
+    input_hash: &str,
+    turn_key: &str,
+) -> sqlx::Result<bool> {
     let done = sqlx::query(
         "UPDATE downbeat.run SET input = $4, input_hash = $5, turn_key = $6
           WHERE run_id = $1 AND fence = $2 AND lease_owner = $3 AND state = 'running'",
