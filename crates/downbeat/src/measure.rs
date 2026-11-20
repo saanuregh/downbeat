@@ -27,3 +27,10 @@ pub async fn prune(pool: &PgPool, definition: Definition) -> sqlx::Result<()> {
         Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
     crate::pruning::prune(pool, &registry).await
 }
+
+/// One pass of callback delivery, as the scheduler runs it every `poll`.
+pub async fn deliver_callbacks(pool: &PgPool, definition: Definition) -> sqlx::Result<()> {
+    let registry =
+        Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
+    crate::scheduler::callbacks::deliver(pool, &registry).await
+}

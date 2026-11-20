@@ -192,6 +192,8 @@ pub(crate) async fn callback(
         .ok_or_else(|| Failure::unauthorized("the identity provider did not share an email address"))?;
     // An email the provider has not verified could be anyone's, and grants follow emails.
     if claims.email_verified() != Some(true) {
+        store::audit(&state.pool, &email, "sign_in_refused", json!({ "reason": "the email address is not verified" }))
+            .await?;
         return Err(Failure::forbidden("the identity provider has not verified this email address"));
     }
     let name =

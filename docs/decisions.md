@@ -358,3 +358,24 @@ never charged with a crash it did not cause.
 
 The worker deleted its row from `downbeat.worker` when it stopped, but the scheduler did not, so a
 stopped scheduler looked alive for up to a day. Both roles now delete their own rows.
+
+## 56. The screens are checked by rendering, not by comparing pixels
+
+A screenshot comparison in CI breaks on every font, anti-aliasing or browser update, and a person
+then approves new images without looking. What matters is that each screen renders its data and
+shows no error. `tests/e2e/tests/screens.rs` loads every route of a `--local` console in front of
+a real scheduler in headless Chromium, and checks each page's heading, its data and the absence
+of an error note. CI runs it with the Google Chrome that GitHub's runners include. How a change
+looks is still checked by a person, with screenshots, as CONTRIBUTING.md asks.
+
+## 57. A run interrupted while being prepared goes back at once
+
+A shutdown that caught a run while it was being prepared re-queued it like a failed child, ten
+seconds later. A shutdown is usually a deploy, and nothing of the run has happened yet, so it now
+goes back at once for the next worker, with nothing counted, as an interrupted call does.
+
+## 58. Every refused sign-in is audited
+
+A sign-in refused because the person was outside the allowed domains and groups was audited, but
+one refused because the provider had not verified the email address was not. Both now write a
+`sign_in_refused` row with the reason.

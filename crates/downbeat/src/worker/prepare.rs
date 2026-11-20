@@ -74,7 +74,15 @@ pub(crate) async fn prepare(
         Interrupted::Stopped(StopReason::CancelRequested(by)) => Decision::End(Ending::new(Status::Cancelled, reasons::cancelled(&by))),
         Interrupted::Stopped(StopReason::Unreachable) => super::unreachable(context, run),
         Interrupted::Stopped(_) => Decision::Nothing,
-        Interrupted::Shutdown => Decision::child_failed("the worker shut down while the run was being prepared"),
+        // Nothing ran yet: the run goes back at once for the next worker, with nothing counted.
+        Interrupted::Shutdown => Decision::Requeue(Requeue {
+            delay: std::time::Duration::ZERO,
+            because: "no_free_worker",
+            reason: "Re-queued: the worker shut down while the run was being prepared.".to_owned(),
+            failed: false,
+            interrupted: false,
+            call: None,
+        }),
     })?;
     let prepared = prepared.map_err(|error| Decision::End(Ending::failed("bad_input", reasons::bad_input(&error))))?;
 

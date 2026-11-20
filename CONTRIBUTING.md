@@ -64,6 +64,7 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 | Check | `crates/downbeat/tests/check.rs` | `check` names each mistake. |
 | End to end | `tests/e2e/tests/` | Behaviour through real processes: a test product (`tests/e2e/src/lib.rs`) as scheduler and workers, the API through `downbeat-client`, the console. |
 | Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Needs `DOWNBEAT_TEST_DEX` naming a `dex` binary; `scripts/test.sh` sets it when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`). Otherwise it reports itself skipped. CI always runs it. |
+| Screens | `tests/e2e/tests/screens.rs` | Every console screen renders its data in headless Chromium with no error. Runs when `DOWNBEAT_TEST_BROWSER` names a Chromium-based browser or one is on `PATH`; CI always runs it. |
 | Docs | `tests/guide` | Every Rust sample in the README and the user guide compiles; samples written with "…" are syntax templates and are skipped. A sample may use the names in `tests/guide/src/scaffold.rs`. |
 | Example | `examples/market/tests` | The test kit (`downbeat::testing`) on a real definition: schedules on any date, with no database. |
 | Measurement | `tests/e2e/tests/measure.rs` | Opt-in (`-- --ignored`): the numbers in [docs/performance.md](docs/performance.md). |
@@ -127,5 +128,7 @@ against any newer schema.
 - Keep a pull request to one change. Describe what changes for users, and what else it could
   affect.
 - Run `mise run check` and say so.
+- For a change to the console's screens, run `mise run demo`, look at the changed screens in light
+  and dark themes and at phone width, and attach screenshots.
 - By contributing, you agree that your contribution is dual licensed under MIT OR Apache-2.0, as
   the [README](README.md#license) says.

@@ -422,7 +422,7 @@ Modules: `cli.rs` (`wait_for_signal`, `serve`), `worker/mod.rs`, `definition.rs`
    it exits 0 (its output is then checked as usual) or 75 within the grace period; any other exit
    counts as stopped. Otherwise the run must go back to the queue at once as `no_free_worker`, with
    `interruptions` raised by one and nothing else counted. A run being prepared goes back to the
-   queue uncounted.
+   queue at once, as `no_free_worker`, with nothing counted.
 3. At a run's third interruption, and at each one after it, a `RunInterrupted` event must be
    recorded.
 4. The worker, and the scheduler, must each delete its own `worker` row before it exits.

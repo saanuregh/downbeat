@@ -277,6 +277,75 @@ fn not_tested_before(input: &Text) -> bool {
     true
 }
 
+/// Its condition sleeps past the job's timeout the first time it is tested for an input (it leaves
+/// the file the input names), so the run is prepared twice.
+#[job(timeout = 1.seconds(), attempts = 2, backoff = 1.seconds(), retry_on = [Timeout])]
+pub async fn times_out_while_prepared(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+fn slow_the_first_time(input: &Text) -> bool {
+    if !std::path::Path::new(&input.text).exists() {
+        let _ = std::fs::write(&input.text, "tested");
+        std::thread::sleep(Duration::from_secs(3));
+    }
+    true
+}
+
+/// Its condition takes five seconds, so a test can act while the run is being prepared.
+#[job]
+pub async fn slow_to_prepare(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+fn after_five_seconds(_input: &Text) -> bool {
+    std::thread::sleep(Duration::from_secs(5));
+    true
+}
+
+/// Waits until it is asked to stop, then leaves the file its input names and returns.
+#[job]
+pub async fn stops_when_asked(run: Run, input: Text) -> Result<()> {
+    run.cancelled().await;
+    std::fs::write(&input.text, "asked")?;
+    Ok(())
+}
+
+/// The root of the chains that reach `chorus`: hands its input to both singers.
+#[job]
+pub async fn hands_on(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// The root of the chains that reach `in_turn`.
+#[job]
+pub async fn lines_up(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// Runs one at a time, for three seconds, after `lines_up`.
+#[job(one_at_a_time)]
+pub async fn in_turn(_run: Run, input: Text) -> Result<Text> {
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    Ok(input)
+}
+
+#[job]
+pub async fn sings_loud(_run: Run, input: Text) -> Result<Text> {
+    Ok(Text { text: input.text.to_uppercase() })
+}
+
+#[job]
+pub async fn sings_soft(_run: Run, input: Text) -> Result<Text> {
+    Ok(Text { text: input.text.to_lowercase() })
+}
+
+/// Joins `sings_loud` and `sings_soft`.
+#[job]
+pub async fn chorus(_run: Run, (loud, soft): (Text, Text)) -> Result<Text> {
+    Ok(Text { text: format!("{} {}", loud.text, soft.text) })
+}
+
 /// Waits until it is asked to stop, then exits cleanly at once.
 #[command]
 pub fn finishes_when_asked_to_stop() -> Program<()> {
@@ -324,6 +393,18 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(crashes_while_prepared).only_if("not tested before", not_tested_before);
     pipeline.job(finishes_when_asked_to_stop);
     pipeline.job(too_big);
+    pipeline.job(times_out_while_prepared).only_if("slow the first time", slow_the_first_time);
+    pipeline.job(slow_to_prepare).only_if("after five seconds", after_five_seconds);
+    pipeline.job(stops_when_asked);
+}
+
+fn links(pipeline: &mut Pipeline) {
+    pipeline.job(hands_on);
+    pipeline.job(lines_up);
+    pipeline.job(in_turn).after(lines_up);
+    pipeline.job(sings_loud).after(hands_on);
+    pipeline.job(sings_soft).after(hands_on);
+    pipeline.job(chorus).after((sings_loud, sings_soft));
 }
 
 fn clock(pipeline: &mut Pipeline) {
@@ -342,20 +423,7 @@ pub const FINISHED_DIR: &str = "E2E_FINISHED_DIR";
 
 /// The test product's definition, with short timings so tests run quickly.
 pub fn definition() -> Definition {
-    let mut definition = Definition::new().zone("UTC").environments(["test", "schedules"]).settings(Settings {
-        heartbeat: Duration::from_secs(1),
-        lease: Duration::from_secs(3),
-        kill_grace: Duration::from_secs(1),
-        drain: Duration::from_secs(1),
-        stop_within: Duration::from_secs(10),
-        poll: Duration::from_millis(200),
-        recycle_child_after: 500,
-        queues: [(
-            "quick".to_owned(),
-            QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) },
-        )]
-        .into(),
-    });
+    let mut definition = definition_without_callbacks();
     // Each finished run is written to a file named by its id in this directory, when it is set.
     definition.on_finish(|finished: downbeat::FinishedRun| async move {
         match std::env::var_os(FINISHED_DIR) {
@@ -376,8 +444,28 @@ pub fn definition() -> Definition {
             None => Ok(()),
         }
     });
+    definition
+}
+
+/// The same pipelines and settings, with no `on_finish` or `on_event`.
+pub fn definition_without_callbacks() -> Definition {
+    let mut definition = Definition::new().zone("UTC").environments(["test", "schedules"]).settings(Settings {
+        heartbeat: Duration::from_secs(1),
+        lease: Duration::from_secs(3),
+        kill_grace: Duration::from_secs(1),
+        drain: Duration::from_secs(1),
+        stop_within: Duration::from_secs(10),
+        poll: Duration::from_millis(200),
+        recycle_child_after: 500,
+        queues: [(
+            "quick".to_owned(),
+            QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) },
+        )]
+        .into(),
+    });
     definition.pipeline("basics", basics);
     definition.pipeline("failures", failures);
     definition.pipeline("clock", clock);
+    definition.pipeline("links", links);
     definition
 }

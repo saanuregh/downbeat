@@ -135,3 +135,57 @@ async fn an_action_that_needs_administer_is_signed_again_for_someone_who_holds_i
         .unwrap();
     assert_eq!(started.status(), 201, "{}", started.text().await.unwrap());
 }
+
+#[tokio::test]
+async fn a_start_repeated_with_the_same_idempotency_key_returns_the_first_run() {
+    let database = Database::fresh().await;
+    let (_app, _client, scheduler) = with_api_at(&database).await;
+    let (_console, base) = console(&database, &scheduler).await;
+    let http = reqwest::Client::new();
+    let me: Value = http.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let csrf = me["csrf_token"].as_str().unwrap().to_owned();
+    let start = || {
+        http.post(format!("{base}/api/schedulers/local/v1/jobs/echo/runs"))
+            .header("x-csrf-token", &csrf)
+            .header("idempotency-key", "once-only")
+            .json(&json!({ "input": { "text": "once" } }))
+            .send()
+    };
+
+    let first = start().await.unwrap();
+    assert_eq!(first.status(), 201);
+    let first: Value = first.json().await.unwrap();
+    let second = start().await.unwrap();
+    assert_eq!(second.status(), 200);
+    let second: Value = second.json().await.unwrap();
+    assert_eq!(second["run_id"], first["run_id"], "{second}");
+    assert_eq!(second["repeated"], true, "{second}");
+}
+
+#[tokio::test]
+async fn in_local_mode_the_console_refuses_to_listen_beyond_this_machine() {
+    let database = Database::fresh().await;
+    let listen = format!("0.0.0.0:{}", support::free_port());
+    let mut process = Command::new(console_binary())
+        .args(["--local", "--scheduler", "http://127.0.0.1:7400", "--listen", &listen])
+        .env("DOWNBEAT_CONSOLE_DATABASE_URL", &database.url)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the console starts");
+    let deadline = std::time::Instant::now() + SOON;
+    let status = loop {
+        if let Some(status) = process.try_wait().unwrap() {
+            break status;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = process.kill();
+            panic!("the console kept running on {listen}");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    let mut stderr = String::new();
+    std::io::Read::read_to_string(&mut process.stderr.take().unwrap(), &mut stderr).unwrap();
+    assert!(!status.success());
+    assert!(stderr.contains("not a loopback address"), "{stderr}");
+}

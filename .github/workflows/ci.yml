@@ -58,3 +58,6 @@ jobs:
 
       - name: Test
         run: scripts/test.sh
+        env:
+          # GitHub's Ubuntu runners include Google Chrome; the screens test renders every screen in it.
+          DOWNBEAT_TEST_BROWSER: google-chrome
