@@ -7,8 +7,11 @@ use downbeat::prelude::*;
 use downbeat::{QueueTimings, Settings};
 use serde::{Deserialize, Serialize};
 
+pub mod chain_rules;
 pub mod condition_rules;
+pub mod process_rules;
 mod rules;
+pub mod runtime_rules;
 pub mod scheduling_rules;
 pub use rules::*;
 
@@ -509,6 +512,9 @@ pub fn definition_without_callbacks() -> Definition {
     definition.pipeline("links", links);
     definition.pipeline("scheduling_rules", scheduling_rules::scheduling_rules_jobs);
     definition.pipeline("condition_rules", condition_rules::condition_rules_jobs);
+    definition.pipeline("runtime_rules", runtime_rules::runtime_rules_jobs);
+    definition.pipeline("chain_rules", chain_rules::chain_rules_jobs);
+    definition.pipeline("process_rules", process_rules::process_rules_jobs);
     definition.provide(|| async { Err::<Warehouse, _>("the warehouse is closed") });
     // The values the scheduling rules' day rules read; the calendar never loads.
     definition.provide(|| async { Ok::<_, std::convert::Infallible>(scheduling_rules::DayRules) });
