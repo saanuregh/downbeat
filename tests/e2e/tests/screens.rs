@@ -1,5 +1,5 @@
 //! Every screen of the console renders against a real scheduler, in a real browser: each route
-//! shows its heading and its data, and none shows an error. Runs when a Chromium-based browser is
+//! shows its heading and its data, and none shows an error (an element with the alert role). Runs when a Chromium-based browser is
 //! found (`DOWNBEAT_TEST_BROWSER`, or `chromium`, `chromium-browser` or `google-chrome` on `PATH`);
 //! otherwise it reports itself skipped.
 
@@ -94,16 +94,25 @@ async fn every_screen_renders_its_data_without_an_error() {
         ("/s/local/runs".into(), &["Runs", "Succeeded.", "echo"]),
         (format!("/s/local/runs/{}", run.run_id), &["echo", "Input", "Output", "on screen"]),
         (format!("/s/local/chains/{}", run.chain_id), &["Job by job", "shout", "both"]),
-        ("/s/local/queues".into(), &["Queues", "default"]),
+        // The test product has a queue no worker serves; the screen says so, as a warning.
+        ("/s/local/queues".into(), &["Queues", "default", "No running worker serves this queue."]),
         ("/s/local/audit".into(), &["Audit", "start"]),
         ("/access".into(), &["Access", "Grants", "People"]),
     ];
     for (path, expected) in screens {
         let page = rendered(&browser, format!("{base}{path}")).await;
         assert!(!page.contains("screens were not built"), "the console was built without its screens");
+        assert!(!page.contains(ERROR), "{path} shows an error: {}", error_text(&page));
         for text in expected {
             assert!(page.contains(text), "{path} does not show {text:?}");
         }
-        assert!(!page.contains("note-bad"), "{path} shows an error");
     }
+}
+
+/// How the screens mark an error, as opposed to a warning: an element with the alert role.
+const ERROR: &str = "role=\"alert\"";
+
+/// The text after the first error on a page, for the failure message.
+fn error_text(page: &str) -> &str {
+    page.split(ERROR).nth(1).and_then(|rest| rest.split("</").next()).unwrap_or("")
 }

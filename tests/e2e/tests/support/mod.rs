@@ -17,13 +17,14 @@ pub const SOON: Duration = Duration::from_secs(20);
 /// Asking the OS for port 0 and passing the number on is racy: the port is free again the moment
 /// the probe closes, and a test running alongside may be handed the same one before the program
 /// it starts binds it. So each test process walks its own range, and each candidate is checked
-/// free before use.
+/// free before use. The ranges stay below 32768, where Linux starts handing out ports for
+/// outgoing connections, so no connection made meanwhile can take the port either.
 pub fn free_port() -> u16 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
-    let base = 20_000 + (std::process::id() % 400) * 100;
+    let base = 20_000 + (std::process::id() % 120) * 100;
     loop {
-        let candidate = u16::try_from(base + NEXT.fetch_add(1, Ordering::Relaxed) % 10_000).unwrap();
+        let candidate = u16::try_from(base + NEXT.fetch_add(1, Ordering::Relaxed) % 100).unwrap();
         if std::net::TcpListener::bind(("127.0.0.1", candidate)).is_ok() {
             return candidate;
         }

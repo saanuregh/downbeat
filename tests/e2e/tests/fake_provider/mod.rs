@@ -30,6 +30,8 @@ pub enum Spoil {
     /// A nonce other than the one the console sent.
     WrongNonce,
     Expired,
+    /// Signed with HMAC-SHA256 under the client secret, which the console also knows.
+    SharedSecret,
 }
 
 /// The fake provider's state: who signs in next, how their token is spoiled, and the sign-ins in
@@ -40,6 +42,8 @@ pub struct Provider {
     key: SigningKey,
     pub next_email: Arc<Mutex<String>>,
     pub next_spoil: Arc<Mutex<Option<Spoil>>>,
+    /// The signature algorithms the discovery document lists.
+    listed: Vec<String>,
     pending: Arc<Mutex<HashMap<String, (String, String)>>>,
 }
 
@@ -52,13 +56,15 @@ async fn discovery(State(provider): State<Provider>) -> Json<Value> {
         "jwks_uri": format!("{base}/jwks"),
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
-        "id_token_signing_alg_values_supported": ["EdDSA"],
+        "id_token_signing_alg_values_supported": provider.listed,
     }))
 }
 
 async fn jwks(State(provider): State<Provider>) -> Json<Value> {
     let x = URL_SAFE_NO_PAD.encode(provider.key.verifying_key().as_bytes());
-    Json(json!({ "keys": [{ "kty": "OKP", "crv": "Ed25519", "x": x, "kid": "k1", "use": "sig", "alg": "EdDSA" }] }))
+    // No `alg` on the key: which algorithms count is then decided only by the discovery document's
+    // list, which is what the console must check.
+    Json(json!({ "keys": [{ "kty": "OKP", "crv": "Ed25519", "x": x, "kid": "k1", "use": "sig" }] }))
 }
 
 /// Signs in whoever is next at once, and sends the browser back with a code.
@@ -93,8 +99,10 @@ async fn token(
         "nonce": nonce, "email": email, "email_verified": verified, "name": "Test Person", "groups": ["operators"],
     });
     let mut key = provider.key.clone();
+    let mut algorithm = "EdDSA";
     match spoil {
         None => {}
+        Some(Spoil::SharedSecret) => algorithm = "HS256",
         Some(Spoil::OtherKey) => key = SigningKey::from_bytes(&[9; 32]),
         Some(Spoil::OtherIssuer) => claims["iss"] = json!("https://other-issuer.example"),
         Some(Spoil::OtherAudience) => claims["aud"] = json!("another-client"),
@@ -104,14 +112,35 @@ async fn token(
             claims["exp"] = json!(now - 3600);
         }
     }
-    let header = URL_SAFE_NO_PAD.encode(json!({ "alg": "EdDSA", "kid": "k1", "typ": "JWT" }).to_string());
+    let header = URL_SAFE_NO_PAD.encode(json!({ "alg": algorithm, "kid": "k1", "typ": "JWT" }).to_string());
     let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
-    let signature = key.sign(format!("{header}.{payload}").as_bytes());
-    let id_token = format!("{header}.{payload}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes()));
+    let signed = format!("{header}.{payload}");
+    let signature = match spoil {
+        Some(Spoil::SharedSecret) => hmac_sha256(CLIENT_SECRET.as_bytes(), signed.as_bytes()).to_vec(),
+        _ => key.sign(signed.as_bytes()).to_bytes().to_vec(),
+    };
+    let id_token = format!("{signed}.{}", URL_SAFE_NO_PAD.encode(signature));
     Ok(Json(json!({ "access_token": "access", "token_type": "Bearer", "expires_in": 300, "id_token": id_token })))
 }
 
-async fn start_provider() -> Provider {
+/// The client secret the console is given, and so the key a shared-secret token is signed with.
+const CLIENT_SECRET: &str = "secret";
+
+/// HMAC-SHA256 (RFC 2104), so a test can sign a token with a shared secret.
+fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    let mut block = [0_u8; 64];
+    if key.len() > block.len() {
+        block[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        block[..key.len()].copy_from_slice(key);
+    }
+    let inner_pad: Vec<u8> = block.iter().map(|byte| byte ^ 0x36).collect();
+    let outer_pad: Vec<u8> = block.iter().map(|byte| byte ^ 0x5c).collect();
+    let inner = Sha256::new().chain_update(&inner_pad).chain_update(message).finalize();
+    Sha256::new().chain_update(&outer_pad).chain_update(inner).finalize().into()
+}
+
+async fn start_provider(listed: &[&str]) -> Provider {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let provider = Provider {
@@ -119,6 +148,7 @@ async fn start_provider() -> Provider {
         key: SigningKey::from_bytes(&[7; 32]),
         next_email: Arc::new(Mutex::new(String::new())),
         next_spoil: Arc::default(),
+        listed: listed.iter().map(|algorithm| (*algorithm).to_owned()).collect(),
         pending: Arc::default(),
     };
     let app = Router::new()
@@ -147,9 +177,86 @@ fn console_binary() -> std::path::PathBuf {
 /// Who may sign in, unless a test says otherwise.
 pub const BY_DOMAIN: &str = r#"allowed_domains = ["example.com"]"#;
 
+/// The paths of the requests the console sent to the scheduler, as `METHOD /path`.
+pub type SchedulerRequests = Arc<Mutex<Vec<String>>>;
+
+#[derive(Clone)]
+struct Relay {
+    target: String,
+    http: reqwest::Client,
+    seen: SchedulerRequests,
+}
+
+/// Passes a request on to the scheduler unchanged, noting its method and path.
+async fn relay(State(relay): State<Relay>, request: axum::extract::Request) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let (parts, body) = request.into_parts();
+    let body = axum::body::to_bytes(body, 16 << 20).await.unwrap();
+    relay.seen.lock().unwrap().push(format!("{} {}", parts.method, parts.uri.path()));
+    let path = parts.uri.path_and_query().map(|path| path.as_str().to_owned()).unwrap_or_default();
+    let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes()).unwrap();
+    let mut forwarded = relay.http.request(method, format!("{}{path}", relay.target));
+    for (name, value) in &parts.headers {
+        if !matches!(name.as_str(), "host" | "content-length" | "transfer-encoding") {
+            forwarded = forwarded.header(name.as_str(), value.as_bytes());
+        }
+    }
+    let answer = forwarded.body(body.to_vec()).send().await.unwrap();
+    let status = axum::http::StatusCode::from_u16(answer.status().as_u16()).unwrap();
+    let content_type = answer
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json")
+        .to_owned();
+    let bytes = answer.bytes().await.unwrap();
+    (status, [(axum::http::header::CONTENT_TYPE, content_type)], bytes.to_vec()).into_response()
+}
+
+/// A relay in front of the scheduler at `target`; returns its base URL and what passed through it.
+async fn start_relay(target: String) -> (String, SchedulerRequests) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = SchedulerRequests::default();
+    let app =
+        Router::new().fallback(relay).with_state(Relay { target, http: reqwest::Client::new(), seen: seen.clone() });
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (base, seen)
+}
+
 /// The scheduler trusting the console's key, the fake provider, and the console configured for both,
 /// with `who_may_sign_in` as the `[sign_in]` section's rules.
 pub async fn setup(database: &Database, who_may_sign_in: &str) -> (support::App, Provider, Console, String) {
+    let (app, provider, console, base, _) = start(database, who_may_sign_in, &["EdDSA"], false).await;
+    (app, provider, console, base)
+}
+
+/// The same, with a provider whose discovery document lists these signature algorithms (it still
+/// signs with EdDSA).
+pub async fn setup_listing(
+    database: &Database,
+    who_may_sign_in: &str,
+    listed: &[&str],
+) -> (support::App, Provider, Console, String) {
+    let (app, provider, console, base, _) = start(database, who_may_sign_in, listed, false).await;
+    (app, provider, console, base)
+}
+
+/// The same as `setup`, with the console reaching the scheduler through a relay that notes every
+/// request it sends.
+pub async fn setup_counting(
+    database: &Database,
+    who_may_sign_in: &str,
+) -> (support::App, Provider, Console, String, SchedulerRequests) {
+    start(database, who_may_sign_in, &["EdDSA"], true).await
+}
+
+async fn start(
+    database: &Database,
+    who_may_sign_in: &str,
+    listed: &[&str],
+    counting: bool,
+) -> (support::App, Provider, Console, String, SchedulerRequests) {
     let key = downbeat_client::PrivateKey::generate();
     let key_file = std::env::temp_dir().join(format!("console-{}.pem", uuid::Uuid::new_v4()));
     std::fs::write(&key_file, key.to_pem()).unwrap();
@@ -158,7 +265,9 @@ pub async fn setup(database: &Database, who_may_sign_in: &str) -> (support::App,
         key.public().to_base64()
     );
     let (app, scheduler) = support::with_callers(database, &callers).await;
-    let provider = start_provider().await;
+    let (scheduler, seen) =
+        if counting { start_relay(scheduler).await } else { (scheduler, SchedulerRequests::default()) };
+    let provider = start_provider(listed).await;
 
     let port = support::free_port();
     let base = format!("http://127.0.0.1:{port}");
@@ -187,7 +296,7 @@ key_file = "{key}"
     let process = Command::new(console_binary())
         .args(["--config", &config_file.display().to_string()])
         .env("DOWNBEAT_CONSOLE_DATABASE_URL", &database.url)
-        .env("TEST_CLIENT_SECRET", "secret")
+        .env("TEST_CLIENT_SECRET", CLIENT_SECRET)
         .env("RUST_LOG", "warn")
         .stdin(Stdio::null())
         .spawn()
@@ -197,7 +306,7 @@ key_file = "{key}"
         assert!(tokio::time::Instant::now() < deadline, "the console did not come up");
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    (app, provider, Console(process), base)
+    (app, provider, Console(process), base, seen)
 }
 
 /// Follows the sign-in redirects by hand and returns the session cookie, or the refusal's status.

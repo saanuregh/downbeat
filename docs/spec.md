@@ -544,7 +544,8 @@ Modules: `downbeat-console/src/access.rs`, `session.rs`, `proxy.rs`, `api.rs`, `
    has verified (`email_verified` is true), and the email's domain is in `allowed_domains` or one
    of the token's groups is in `allowed_groups`. The return path after sign-in must be a path on
    the console: starting with one `/`, with no backslash and no control character.
-2. A session id is 32 random bytes; only its SHA-256 is stored. A session must be refused after
+2. A session id is 32 random bytes, sent as unpadded base64url in the cookie; only the SHA-256 of
+   that cookie value is stored. A session must be refused after
    `session_idle_hours` without use or `session_absolute_hours` after it started. Sign-out must
    delete it, and only when the request carries the session's CSRF token.
 3. Every `/api` request except a GET, and `POST /auth/logout`, must carry the session's CSRF

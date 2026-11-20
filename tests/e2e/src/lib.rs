@@ -7,6 +7,9 @@ use downbeat::prelude::*;
 use downbeat::{QueueTimings, Settings};
 use serde::{Deserialize, Serialize};
 
+mod rules;
+pub use rules::*;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
 pub struct Text {
     pub text: String,
@@ -410,6 +413,16 @@ fn failures(pipeline: &mut Pipeline) {
 }
 
 fn links(pipeline: &mut Pipeline) {
+    pipeline.job(starts_line);
+    pipeline.job(on_its_own_queue).after(starts_line);
+    pipeline
+        .job(counts_letters)
+        .after(starts_line.map(|line: Text| Number { n: i64::try_from(line.text.len()).unwrap_or(0) }));
+    pipeline.job(prepared_once).only_if("counted", counts_conditions);
+    pipeline.job(records_its_child).only_if("recorded", records_child_pid);
+    pipeline.job(frequent_flop);
+    pipeline.job(naps);
+    pipeline.job(fails_when_asked_to_stop);
     pipeline.job(hands_on);
     pipeline.job(lines_up);
     pipeline.job(in_turn).after(lines_up);
