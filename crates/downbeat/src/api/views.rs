@@ -140,20 +140,24 @@ async fn queued_reason(pool: &PgPool, row: &RunRow) -> sqlx::Result<(String, Str
             return Ok(("waiting_turn".to_owned(), reasons::waiting_turn(holder, turn.ends_with(":*"))));
         }
     }
+    // Whether the run is due later is judged by the database's clock, in the same query.
+    let (serving, due_later): (i64, bool) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM downbeat.worker
+                  WHERE role = 'worker' AND queues ? $1 AND last_seen_at > now() - interval '1 minute'),
+                $2 > now()",
+    )
+    .bind(&row.queue)
+    .bind(row.run_at)
+    .fetch_one(pool)
+    .await?;
     let stored =
         row.queued_because.as_deref().filter(|because| *because != "no_free_worker" && *because != "waiting_turn");
-    if let (Some(because), true) = (stored, row.run_at > Utc::now()) {
+    if let (Some(because), true) = (stored, due_later) {
         return Ok((
             because.to_owned(),
             row.queued_reason.clone().unwrap_or_else(|| format!("Queued until {}.", row.run_at.format("%H:%M:%S UTC"))),
         ));
     }
-    let serving: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM downbeat.worker WHERE role = 'worker' AND queues ? $1 AND last_seen_at > now() - interval '1 minute'",
-    )
-    .bind(&row.queue)
-    .fetch_one(pool)
-    .await?;
     let waited = since(row.run_at.min(Utc::now()));
     let reason = if serving == 0 {
         format!("Queued {waited}: no running worker serves queue {}.", row.queue)

@@ -32,10 +32,11 @@ async fn pause(
             "give the pause an end time with `until`, or set `until_resumed`: a forgotten pause is a silent outage",
         ));
     }
-    if let Some(until) = request.until
-        && until <= Utc::now()
-    {
-        return Err(Failure::bad_request("the pause would end in the past"));
+    if let Some(until) = request.until {
+        let in_future: bool = sqlx::query_scalar("SELECT $1 > now()").bind(until).fetch_one(&state.pool).await?;
+        if !in_future {
+            return Err(Failure::bad_request("the pause would end in the past"));
+        }
     }
     let until_text = request
         .until

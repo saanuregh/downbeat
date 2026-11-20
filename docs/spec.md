@@ -491,7 +491,8 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
 7. `htm` must equal the request method (case-insensitive), `htu` the path and query as received
    (including `/v1`), and `body_sha256` the base64url SHA-256 of the body, absent for an empty
    body.
-8. Failing any of 3–7 must answer 401, except a body over 256 KiB, which is 413.
+8. Failing any of 3–7 must answer 401, except a body over 256 KiB, which is 413. The header is
+   checked before the body is read, so a request with no token is 401 whatever its size.
 9. `sub` must equal `iss` unless the caller has `acts_for_people`; the token's `scope` must not
    exceed the caller's `max_scope`; for a caller limited to `jobs`, the token must name jobs, all
    within that list. Failing these must answer 403.

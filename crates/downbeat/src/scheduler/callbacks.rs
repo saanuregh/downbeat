@@ -23,20 +23,19 @@ async fn deliver_finished(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
             .await?;
         return Ok(());
     };
-    let rows: Vec<HistoryRow> = sqlx::query_as(
+    // A row is stale a day after the run last changed (its end, or its marking as succeeded), by
+    // the database's clock, which every process shares.
+    let rows: Vec<ClaimedRun> = sqlx::query_as(
         "UPDATE downbeat.run_history SET notify_after = now() + interval '5 minutes'
           WHERE run_id IN (SELECT run_id FROM downbeat.run_history WHERE notify_after <= now()
                             ORDER BY notify_after LIMIT $1 FOR UPDATE SKIP LOCKED)
-        RETURNING *",
+        RETURNING *, greatest(finished_at, marked_at) < now() - interval '1 day' AS stale",
     )
     .bind(BATCH)
     .fetch_all(pool)
     .await?;
-    for row in rows {
+    for ClaimedRun { row, stale } in rows {
         let run_id = row.run_id;
-        // A day from when the run last changed: its end, or its marking as succeeded.
-        let changed_at = row.marked_at.map_or(row.finished_at, |marked_at| marked_at.max(row.finished_at));
-        let stale = changed_at < chrono::Utc::now() - chrono::TimeDelta::days(1);
         let delivered = if stale {
             tracing::error!(%run_id, "on_finish failed for a day; this run's notification is dropped");
             true
@@ -57,6 +56,14 @@ async fn deliver_finished(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
         }
     }
     Ok(())
+}
+
+/// A history row claimed for delivery, and whether it is too old to deliver.
+#[derive(sqlx::FromRow)]
+struct ClaimedRun {
+    #[sqlx(flatten)]
+    row: HistoryRow,
+    stale: bool,
 }
 
 pub(crate) fn finished_run(registry: &Registry, row: HistoryRow) -> FinishedRun {
@@ -82,6 +89,8 @@ struct EventRow {
     audit_id: i64,
     at: chrono::DateTime<chrono::Utc>,
     detail: serde_json::Value,
+    /// Recorded more than a day ago, by the database's clock.
+    stale: bool,
 }
 
 async fn deliver_events(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
@@ -95,19 +104,18 @@ async fn deliver_events(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
         "UPDATE downbeat.audit SET notify_after = now() + interval '5 minutes'
           WHERE audit_id IN (SELECT audit_id FROM downbeat.audit WHERE notify_after <= now()
                               ORDER BY notify_after LIMIT $1 FOR UPDATE SKIP LOCKED)
-        RETURNING audit_id, at, detail",
+        RETURNING audit_id, at, detail, at < now() - interval '1 day' AS stale",
     )
     .bind(BATCH)
     .fetch_all(pool)
     .await?;
     for row in rows {
-        let stale = row.at < chrono::Utc::now() - chrono::TimeDelta::days(1);
         let delivered = match serde_json::from_value::<Event>(row.detail) {
             Err(error) => {
                 tracing::warn!(audit_id = row.audit_id, %error, "an event this build does not know is skipped");
                 true
             }
-            Ok(_) if stale => {
+            Ok(_) if row.stale => {
                 tracing::error!(audit_id = row.audit_id, "on_event failed for a day; this event is dropped");
                 true
             }

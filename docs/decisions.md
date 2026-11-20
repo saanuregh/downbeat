@@ -379,3 +379,20 @@ goes back at once for the next worker, with nothing counted, as an interrupted c
 A sign-in refused because the person was outside the allowed domains and groups was audited, but
 one refused because the provider had not verified the email address was not. Both now write a
 `sign_in_refused` row with the reason.
+
+## 59. Time decisions use the database's clock
+
+The spec defines "now" as the database's `now()`, so that processes on machines with drifting
+clocks agree. Three checks used the process's own clock instead: when a callback is too old to
+deliver, whether a pause's end is in the future, and whether a queued run is due later. Each is
+now asked of the database, inside a query that already runs where possible (the claim of a
+delivery batch, the queue view's worker count), so no request gains a round trip except a pause
+with an end time.
+
+## 60. A stopped command's process group is always killed
+
+A command stopped for a timeout, a cancel or a lost lease gets SIGTERM and the grace period. When
+its main program exited in that time, the worker returned without killing the group, so anything
+the program had started in the background, and that ignored SIGTERM, outlived the run and could
+overlap its next attempt. The group is now killed in that case too, as it is when a program ends
+by itself.

@@ -362,7 +362,11 @@ async fn run_program(
             let ended = program_ended(&process, tail, status).await;
             if matches!(ended, CallOutcome::Ended(_)) { ended } else { stop }
         }
-        Ok(_) => stop,
+        // The program ended, but what it started in the background may still run: the group goes.
+        Ok(_) => {
+            process.kill_group();
+            stop
+        }
         Err(_) => {
             process.kill();
             stop

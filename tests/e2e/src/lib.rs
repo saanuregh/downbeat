@@ -352,6 +352,16 @@ pub fn finishes_when_asked_to_stop() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "trap 'exit 0' TERM; sleep 60 & wait"])
 }
 
+/// Starts a helper that ignores SIGTERM in the background, writes its process id to the file the
+/// input names, then runs past its one-second timeout. Only killing the process group ends the
+/// helper.
+#[command(timeout = 1.seconds())]
+pub fn times_out_with_a_helper(input: Text) -> Program<()> {
+    Program::new("/bin/sh")
+        .args(["-c", "(trap '' TERM; exec sleep 300) & echo $! > \"$PID_FILE\"; sleep 300"])
+        .env("PID_FILE", input.text)
+}
+
 #[command]
 pub fn leaves_a_process_behind() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "sleep 300 & echo started"])
@@ -390,6 +400,7 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(per_account);
     pipeline.job(exits);
     pipeline.job(leaves_a_process_behind);
+    pipeline.job(times_out_with_a_helper);
     pipeline.job(crashes_while_prepared).only_if("not tested before", not_tested_before);
     pipeline.job(finishes_when_asked_to_stop);
     pipeline.job(too_big);
@@ -425,11 +436,18 @@ pub const FINISHED_DIR: &str = "E2E_FINISHED_DIR";
 pub fn definition() -> Definition {
     let mut definition = definition_without_callbacks();
     // Each finished run is written to a file named by its id in this directory, when it is set.
+    // A test can make delivery slow (a `slow` file: wait three seconds first) or fail (a `refuse`
+    // file) to see how the scheduler handles a callback that is running or returns an error.
     definition.on_finish(|finished: downbeat::FinishedRun| async move {
-        match std::env::var_os(FINISHED_DIR) {
-            Some(dir) => std::fs::write(std::path::Path::new(&dir).join(finished.run_id.to_string()), finished.status),
-            None => Ok(()),
+        let Some(dir) = std::env::var_os(FINISHED_DIR) else { return Ok(()) };
+        let dir = std::path::Path::new(&dir);
+        if dir.join("slow").exists() {
+            tokio::time::sleep(Duration::from_secs(3)).await;
         }
+        if dir.join("refuse").exists() {
+            return Err(std::io::Error::other("the test refuses this delivery"));
+        }
+        std::fs::write(dir.join(finished.run_id.to_string()), finished.status)
     });
     // Each event is written to `event-<id>` in the same directory, holding its name.
     definition.on_event(|delivery: downbeat::EventDelivery| async move {

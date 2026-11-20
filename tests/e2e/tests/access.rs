@@ -248,3 +248,34 @@ async fn a_caller_limited_to_some_jobs_is_refused_a_token_that_names_no_jobs() {
     billing.jobs = Some(vec!["echo".into(), "panics".into()]);
     assert_eq!(billing.send("GET", "/v1/jobs", b"").await.status(), 403, "a job outside the caller's list");
 }
+
+#[tokio::test]
+async fn a_used_changing_token_is_kept_until_six_seconds_after_it_expires() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    let local = Signer::local(&format!("http://{listen}"));
+    let body = serde_json::to_vec(&json!({ "input": { "text": "once" } })).unwrap();
+    let binding = downbeat_api::RequestBinding { method: "POST", path_and_query: "/v1/jobs/echo/runs", body: &body };
+    let claims = downbeat_api::Claims::for_request(
+        &local.caller,
+        &local.caller,
+        &local.audience,
+        local.scope,
+        None,
+        binding,
+        chrono::Utc::now().timestamp(),
+    );
+    let token = downbeat_api::sign(&local.key, &claims);
+    let response = local.send_with("POST", "/v1/jobs/echo/runs", &body, &token).await;
+    assert!(response.status().is_success(), "{}", response.status());
+
+    let expires_at: i64 = sqlx::query_scalar(
+        "SELECT extract(epoch FROM expires_at)::bigint FROM downbeat.used_token WHERE caller = $1 AND jti = $2",
+    )
+    .bind(&claims.iss)
+    .bind(&claims.jti)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert!((expires_at - (claims.exp + 6)).abs() <= 1, "expires_at {expires_at}, exp {}", claims.exp);
+}

@@ -149,6 +149,9 @@ pub(crate) async fn restart(
     let found = job(&state, &job_name)?;
     let input =
         input.ok_or_else(|| Failure::conflict("the run's input is not known yet, because it has not been prepared"))?;
+    // Checked before the preview, so a preview refuses what the restart would refuse.
+    let KeyedInput { input, hash: input_hash, turn_value } =
+        found.spec.input_ops.keyed(&job_name, input, false).map_err(Failure::unprocessable)?;
     if query.preview {
         let children = state.registry.children.get(job_name.as_str()).cloned().unwrap_or_default();
         return preview(
@@ -159,8 +162,6 @@ pub(crate) async fn restart(
             Vec::new(),
         );
     }
-    let KeyedInput { input, hash: input_hash, turn_value } =
-        found.spec.input_ops.keyed(&job_name, input, false).map_err(Failure::unprocessable)?;
     let request = StartJob {
         job: job_name.clone(),
         input,

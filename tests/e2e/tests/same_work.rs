@@ -252,3 +252,30 @@ async fn each_deliberate_request_creates_a_run_instead_of_joining() {
         .unwrap();
     assert_eq!(runs, 2 + 5, "each deliberate request made its own run");
 }
+
+#[tokio::test]
+async fn a_retry_or_a_restart_never_joins_queued_work() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = support::with_api_at(&database).await;
+    let local = support::Signer::local(&format!("http://{listen}"));
+    let body = serde_json::json!({ "input": { "text": "again" } });
+    let first: downbeat_client::types::StartResponse = local.post("/v1/jobs/echo/runs", &body).await;
+    finished(&database.pool, first.run_id, SOON).await;
+
+    database.hold("echo").await;
+    let queued: downbeat_client::types::StartResponse = local.post("/v1/jobs/echo/runs", &body).await;
+    assert!(!queued.joined);
+    let mut created = vec![queued.run_id];
+    for action in ["retry", "restart"] {
+        let done: downbeat_client::types::Done =
+            local.post(&format!("/v1/runs/{}/{action}", first.run_id), &serde_json::Value::Null).await;
+        let new_run = done.run_id.unwrap_or_else(|| panic!("a {action} names the run it created"));
+        assert!(!created.contains(&new_run), "the {action} joined {new_run}");
+        created.push(new_run);
+    }
+    let queued_runs: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.run WHERE job_name = 'echo'")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(queued_runs, 3, "the queued run, the retry and the restart");
+}
