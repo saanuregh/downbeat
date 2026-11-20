@@ -175,3 +175,64 @@ async fn a_cancelled_chain_starts_nothing_more() {
     .unwrap();
     assert_eq!(children, 0, "even an .after_any child, which a cancelled parent would otherwise start");
 }
+
+#[tokio::test]
+async fn a_run_that_would_go_back_to_the_queue_with_a_cancel_pending_ends_cancelled() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let signal = std::env::temp_dir().join(format!("not-ready-{}", uuid::Uuid::new_v4()));
+    let started =
+        client.start("not_ready_when_told", &Text { text: signal.display().to_string() }).send().await.unwrap();
+    let running = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND function_started_at IS NOT NULL)",
+        started.run_id
+    );
+    support::eventually(&database.pool, &running, SOON).await;
+
+    // Hold the run's row with a cancel already written, so the function's "not ready" reaches
+    // the re-queue before any heartbeat can see the cancel.
+    let mut holder = database.pool.begin().await.unwrap();
+    sqlx::query("UPDATE downbeat.run SET cancel_requested_by = 'asha' WHERE run_id = $1")
+        .bind(started.run_id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    std::fs::write(&signal, "").unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    holder.commit().await.unwrap();
+    let _ = std::fs::remove_file(&signal);
+
+    let done = finished(&database.pool, started.run_id, SOON).await;
+    assert_eq!(done.status, "cancelled", "{}", done.reason);
+    assert_eq!(done.reason, "Cancelled by asha.");
+    let last_call: Option<String> = sqlx::query_scalar(
+        "SELECT call_log -> (jsonb_array_length(call_log) - 1) ->> 'ended' FROM downbeat.run_history WHERE run_id = $1",
+    )
+    .bind(started.run_id)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(last_call.as_deref(), Some("not ready"), "the call ended as not ready; the re-queue saw the cancel");
+}
+
+#[tokio::test]
+async fn an_after_any_child_follows_a_cancelled_parent_too() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    hold(&client, "empty").await;
+    let started = client.start("empty", &Text { text: "held".into() }).send().await.unwrap();
+    client.cancel(started.run_id).await.unwrap();
+
+    let told = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'tells_how_empty_ended'
+          AND '{}' = ANY(parents) AND status = 'succeeded')",
+        started.run_id
+    );
+    support::eventually(&database.pool, &told, SOON).await;
+    let output: serde_json::Value =
+        sqlx::query_scalar("SELECT output FROM downbeat.run_history WHERE job_name = 'tells_how_empty_ended'")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(output, json!({ "text": "ended: Cancelled by local." }));
+}

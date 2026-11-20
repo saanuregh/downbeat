@@ -343,3 +343,93 @@ async fn a_session_ends_when_idle_too_long_or_too_old() {
         .unwrap();
     assert_eq!(me(old).await, 401, "a session ends at its absolute limit, however busy");
 }
+
+#[tokio::test]
+async fn someone_who_may_only_operate_cannot_do_what_needs_administer() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
+    let http = reqwest::Client::new();
+    let me = |cookie: &str| {
+        let (http, base, cookie) = (http.clone(), base.clone(), cookie.to_owned());
+        async move {
+            http.get(format!("{base}/api/me"))
+                .header("cookie", cookie)
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+
+    *provider.next_email.lock().unwrap() = "boss@example.com".into();
+    let boss = sign_in(&base).await.unwrap();
+    let granted = http
+        .post(format!("{base}/api/grants"))
+        .header("cookie", &boss)
+        .header("x-csrf-token", me(&boss).await["csrf_token"].as_str().unwrap())
+        .json(&json!({ "to_group": "operators", "scheduler": "test", "scope": "operate" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(granted.status().is_success(), "{}", granted.text().await.unwrap());
+
+    *provider.next_email.lock().unwrap() = "asha@example.com".into();
+    let asha = sign_in(&base).await.unwrap();
+    let csrf = me(&asha).await["csrf_token"].as_str().unwrap().to_owned();
+    let start = |body: Value| {
+        let (http, base, asha, csrf) = (http.clone(), base.clone(), asha.clone(), csrf.clone());
+        async move {
+            http.post(format!("{base}/api/schedulers/test/v1/jobs/echo/runs"))
+                .header("cookie", asha)
+                .header("x-csrf-token", csrf)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(start(json!({ "input": { "text": "plain" } })).await, 201);
+    assert_eq!(start(json!({ "input": { "text": "timed" }, "timeout_seconds": 30 })).await, 403);
+}
+
+#[tokio::test]
+async fn a_grant_limited_to_a_pipeline_shows_only_that_pipelines_jobs() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
+    let http = reqwest::Client::new();
+
+    *provider.next_email.lock().unwrap() = "boss@example.com".into();
+    let boss = sign_in(&base).await.unwrap();
+    let boss_me: Value =
+        http.get(format!("{base}/api/me")).header("cookie", &boss).send().await.unwrap().json().await.unwrap();
+    let granted = http
+        .post(format!("{base}/api/grants"))
+        .header("cookie", &boss)
+        .header("x-csrf-token", boss_me["csrf_token"].as_str().unwrap())
+        .json(&json!({ "to_group": "operators", "scheduler": "test", "scope": "read", "pipelines": ["clock"] }))
+        .send()
+        .await
+        .unwrap();
+    assert!(granted.status().is_success(), "{}", granted.text().await.unwrap());
+
+    *provider.next_email.lock().unwrap() = "asha@example.com".into();
+    let asha = sign_in(&base).await.unwrap();
+    let jobs: Value = http
+        .get(format!("{base}/api/schedulers/test/v1/jobs"))
+        .header("cookie", &asha)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mut names: Vec<&str> = jobs.as_array().unwrap().iter().map(|job| job["name"].as_str().unwrap()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["dated", "report", "ticker"], "only the clock pipeline's jobs");
+    let other =
+        http.get(format!("{base}/api/schedulers/test/v1/jobs/echo")).header("cookie", &asha).send().await.unwrap();
+    assert_eq!(other.status(), 403);
+}

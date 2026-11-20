@@ -156,3 +156,16 @@ async fn a_worker_cut_off_from_its_database_stops_the_run_and_says_so_later() {
         .unwrap();
     assert!(!ended, "the cut-off worker recorded nothing for the run");
 }
+
+#[tokio::test]
+async fn a_queued_run_with_a_cancel_requested_is_ended_by_the_reaper() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    hold(&database, "echo").await;
+    let _app = App::start(&database);
+
+    let run = queued_echo(&client, "unwanted").await;
+    set(&database, "UPDATE downbeat.run SET cancel_requested_by = 'asha' WHERE run_id = $1", run).await;
+    let done = finished(&database.pool, run, SOON).await;
+    assert_eq!((done.status.as_str(), done.reason.as_str()), ("cancelled", "Cancelled by asha."));
+}

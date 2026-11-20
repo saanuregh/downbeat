@@ -4,7 +4,8 @@ mod support;
 
 use downbeat_api::{PrivateKey, Scope};
 use downbeat_client::types::{
-    ApiError, AuditEntry, Page, PauseRequest, QueueView, RunView, StartRequest, StartResponse,
+    ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, OverrideRequest, OverrideView, Page,
+    PauseRequest, QueueView, RunView, StartRequest, StartResponse,
 };
 use serde_json::json;
 use support::{Database, Signer, with_api_at, with_callers};
@@ -18,6 +19,26 @@ fn caller(name: &str, max_scope: &str, jobs: Option<&str>) -> (String, PrivateKe
         key.public().to_base64()
     );
     (entry, key)
+}
+
+/// The test product trusting two callers: `operator`, who may do anything, and `billing`, who
+/// administers only the job `echo`.
+async fn operator_and_billing(database: &Database) -> (support::App, Signer, Signer) {
+    let (admin_entry, admin_key) = caller("operator", "administer", None);
+    let (billing_entry, billing_key) = caller("billing", "administer", Some("[\"echo\"]"));
+    let callers = format!("audience = \"test\"\n{admin_entry}{billing_entry}");
+    let (app, base) = with_callers(database, &callers).await;
+    let signer = |caller: &str, key, jobs| Signer {
+        base: base.clone(),
+        caller: caller.into(),
+        audience: "test".into(),
+        key,
+        scope: Scope::Administer,
+        jobs,
+    };
+    let admin = signer("operator", admin_key, None);
+    let billing = signer("billing", billing_key, Some(vec!["echo".into()]));
+    (app, admin, billing)
 }
 
 #[tokio::test]
@@ -64,26 +85,7 @@ async fn a_caller_over_its_burst_is_rate_limited() {
 #[tokio::test]
 async fn a_caller_limited_to_some_jobs_sees_no_runs_of_other_jobs() {
     let database = Database::fresh().await;
-    let (admin_entry, admin_key) = caller("operator", "administer", None);
-    let (billing_entry, billing_key) = caller("billing", "administer", Some("[\"echo\"]"));
-    let callers = format!("audience = \"test\"\n{admin_entry}{billing_entry}");
-    let (_app, base) = with_callers(&database, &callers).await;
-    let admin = Signer {
-        base: base.clone(),
-        caller: "operator".into(),
-        audience: "test".into(),
-        key: admin_key,
-        scope: Scope::Administer,
-        jobs: None,
-    };
-    let billing = Signer {
-        base,
-        caller: "billing".into(),
-        audience: "test".into(),
-        key: billing_key,
-        scope: Scope::Read,
-        jobs: Some(vec!["echo".into()]),
-    };
+    let (_app, admin, billing) = operator_and_billing(&database).await;
 
     let pause = serde_json::to_value(PauseRequest { note: "hold".into(), until: None, until_resumed: true }).unwrap();
     for job in ["echo", "panics"] {
@@ -133,4 +135,61 @@ async fn refused_requests_are_reported_at_most_once_a_minute() {
         support::SOON,
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_caller_limited_to_some_jobs_cannot_cancel_a_chain_that_reaches_others() {
+    let database = Database::fresh().await;
+    let (_app, admin, billing) = operator_and_billing(&database).await;
+    let pause = serde_json::to_value(PauseRequest { note: "hold".into(), until: None, until_resumed: true }).unwrap();
+    let _: serde_json::Value = admin.post("/v1/jobs/shout/pause", &pause).await;
+
+    let start = json!({ "input": { "text": "mine" } });
+    let echo: StartResponse = billing.post("/v1/jobs/echo/runs", &start).await;
+    support::eventually(
+        &database.pool,
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE job_name = 'shout')",
+        support::SOON,
+    )
+    .await;
+    let run: RunView = billing.get(&format!("/v1/runs/{}", echo.run_id)).await;
+
+    let cancel = billing.send("POST", &format!("/v1/chains/{}/cancel", run.chain_id), b"").await;
+    assert_eq!(cancel.status(), 403, "the chain now holds shout, which billing does not cover");
+    let still: ChainView = admin.get(&format!("/v1/chains/{}", run.chain_id)).await;
+    assert_eq!(still.cancelled_at, None);
+}
+
+#[tokio::test]
+async fn a_caller_limited_to_some_jobs_sees_no_overrides_backfills_or_calendar_of_others() {
+    let database = Database::fresh().await;
+    let (_app, admin, billing) = operator_and_billing(&database).await;
+    let day = chrono::NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
+    let off = OverrideRequest {
+        schedules: vec!["report".into()],
+        date: day,
+        change: "off".into(),
+        times: vec![],
+        note: "holiday".into(),
+    };
+    let _: serde_json::Value = admin.post("/v1/overrides", &serde_json::to_value(off).unwrap()).await;
+    let backfill =
+        BackfillRequest { job: "dated".into(), schedule: None, from: day, to: day, continue_on_failure: false };
+    let _: serde_json::Value = admin.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
+
+    let overrides: Vec<OverrideView> = admin.get("/v1/overrides").await;
+    assert_eq!(overrides.len(), 1);
+    let overrides: Vec<OverrideView> = billing.get("/v1/overrides").await;
+    assert!(overrides.is_empty(), "{overrides:?}");
+
+    let backfills: Vec<BackfillView> = admin.get("/v1/backfills").await;
+    assert_eq!(backfills.len(), 1);
+    let backfills: Vec<BackfillView> = billing.get("/v1/backfills").await;
+    assert!(backfills.is_empty(), "{backfills:?}");
+
+    let next_day = "/v1/calendar?date=2030-01-08";
+    let calendar: CalendarDay = admin.get(next_day).await;
+    assert!(calendar.entries.iter().any(|entry| entry.job == "report"));
+    let calendar: CalendarDay = billing.get(next_day).await;
+    assert!(calendar.entries.is_empty() && calendar.days_off.is_empty(), "{calendar:?}");
 }

@@ -115,3 +115,23 @@ async fn in_local_mode_only_this_machines_own_names_are_answered() {
     let ours = http.get(format!("{base}/api/me")).send().await.unwrap();
     assert_eq!(ours.status(), 200);
 }
+
+#[tokio::test]
+async fn an_action_that_needs_administer_is_signed_again_for_someone_who_holds_it() {
+    let database = Database::fresh().await;
+    let (_app, _client, scheduler) = with_api_at(&database).await;
+    let (_console, base) = console(&database, &scheduler).await;
+    let http = reqwest::Client::new();
+    let me: serde_json::Value = http.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let csrf = me["csrf_token"].as_str().unwrap();
+
+    // A start with a timeout of its own needs administer; the console first signs for operate.
+    let started = http
+        .post(format!("{base}/api/schedulers/local/v1/jobs/echo/runs"))
+        .header("x-csrf-token", csrf)
+        .json(&serde_json::json!({ "input": { "text": "x" }, "timeout_seconds": 30 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(started.status(), 201, "{}", started.text().await.unwrap());
+}

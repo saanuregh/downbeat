@@ -101,3 +101,79 @@ async fn one_per_keeps_runs_for_one_value_apart_and_lets_others_run() {
     let other_account = "x.input->>'account' <> y.input->>'account'";
     assert!(overlapped(&database, "per_account", other_account).await, "account b waited for account a");
 }
+
+#[tokio::test]
+async fn a_schedule_that_joins_queued_work_leaves_hidden_rows_that_are_not_delivered_and_go_soon() {
+    let database = Database::fresh().await;
+    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', 'ticker', 'test', 'held')")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let (app, client, _) = support::with_api_in(&database, "schedules").await;
+
+    // Each second the schedule asks for the same work again, and joins the one held run.
+    let joined =
+        "SELECT count(*) >= 2 FROM downbeat.run_history WHERE job_name = 'ticker' AND skipped_because = 'joined'";
+    support::eventually(&database.pool, joined, SOON).await;
+    let held: uuid::Uuid = sqlx::query_scalar("SELECT run_id FROM downbeat.run WHERE job_name = 'ticker'")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    let rows: Vec<(uuid::Uuid, Option<uuid::Uuid>, bool)> = sqlx::query_as(
+        "SELECT run_id, joined_run, notify_after IS NOT NULL FROM downbeat.run_history
+          WHERE job_name = 'ticker' AND skipped_because = 'joined'",
+    )
+    .fetch_all(&database.pool)
+    .await
+    .unwrap();
+    for (run_id, joined_run, to_deliver) in &rows {
+        assert_eq!(*joined_run, Some(held), "each row names the run it joined");
+        assert!(!to_deliver, "a joined row is not sent to on_finish");
+        assert!(!app.finished_dir.join(run_id.to_string()).exists());
+    }
+
+    let listed = client.runs("job=ticker").await.unwrap();
+    assert!(
+        listed.items.iter().all(|run| run.skipped_because.as_deref() != Some("joined")),
+        "the runs list hides joined rows"
+    );
+
+    sqlx::query(
+        "UPDATE downbeat.run_history SET finished_at = now() - interval '3 days' WHERE skipped_because = 'joined'",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    downbeat::measure::prune(&database.pool, definition()).await.unwrap();
+    let left: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM downbeat.run_history WHERE skipped_because = 'joined' AND finished_at < now() - interval '2 days'",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(left, 0, "joined rows go after two days");
+}
+
+#[tokio::test]
+async fn a_join_keeps_the_later_due_time_and_the_looser_expiry() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let input = Text { text: "merged".into() };
+    let first = client.start(echo, input.clone()).await.unwrap().run_id();
+    sqlx::query("UPDATE downbeat.run SET due_at = now() - interval '1 hour', expires_at = now() + interval '1 hour' WHERE run_id = $1")
+        .bind(first)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    let joined = client.start(echo, input).await.unwrap();
+    assert_eq!(joined, Started::Joined(first));
+    let (later_due, expiry): (bool, Option<chrono::DateTime<chrono::Utc>>) =
+        sqlx::query_as("SELECT due_at > now() - interval '1 minute', expires_at FROM downbeat.run WHERE run_id = $1")
+            .bind(first)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert!(later_due, "the join's later due time wins");
+    assert_eq!(expiry, None, "a request that never expires lifts the expiry");
+}

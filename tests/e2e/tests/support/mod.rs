@@ -117,10 +117,19 @@ pub async fn with_callers(database: &Database, callers: &str) -> (App, String) {
 
 /// The same, with the API's address.
 pub async fn with_api_at(database: &Database) -> (App, downbeat_client::Client, String) {
+    with_api_in(database, "test").await
+}
+
+/// The test product with the control API, in this environment (`schedules` turns on the
+/// every-second schedule).
+pub async fn with_api_in(database: &Database, environment: &str) -> (App, downbeat_client::Client, String) {
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let listen = format!("127.0.0.1:{port}");
-    let app =
-        App::with(database, &["scheduler", "worker", "--queues", "default=2", "--local", "--listen", &listen], "test");
+    let app = App::with(
+        database,
+        &["scheduler", "worker", "--queues", "default=2", "--local", "--listen", &listen],
+        environment,
+    );
     let deadline = tokio::time::Instant::now() + SOON;
     loop {
         match downbeat_client::Client::builder(&format!("http://{listen}")).local().connect().await {

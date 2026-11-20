@@ -152,6 +152,16 @@ pub async fn waits_for_file(_run: Run, input: Text) -> Result<Text> {
     Ok(input)
 }
 
+/// Waits for the file its input names, then says it is not ready, so a test controls the moment
+/// its run goes back to the queue.
+#[job(recheck_every = 1.minutes())]
+pub async fn not_ready_when_told(_run: Run, input: Text) -> Result<()> {
+    while !std::path::Path::new(&input.text).exists() {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    not_ready("told to wait")
+}
+
 #[job(max_memory = 64.mb(), timeout = 30.seconds())]
 pub async fn hungry(_run: Run) -> Result<()> {
     let mut hoard: Vec<Vec<u8>> = Vec::new();
@@ -280,6 +290,7 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(sleeps);
     pipeline.job(counts);
     pipeline.job(waits_for_file);
+    pipeline.job(not_ready_when_told);
     pipeline.job(hungry);
     pipeline.job(single);
     pipeline.job(per_account);

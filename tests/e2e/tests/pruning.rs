@@ -110,3 +110,49 @@ async fn keep_runs_at_most_keeps_that_many_of_the_newest_chains() {
     .unwrap();
     assert_eq!(kept, runs[3..], "the three oldest chains go, the newest twenty stay");
 }
+
+#[tokio::test]
+async fn pruning_passes_over_a_chain_whose_lock_is_held() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let app = App::start(&database);
+    let mut runs = Vec::new();
+    for text in ["old", "latest"] {
+        let run = client.start(echo, Text { text: text.into() }).await.unwrap().run_id();
+        finished(&database.pool, run, SOON).await;
+        runs.push(run);
+    }
+    eventually(
+        &database.pool,
+        "SELECT NOT EXISTS (SELECT 1 FROM downbeat.run_history WHERE notify_after IS NOT NULL)",
+        SOON,
+    )
+    .await;
+    app.stop();
+    let old = chain_of(&database, runs[0]).await;
+    sqlx::query("UPDATE downbeat.chain SET started_at = now() - interval '10 years'")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    // As if a run in the chain were ending right now.
+    let mut ending = database.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(old)
+        .execute(&mut *ending)
+        .await
+        .unwrap();
+    downbeat::measure::prune(&database.pool, definition()).await.unwrap();
+    let exists = || async {
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM downbeat.chain WHERE chain_id = $1)")
+            .bind(old)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap()
+    };
+    assert!(exists().await, "a chain whose lock is held is passed over");
+    ending.commit().await.unwrap();
+
+    downbeat::measure::prune(&database.pool, definition()).await.unwrap();
+    assert!(!exists().await, "and removed on the next pass");
+}
