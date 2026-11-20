@@ -49,6 +49,9 @@ async fn every_error_is_json() {
 
     let (status, unknown) = json_error(Signer::local(&base).send("GET", "/v1/nothing-here", b"").await).await;
     assert_eq!((status, unknown.error.as_str()), (404, "not_found"));
+    // Without a token, an unknown path is refused like any other: the token check comes first.
+    let (status, unsigned) = json_error(reqwest::get(format!("{base}/v1/nothing-here")).await.unwrap()).await;
+    assert_eq!((status, unsigned.error.as_str()), (401, "unauthorized"));
 
     let (status, wrong_method) = json_error(Signer::local(&base).send("DELETE", "/v1/jobs", b"").await).await;
     assert_eq!((status, wrong_method.error.as_str()), (405, "method_not_allowed"));

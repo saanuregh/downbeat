@@ -122,8 +122,13 @@ async fn start_next_date(
             let KeyedInput { input, hash: input_hash, turn_value } =
                 job.spec.input_ops.keyed(schedule.job, input, false)?;
             let policy = &job.spec.policy;
-            let expires_at = plan::expiry_of(schedule)
-                .map(|expiry| Utc::now() + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
+            // "Now" is the database's clock, as everywhere else (spec, preamble).
+            let now: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT now()")
+                .fetch_one(&mut *connection)
+                .await
+                .map_err(|error| error.to_string())?;
+            let expires_at =
+                plan::expiry_of(schedule).map(|expiry| now + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
             let run = NewRun {
                 job: schedule.job.to_owned(),
                 queue: policy.queue.to_owned(),

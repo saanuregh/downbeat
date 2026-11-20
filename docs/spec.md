@@ -386,8 +386,8 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
    group, with a parent-death signal of SIGKILL and `oom_score_adj` 1000. It must exit at once if
    the worker died before the signal was set.
 3. A child must report ready within 60 seconds, and runs one function at a time. Messages are
-   length-framed JSON over a Unix socket; each carries its run id, and a message for another run
-   must be ignored. A child must not touch the engine's tables.
+   length-framed JSON over a Unix socket; after the opening `Ready`, each carries its run id, and
+   a message for another run must be ignored. A child must not touch the engine's tables.
 4. A reused child must be replaced after `recycle_child_after` runs whose function it called (a run
    that ends while it is prepared does not count), after any call that ended
    in a panic, crash, timeout, memory kill, stop or shutdown, and after a function that returned
@@ -488,7 +488,8 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
 5. Its `iss` must be a configured caller, and the signature must verify strictly against one of
    that caller's keys.
 6. `aud` must equal the scheduler's audience; `exp − iat` must be at most 60 seconds; now must be
-   at most `exp + 5 s` and at least `iat − 5 s`.
+   at most `exp + 5 s` and at least `iat − 5 s`, by the scheduler process's clock (the token's
+   times come from the caller's clock, not the database's).
 7. `htm` must equal the request method (case-insensitive), `htu` the path and query as received
    (including `/v1`), and `body_sha256` the base64url SHA-256 of the body, absent for an empty
    body.
