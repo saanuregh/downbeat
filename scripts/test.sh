@@ -11,4 +11,6 @@ trap '"${bin}pg_ctl" -D "$data/db" -m immediate stop >/dev/null 2>&1 || true; rm
 "${bin}pg_ctl" -D "$data/db" -o "-k $data -c listen_addresses='' -c max_connections=400 -c fsync=off" -l "$data/log" start >/dev/null
 
 export DOWNBEAT_TEST_DATABASE_URL="postgres://downbeat@localhost/postgres?host=$data"
+# The end-to-end tests start the console binary, which no test target builds by itself.
+cargo build --workspace --bins
 cargo test --workspace "$@"

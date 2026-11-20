@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "tests/e2e"]
+members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "crates/downbeat-console", "tests/e2e"]
 
 [workspace.package]
 version = "0.1.0"
@@ -26,6 +26,8 @@ chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 hex = "0.4"
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
 ed25519-dalek = { version = "2", features = ["pem", "rand_core"] }
 libc = "0.2"
 proc-macro2 = "1"
@@ -42,7 +44,7 @@ toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "limit", "compression-full"] }
+tower-http = { version = "0.6", features = ["trace", "limit", "compression-full", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
