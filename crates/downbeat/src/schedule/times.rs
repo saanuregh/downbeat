@@ -229,4 +229,22 @@ mod tests {
         let occurrences = s.occurrences_on(date("2026-11-20"), &DayPlan::Normal);
         assert_eq!(local_times(&occurrences), ["11-20 00:00", "11-20 06:00", "11-20 12:00", "11-20 18:00"]);
     }
+
+    #[test]
+    fn a_shift_has_no_effect_on_every_with_no_window() {
+        let s = schedule(Times::Every { interval: 6.hours(), window: None }, chrono_tz::UTC);
+        let normal = s.occurrences_on(date("2026-11-20"), &DayPlan::Normal);
+        let shifted = s.occurrences_on(date("2026-11-20"), &DayPlan::Shifted(TimeDelta::minutes(-90)));
+        assert_eq!(shifted, normal);
+    }
+
+    #[test]
+    fn a_time_that_happens_twice_resolves_to_the_earlier_instant() {
+        // Clocks in New York moved back from 02:00 EDT to 01:00 EST on 2026-11-01, so 01:30 happened
+        // at 05:30 UTC and again at 06:30 UTC.
+        let s = schedule(Times::DailyAt(vec![parse_time("01:30").unwrap()]), chrono_tz::America::New_York);
+        let occurrences = s.occurrences_on(date("2026-11-01"), &DayPlan::Normal);
+        assert_eq!(occurrences.len(), 1);
+        assert_eq!(occurrences[0].at.to_rfc3339(), "2026-11-01T05:30:00+00:00");
+    }
 }

@@ -1,0 +1,5 @@
+error: a job function takes `run: Run` first, then its input (if any), then dependencies by reference
+ --> tests/compile_fail/run_is_not_first.rs:4:1
+  |
+4 | async fn takes_input_first(input: u32, _run: Run) -> Result<u32> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

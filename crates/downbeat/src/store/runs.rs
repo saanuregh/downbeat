@@ -455,13 +455,22 @@ pub(crate) async fn request_cancel(connection: &mut PgConnection, run_id: Uuid, 
     Ok(done.rows_affected() == 1)
 }
 
-/// Makes a waiting run due now ("check now").
+/// Why a queued run may be waiting on a check that "check now" can bring forward.
+const CHECKABLE: [&str; 3] = ["not_ready", "need_not_met", "backing_off"];
+
+/// Whether "check now" applies to this run: it is queued, waiting on a check.
+pub(crate) fn waits_on_a_check(run: &RunRow) -> bool {
+    run.state == "queued" && run.queued_because.as_deref().is_some_and(|because| CHECKABLE.contains(&because))
+}
+
+/// Makes a waiting run due now ("check now"), if it still waits on a check.
 pub(crate) async fn check_now(pool: &PgPool, run_id: Uuid) -> sqlx::Result<bool> {
     let done = sqlx::query(
         "UPDATE downbeat.run SET run_at = now()
-          WHERE run_id = $1 AND state = 'queued' AND queued_because IN ('not_ready', 'need_not_met', 'backing_off')",
+          WHERE run_id = $1 AND state = 'queued' AND queued_because = ANY($2)",
     )
     .bind(run_id)
+    .bind(&CHECKABLE[..])
     .execute(pool)
     .await?;
     Ok(done.rows_affected() == 1)

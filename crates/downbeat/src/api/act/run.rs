@@ -258,13 +258,17 @@ pub(crate) async fn check_now(
     let Found::Unfinished(run) = find_run(&state, &caller, id).await? else {
         return Err(Failure::conflict("the run has already finished"));
     };
+    let not_waiting =
+        || Failure::conflict("the run is not waiting on a check: it is running, or queued for another reason");
+    // The preview refuses what the call would refuse.
+    if !runs::waits_on_a_check(&run) {
+        return Err(not_waiting());
+    }
     if query.preview {
         return preview(vec![format!("Would make the waiting run of {} due now.", run.job_name)], Vec::new());
     }
     if !runs::check_now(&state.pool, id).await? {
-        return Err(Failure::conflict(
-            "the run is not waiting on a check: it is running, or queued for another reason",
-        ));
+        return Err(not_waiting());
     }
     let mut connection = state.pool.acquire().await?;
     audit::record(&mut connection, &caller.audit_name(), "check_now", Some(&run.job_name), Some(id), None, json!({}))

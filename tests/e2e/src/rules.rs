@@ -84,3 +84,13 @@ pub async fn naps(_run: Run, input: Number) -> Result<()> {
 pub fn fails_when_asked_to_stop() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "trap 'exit 3' TERM; sleep 60 & wait"])
 }
+
+/// A dependency whose build always fails: the definition provides it with a builder that errs.
+#[derive(Debug)]
+pub struct Warehouse;
+
+/// Takes the warehouse, so its call fails while the dependency cannot be built.
+#[job]
+pub async fn needs_the_warehouse(_run: Run, _warehouse: &Warehouse) -> Result<()> {
+    Ok(())
+}

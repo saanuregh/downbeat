@@ -43,3 +43,4 @@ workspace = true
 
 [dev-dependencies]
 serde.workspace = true
+trybuild.workspace = true

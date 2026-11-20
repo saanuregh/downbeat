@@ -425,6 +425,7 @@ fn links(pipeline: &mut Pipeline) {
     pipeline.job(frequent_flop);
     pipeline.job(naps);
     pipeline.job(fails_when_asked_to_stop);
+    pipeline.job(needs_the_warehouse);
     pipeline.job(hands_on);
     pipeline.job(lines_up);
     pipeline.job(in_turn).after(lines_up);
@@ -508,6 +509,10 @@ pub fn definition_without_callbacks() -> Definition {
     definition.pipeline("links", links);
     definition.pipeline("scheduling_rules", scheduling_rules::scheduling_rules_jobs);
     definition.pipeline("condition_rules", condition_rules::condition_rules_jobs);
+    definition.provide(|| async { Err::<Warehouse, _>("the warehouse is closed") });
+    // The values the scheduling rules' day rules read; the calendar never loads.
+    definition.provide(|| async { Ok::<_, std::convert::Infallible>(scheduling_rules::DayRules) });
+    definition.provide(|| async { Err::<scheduling_rules::BrokenCalendar, _>("the calendar did not load") });
     // Standard error kept from a failed command passes through this first.
     definition.redact(|text| text.replace("hunter2", "[redacted]"));
     definition

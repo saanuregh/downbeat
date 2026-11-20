@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::api::State;
 use crate::api::auth::Caller;
-use crate::api::error::{Answer, Failure};
+use crate::api::error::Answer;
 use crate::api::views;
 use crate::schedule::DayPlan;
 use crate::scheduler::plan::{self, PlanSource};
@@ -37,8 +37,16 @@ pub(crate) async fn calendar(
             continue;
         }
         let overrides = plan::overrides_for(&state.pool, &schedule.name).await?;
-        let (day_plan, source) =
-            plan::plan_for(registry, schedule, &overrides, date).await.map_err(Failure::bad_request)?;
+        // A day rule that fails costs only its own schedule (spec 10.1): it is listed as having no
+        // occurrences, with why, and every other schedule is shown as usual.
+        let (day_plan, source) = match plan::plan_for(registry, schedule, &overrides, date).await {
+            Ok(planned) => planned,
+            Err(error) => {
+                days_off
+                    .push(DayOff { schedule: schedule.name.clone(), reason: format!("Its day rule failed: {error}.") });
+                continue;
+            }
+        };
         let paused = views::pause_of(&state.pool, "schedule", &schedule.name).await?.is_some();
         if let DayPlan::Off(reason) = &day_plan {
             let by = match &source {

@@ -1,0 +1,5 @@
+error: a #[job] function is async; a #[command] function is not
+ --> tests/compile_fail/job_is_not_async.rs:4:1
+  |
+4 | fn not_async(_run: Run) -> Result<()> {
+  | ^^

@@ -1,0 +1,5 @@
+error: a #[command] function only describes the program, so it is not async
+ --> tests/compile_fail/command_is_async.rs:4:1
+  |
+4 | async fn lists_files() -> Program<()> {
+  | ^^^^^

@@ -1,5 +1,6 @@
 //! Entry points for measuring the engine's hottest statements against a real database. Used by
-//! the measurement in `tests/e2e/tests/measure.rs`; not part of the public API.
+//! the measurement in `tests/e2e/tests/measure.rs` and by tests of single engine steps; not part of
+//! the public API.
 
 use std::time::Duration;
 
@@ -23,15 +24,13 @@ pub async fn heartbeat(pool: &PgPool, run_id: Uuid, fence: i64) -> sqlx::Result<
 
 /// One pass of pruning, as the hourly task runs it.
 pub async fn prune(pool: &PgPool, definition: Definition) -> sqlx::Result<()> {
-    let registry =
-        Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
+    let registry = registry(definition, None)?;
     crate::pruning::prune(pool, &registry).await
 }
 
 /// One pass of callback delivery, as the scheduler runs it every `poll`.
 pub async fn deliver_callbacks(pool: &PgPool, definition: Definition) -> sqlx::Result<()> {
-    let registry =
-        Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
+    let registry = registry(definition, None)?;
     crate::scheduler::callbacks::deliver(pool, &registry).await
 }
 
@@ -43,11 +42,28 @@ pub async fn prune_old_chains_with_a_pause<F: Future<Output = ()>>(
     job: &str,
     between: impl FnOnce() -> F,
 ) -> sqlx::Result<i64> {
-    let registry =
-        Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
+    let registry = registry(definition, None)?;
     let keep_for = registry.job(job).map_or(Duration::from_secs(0), |found| found.spec.policy.keep_runs_for);
     let mut transaction = pool.begin().await?;
     let locked = crate::pruning::lock_older_than(&mut transaction, job, keep_for).await?;
     between().await;
     crate::pruning::remove_locked(transaction, &locked).await
+}
+
+/// Registers the schedules of this environment, as each scheduler does at start and every minute.
+pub async fn register_schedules(pool: &PgPool, definition: Definition, environment: &str) -> sqlx::Result<()> {
+    let registry = registry(definition, Some(environment))?;
+    crate::scheduler::fire::register(pool, &registry).await
+}
+
+/// One pass of firing the due schedules of this environment, as the scheduler runs it every `poll`.
+pub async fn fire_due_schedules(pool: &PgPool, definition: Definition, environment: &str) -> sqlx::Result<()> {
+    let registry = registry(definition, Some(environment))?;
+    crate::scheduler::fire::fire_due(pool, &registry).await
+}
+
+/// The registry a role would build from this definition, in this environment, or the definition's
+/// problems as an error.
+fn registry(definition: Definition, environment: Option<&str>) -> sqlx::Result<Registry> {
+    Registry::build(definition, environment).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))
 }
