@@ -198,12 +198,21 @@ fn go(
             let future = body(run, input, Arc::clone(&registry.dependencies));
             let outgoing = outgoing.clone();
             let span = tracing::info_span!("run", run_id = %run_id, job = %info.job);
+            // Tasks alive before the run: the child's own. Whatever the function leaves behind is
+            // counted against this when it returns.
+            let before = tokio::runtime::Handle::current().metrics().num_alive_tasks();
             tokio::spawn(async move {
                 let _ = outgoing.send(FromChild::Started { run_id });
                 let ending = match tokio::spawn(future.instrument(span)).await {
                     Ok(result) => ending_of(result),
                     Err(join) => ChildEnding::Panic(panic_message(join)),
                 };
+                // This wrapper task is still alive; anything more was spawned by the function and
+                // has outlived it. The worker then replaces this child, so it cannot touch the next run.
+                let left = tokio::runtime::Handle::current().metrics().num_alive_tasks().saturating_sub(before + 1);
+                if left > 0 {
+                    let _ = outgoing.send(FromChild::LeftTasks { run_id, count: left });
+                }
                 let _ = outgoing.send(FromChild::Ended { run_id, ending });
             });
         }

@@ -365,9 +365,10 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 3. A child must report ready within 60 seconds, and runs one function at a time. Messages are
    length-framed JSON over a Unix socket; each carries its run id, and a message for another run
    must be ignored. A child must not touch the engine's tables.
-4. A reused child must be replaced after `recycle_child_after` runs, and after any call that ended
-   in a panic, crash, timeout, memory kill, stop or shutdown. A `fresh_process` job must get a new
-   child for its run.
+4. A reused child must be replaced after `recycle_child_after` runs, after any call that ended
+   in a panic, crash, timeout, memory kill, stop or shutdown, and after a function that returned
+   with tasks it spawned still running (the child counts the runtime's alive tasks before and after
+   the call). A `fresh_process` job must get a new child for its run.
 5. The timeout clock starts when the call starts. The timeout is the run's override when a person
    set one (`0` meaning none), else the job's `timeout`.
 6. With `max_memory`, the resident memory of the child (or the command's program) must be sampled

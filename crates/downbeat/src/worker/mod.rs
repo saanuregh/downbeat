@@ -237,7 +237,8 @@ async fn drive(
         call::function(context, child, run, job, input, lease).await
     };
     child.runs += 1;
-    let spoiled = outcome.spoils_child() || child.runs >= context.registry.settings.recycle_child_after;
+    let spoiled =
+        outcome.spoils_child() || child.spoiled || child.runs >= context.registry.settings.recycle_child_after;
     if spoiled && !fresh {
         *warm = None;
     }

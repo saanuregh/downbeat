@@ -239,3 +239,10 @@ index on chains by first job did not make it faster, so none was added.
 the user guide and compiles it against a small scaffold of the names the samples assume. Rustdoc
 doctests were not used: their hidden setup lines would show on GitHub. Samples written with "…"
 are syntax templates and are skipped.
+
+## 40. A child that holds leftover tasks is replaced (supersedes 8)
+
+A task spawned with `tokio::spawn` cannot be cancelled from outside, but it can be counted. The
+child compares the runtime's alive tasks before and after each function; if the function left any
+running, the child says so and the worker replaces it after the run. The leftover tasks die with
+the process and never reach the next run.

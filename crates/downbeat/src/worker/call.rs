@@ -206,6 +206,10 @@ pub(crate) async fn function(
 /// Handles what a running function sends besides its ending.
 async fn answer(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, lease: &Lease, message: FromChild) {
     match message {
+        FromChild::LeftTasks { run_id, count } if run_id == run.run_id => {
+            tracing::warn!(%run_id, count, "the function left tasks running; its child process will be replaced");
+            child.spoiled = true;
+        }
         FromChild::Progress { run_id, text } if run_id == run.run_id => lease.progress(text),
         FromChild::Checkpoint { run_id, state, request } if run_id == run.run_id => match request {
             None => lease.checkpoint(state),

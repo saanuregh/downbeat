@@ -74,6 +74,12 @@ pub(crate) enum FromChild {
         request: u64,
         start: ChildStart,
     },
+    /// The function returned but left tasks it spawned still running: the child must not be
+    /// reused.
+    LeftTasks {
+        run_id: Uuid,
+        count: usize,
+    },
     Ended {
         run_id: Uuid,
         ending: ChildEnding,

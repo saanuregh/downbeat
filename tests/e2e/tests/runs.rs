@@ -264,3 +264,23 @@ async fn a_command_that_leaves_a_background_process_still_finishes() {
     let done = finished(&database.pool, run.run_id(), std::time::Duration::from_secs(10)).await;
     assert_eq!(done.status, "succeeded", "{}", done.reason);
 }
+
+#[tokio::test]
+async fn a_child_is_replaced_after_a_function_leaves_a_task_running() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::with(&database, &["worker", "--queues", "default=1"], "test");
+    let pid = |n| {
+        let client = client.clone();
+        let pool = database.pool.clone();
+        async move {
+            let run = client.start(child_pid, Number { n }).await.unwrap();
+            finished(&pool, run.run_id(), SOON).await.output.unwrap()
+        }
+    };
+    let first = pid(1).await;
+    assert_eq!(pid(2).await, first, "ordinary runs share the slot's child");
+    let leaving = client.start(leaves_a_task, ()).await.unwrap();
+    assert_eq!(finished(&database.pool, leaving.run_id(), SOON).await.status, "succeeded");
+    assert_ne!(pid(3).await, first, "the child that held a leftover task was replaced");
+}

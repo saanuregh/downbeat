@@ -184,6 +184,20 @@ pub async fn fresh_noop(_run: Run, input: Number) -> Result<()> {
     Ok(())
 }
 
+/// Its child process's id, to see whether runs share a child.
+#[job]
+pub async fn child_pid(_run: Run, input: Number) -> Result<u32> {
+    let _ = input;
+    Ok(std::process::id())
+}
+
+/// Spawns a task that outlives the function.
+#[job]
+pub async fn leaves_a_task(_run: Run) -> Result<()> {
+    tokio::spawn(async { tokio::time::sleep(Duration::from_secs(3600)).await });
+    Ok(())
+}
+
 #[command]
 pub fn leaves_a_process_behind() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "sleep 300 & echo started"])
@@ -200,6 +214,8 @@ fn basics(pipeline: &mut Pipeline) {
     pipeline.job(starter);
     pipeline.job(noop);
     pipeline.job(fresh_noop);
+    pipeline.job(child_pid);
+    pipeline.job(leaves_a_task);
 }
 
 fn failures(pipeline: &mut Pipeline) {

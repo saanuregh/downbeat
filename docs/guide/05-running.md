@@ -183,10 +183,10 @@ a readable diff. The market example's snapshot is
 ## Known limits
 
 - **Linux only.** Workers rely on process groups, the parent-death signal and `/proc`.
-- **Tasks a function spawns are not tracked.** A function should await what it spawns. A reused
-  child is replaced after `recycle_child_after` runs and after any forced kill, and
-  `fresh_process` gives a clean process every run
-  ([decision 8](../decisions.md#8-tasks-a-function-spawns-are-not-tracked)).
+- **Tasks a function spawns are not cancelled one by one.** When a function returns with tasks it
+  spawned still running, the child counts them, logs it, and is replaced after the run, so they
+  cannot touch the next run ([decision 40](../decisions.md#40-a-child-that-holds-leftover-tasks-is-replaced)).
+  A function should still await what it spawns.
 - **A command's background processes** are killed when the program exits only if they stayed in
   its process group. A program that detaches them is not contained; run such a worker in a
   container whose teardown kills everything inside.

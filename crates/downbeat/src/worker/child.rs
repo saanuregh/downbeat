@@ -22,6 +22,8 @@ pub(crate) struct ChildHandle {
     messages: mpsc::UnboundedReceiver<FromChild>,
     /// Runs this child has done, so it is replaced after a set number.
     pub(crate) runs: u32,
+    /// A function left tasks running here: the child is replaced after its run.
+    pub(crate) spoiled: bool,
 }
 
 impl ChildHandle {
@@ -46,7 +48,7 @@ impl ChildHandle {
                 }
             }
         });
-        let mut child = ChildHandle { process, writer, messages, runs: 0 };
+        let mut child = ChildHandle { process, writer, messages, runs: 0, spoiled: false };
         match tokio::time::timeout(READY_WITHIN, child.next()).await {
             Ok(Some(FromChild::Ready)) => Ok(child),
             Ok(_) => Err(io::Error::other("the child process stopped before it was ready; see its output above")),
