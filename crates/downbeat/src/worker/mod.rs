@@ -333,6 +333,7 @@ fn decide(
         CallOutcome::Stopped(StopReason::Lost) => Decision::Nothing,
         CallOutcome::Stopped(StopReason::Unreachable) => {
             tracing::error!(run_id = %run.run_id, "no heartbeat succeeded for a whole lease; the function was stopped");
+            tokio::spawn(report_unreachable(context.pool.clone(), context.id.clone()));
             Decision::Nothing
         }
         CallOutcome::Interrupted => Decision::Requeue(Requeue {
@@ -454,6 +455,21 @@ async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
             times: i32::from(run.interruptions) + 1,
         };
         let _ = audit::event(&mut connection, &event, Some(&run.job_name), Some(run.run_id), None).await;
+    }
+}
+
+/// Tells `on_event` that this worker lost its database for a whole lease, once it can reach the
+/// database again (trying for ten minutes).
+async fn report_unreachable(pool: PgPool, worker: String) {
+    for _ in 0..60 {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        if let Ok(mut connection) = pool.acquire().await
+            && audit::event(&mut connection, &Event::DatabaseUnreachable { worker: worker.clone() }, None, None, None)
+                .await
+                .is_ok()
+        {
+            return;
+        }
     }
 }
 

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The tests start a throwaway cluster with these binaries (scripts/postgres.sh).
+  PG_BIN: /usr/lib/postgresql/16/bin
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the version and components from rust-toolchain.toml.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+
+      - name: Console screens
+        working-directory: crates/downbeat-console/web
+        run: |
+          bun install --frozen-lockfile
+          bun fmt --check
+          bun run check
+          bun run lint
+          bun run test
+          bun run build
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Example schedule snapshot is current
+        run: cargo run -q -p market -- check --verify-snapshot examples/market/schedules.snapshot > /dev/null
+
+      - name: Test
+        run: scripts/test.sh

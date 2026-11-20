@@ -112,10 +112,12 @@ pub mod prelude {
 /// What the macros' generated code refers to. Not part of the public API.
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::job::Registered;
     pub use crate::job::{
         ProgramFn, TurnValueFn, decode_input, decode_value, encode_output, field_text, without_fields,
     };
     pub use futures::future::BoxFuture;
+    pub use inventory;
     pub use serde_json::{Value, to_value};
     pub use std::sync::Arc;
 }

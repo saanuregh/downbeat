@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "crates/downbeat-console", "tests/e2e"]
+members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "crates/downbeat-console", "examples/market", "tests/e2e"]
 
 [workspace.package]
 version = "0.1.0"
@@ -26,6 +26,7 @@ chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 hex = "0.4"
+inventory = "0.3"
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
 ed25519-dalek = { version = "2", features = ["pem", "rand_core"] }

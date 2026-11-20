@@ -143,3 +143,15 @@ for a running function have deadlines, and every connection has a 60-second stat
 
 The program's process group is killed once its main process exits, so a background process cannot
 hold its standard error open and keep the run from finishing.
+
+## 25. `check` finds jobs no pipeline names through `inventory`
+
+Every `#[job]` and `#[command]` registers its name with the `inventory` crate, the only way to
+list items compiled into a binary without a hand-kept list. A job in a shared crate that one
+product does not use must be removed from that product's build, or named in a pipeline.
+
+## 26. The example product and the demo
+
+`examples/market` is a small product written the way the design intends; its schedule snapshot is
+committed and CI fails when it is stale. `mise run demo` runs it with the console on this machine
+against a throwaway Postgres.

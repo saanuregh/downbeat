@@ -68,6 +68,10 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
 
         #erased
 
+        ::downbeat::__private::inventory::submit! {
+            ::downbeat::__private::Registered { name: #name }
+        }
+
         impl ::downbeat::Job for #handle {
             type Input = #input_type;
             type Output = #output_type;

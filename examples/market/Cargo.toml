@@ -1,0 +1,15 @@
+[package]
+name = "market"
+description = "An example product: a small market-data system scheduled with downbeat."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+downbeat.workspace = true
+serde.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

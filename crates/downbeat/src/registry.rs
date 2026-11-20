@@ -111,6 +111,11 @@ impl Registry {
             pipelines.insert(name.clone(), names);
         }
 
+        for compiled in crate::job::compiled_jobs() {
+            if !jobs.contains_key(compiled) {
+                problems.add(compiled, format!("no pipeline names this job; add pipeline.job({compiled}) to the pipeline it belongs to, or remove it"));
+            }
+        }
         let children = check_graph(&jobs, &mut problems);
         check_dependencies(&jobs, &schedules, &definition.dependencies, &mut problems);
         if let Some(problem) = definition.settings.shutdown_problem() {
@@ -352,23 +357,21 @@ fn check_graph(
     }
 
     // Joins: every parent must be downstream of one common job, so they can end in one chain.
-    if cyclic.is_empty() {
-        for (name, job) in jobs {
-            let Some(link) = &job.link else { continue };
-            if link.parents.len() < 2 {
-                continue;
-            }
-            let mut common: Option<BTreeSet<&str>> = None;
-            for parent in &link.parents {
-                let ancestors = ancestors_and_self(parent, &parents_of);
-                common = Some(match common {
-                    None => ancestors,
-                    Some(so_far) => so_far.intersection(&ancestors).copied().collect(),
-                });
-            }
-            if common.is_some_and(|set| set.is_empty()) {
-                problems.add(*name, "its parents can never end in the same chain: they share no first job. Give them a common first job (see the pipelines chapter)");
-            }
+    for (name, job) in jobs {
+        let Some(link) = &job.link else { continue };
+        if link.parents.len() < 2 {
+            continue;
+        }
+        let mut common: Option<BTreeSet<&str>> = None;
+        for parent in &link.parents {
+            let ancestors = ancestors_and_self(parent, &parents_of);
+            common = Some(match common {
+                None => ancestors,
+                Some(so_far) => so_far.intersection(&ancestors).copied().collect(),
+            });
+        }
+        if common.is_some_and(|set| set.is_empty()) {
+            problems.add(*name, "its parents can never end in the same chain: they share no first job. Give them a common first job (see the pipelines chapter)");
         }
     }
     children

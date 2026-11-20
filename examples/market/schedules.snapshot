@@ -1,0 +1,24 @@
+after_close
+  daily_report
+    schedule: Asia/Kolkata daily at 16:00, by calendar trading_days
+    needs fetch_prices for the input this run needs, or wait
+    expect success every 1d2h
+    supports dry run
+market_hours
+  build_candles
+    after fetch_prices
+    if its input changed
+    queue heavy
+    timeout 30m
+    fresh process
+    max memory 512 MiB
+  export_csv (command)
+    after build_candles
+  fetch_prices
+    schedule: Asia/Kolkata every 30m from 09:15 to 15:30 on Mon, Tue, Wed, Thu, Fri, by calendar trading_days
+    attempts 3, backoff 10s..=2m
+    keep at most 50 runs
+upkeep
+  housekeeping
+    schedule: Asia/Kolkata daily at 02:00
+    one at a time

@@ -30,6 +30,21 @@ pub(crate) use run::{RunLink, StartRequest, decode};
 
 use crate::dependencies::{Dependencies, Dependency};
 
+/// Every `#[job]` and `#[command]` in the binary registers its name here, so `check` can name a
+/// job that no pipeline uses.
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct Registered {
+    pub name: &'static str,
+}
+
+inventory::collect!(Registered);
+
+/// The names of every job compiled into this binary.
+pub(crate) fn compiled_jobs() -> impl Iterator<Item = &'static str> {
+    inventory::iter::<Registered>.into_iter().map(|registered| registered.name)
+}
+
 /// A job: the handle `#[job]` or `#[command]` makes from a function.
 pub trait Job: Copy + Send + Sync + 'static {
     /// What the function takes; `()` for a job with no input.
