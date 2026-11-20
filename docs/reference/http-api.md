@@ -151,6 +151,13 @@ An error from downbeat is JSON `ApiError`:
 { "error": "forbidden", "message": "this needs the administer scope; the token has operate" }
 ```
 
+The same shape answers a path that does not exist or a method an endpoint does not take, for
+example `DELETE /v1/jobs`:
+
+```json
+{ "error": "method_not_allowed", "message": "method not allowed" }
+```
+
 | Status | `error` | When |
 | --- | --- | --- |
 | 400 | `bad_request` | A rule about the request is broken: a pause with no note or no end, an override that does not fit its schedule, a bad cursor or filter, a backfill range that ends before it begins. |

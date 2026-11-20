@@ -20,6 +20,7 @@ import {
   secondsBetween,
   shortId,
   timingAgainstExpected,
+  formatStartedBy,
 } from "../format";
 import { useLoad } from "../load";
 import { Link } from "../router";
@@ -146,10 +147,7 @@ export function RunScreen({ params }: { params: Record<string, string> }) {
             "Calls",
             `${view.calls}${view.lost_count ? `, ${view.lost_count} lost` : ""}${view.interruptions ? `, ${view.interruptions} interrupted` : ""}`,
           ],
-          [
-            "Started by",
-            `${view.started_by}${view.actor ? ` (${view.actor})` : ""}${view.schedule ? `, schedule ${view.schedule}` : ""}`,
-          ],
+          ["Started by", formatStartedBy(view)],
           ["Queue and priority", `${view.queue}, priority ${view.priority}`],
           [
             "Chain",

@@ -240,3 +240,19 @@ export function wallTimeToUtc(local: string, zone: string): string | null {
   }
   return new Date(guess).toISOString();
 }
+
+/** An actor as the scheduler writes it, "asha (via console)", in words: "asha via console". */
+export function formatActor(actor: string): string {
+  return actor.replace(/ \(via (.+)\)$/, " via $1");
+}
+
+/** Who or what started a run: "asha via console", or "schedule market_open". */
+export function formatStartedBy(view: {
+  started_by: string;
+  actor?: string | null;
+  schedule?: string | null;
+}): string {
+  if (view.schedule) return `schedule ${view.schedule}`;
+  if (view.actor) return formatActor(view.actor);
+  return view.started_by;
+}

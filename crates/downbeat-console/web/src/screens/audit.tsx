@@ -1,7 +1,7 @@
 // Who did what: to jobs, from the scheduler's audit; and sign-ins and grants, from the console's.
 import { queryString } from "../api";
 import { Empty, ErrorNote, Loading, PageHeader, Time } from "../components/ui";
-import { shortId } from "../format";
+import { formatActor, shortId } from "../format";
 import { useLoad } from "../load";
 import { Link, useLocation } from "../router";
 import { useScheduler } from "../session";
@@ -135,7 +135,7 @@ function AuditTable(props: {
                   <td className="nowrap">
                     <Time at={entry.at} />
                   </td>
-                  <td>{entry.actor}</td>
+                  <td>{formatActor(entry.actor)}</td>
                   <td>{entry.action.replaceAll("_", " ")}</td>
                   {props.showTarget && (
                     <td>

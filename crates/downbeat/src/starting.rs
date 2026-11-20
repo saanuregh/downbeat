@@ -38,6 +38,37 @@ pub(crate) struct StartOptions {
 }
 
 impl StartOptions {
+    /// The options that differ from a plain start, for the audit: `null` when there are none.
+    fn chosen(&self) -> serde_json::Value {
+        let mut chosen = serde_json::Map::new();
+        if let Some(priority) = self.priority {
+            chosen.insert("priority".into(), priority.into());
+        }
+        if let Some(not_before) = self.not_before {
+            chosen.insert("not_before".into(), not_before.to_rfc3339().into());
+        }
+        for (name, set) in [
+            ("dry_run", self.dry_run),
+            ("without_children", self.without_children),
+            ("even_if_queued", self.even_if_queued),
+            ("ignore_conditions", self.ignore_conditions),
+        ] {
+            if set {
+                chosen.insert(name.into(), true.into());
+            }
+        }
+        match self.timeout {
+            Some(Timeout::After(timeout)) => {
+                chosen.insert("timeout".into(), crate::units::format_duration(timeout).into());
+            }
+            Some(Timeout::Never) => {
+                chosen.insert("timeout".into(), "none".into());
+            }
+            None => {}
+        }
+        if chosen.is_empty() { serde_json::Value::Null } else { chosen.into() }
+    }
+
     /// Rule 1 of "the same work is done once" does not apply to a deliberate run.
     pub(crate) fn deliberate(&self) -> bool {
         self.even_if_queued
@@ -151,7 +182,7 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
             Some(&request.job),
             Some(created.run_id()),
             None,
-            serde_json::json!({ "options": format!("{options:?}") }),
+            options.chosen(),
         )
         .await?;
     }
@@ -167,6 +198,13 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
 mod tests {
     use super::turn_key;
     use crate::job::{Policy, Turn};
+
+    #[test]
+    fn the_audit_names_only_the_options_chosen() {
+        assert_eq!(super::StartOptions::default().chosen(), serde_json::Value::Null);
+        let options = super::StartOptions { priority: Some(5), dry_run: true, ..Default::default() };
+        assert_eq!(options.chosen(), serde_json::json!({ "priority": 5, "dry_run": true }));
+    }
 
     #[test]
     fn turn_keys_of_different_kinds_never_overlap() {

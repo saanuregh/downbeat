@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   addDays,
+  formatActor,
+  formatStartedBy,
   dateInZone,
   formatClock,
   formatDateTime,
@@ -137,5 +139,23 @@ describe("shortId", () => {
   test("uses the random end of a time-ordered id, so runs made together differ", () => {
     expect(shortId("01a1f9f1-b7bd-76cf-ba10-b77b5eb72c8f")).toBe("5eb72c8f");
     expect(shortId("01a1f9f1-bbbe-706d-a1bd-7538b4668488")).toBe("b4668488");
+  });
+});
+
+describe("who started a run", () => {
+  test("an actor acting through a caller reads as plain words", () => {
+    expect(formatActor("asha@example.com (via console)")).toBe(
+      "asha@example.com via console",
+    );
+    expect(formatActor("billing")).toBe("billing");
+  });
+  test("a schedule names itself; otherwise the actor, else how it started", () => {
+    expect(
+      formatStartedBy({ started_by: "schedule", schedule: "market_open" }),
+    ).toBe("schedule market_open");
+    expect(formatStartedBy({ started_by: "person", actor: "a (via c)" })).toBe(
+      "a via c",
+    );
+    expect(formatStartedBy({ started_by: "link" })).toBe("link");
   });
 });

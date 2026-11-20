@@ -301,7 +301,9 @@ function DurationBars({
       seconds: secondsBetween(run.started_at, run.finished_at) ?? 0,
     }))
     .toReversed();
-  if (finished.length < 2) return null;
+  // Under a second each, the bars would all be the same sliver and say nothing.
+  if (finished.length < 2 || finished.every((item) => item.seconds < 1))
+    return null;
   const height = 64;
   const bar = 12;
   const gap = 4;
