@@ -9,9 +9,11 @@ use uuid::Uuid;
 
 use crate::units::format_duration;
 
-/// The first eight characters of an id, as people read them.
+/// The last eight hex digits of an id, as people read them. Ids are time-ordered (UUIDv7), so
+/// their start is shared by everything made in the same moment and only their end tells them apart.
 pub(crate) fn short(id: Uuid) -> String {
-    id.to_string()[..8].to_owned()
+    let hex = id.simple().to_string();
+    hex[hex.len() - 8..].to_owned()
 }
 
 fn clock(at: DateTime<Utc>, zone: Tz) -> String {

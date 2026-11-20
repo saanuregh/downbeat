@@ -1,0 +1,156 @@
+/* Drawings and timelines: the calendar, the pipeline graph, duration bars, chain steps. */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.timeline-entry {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-4);
+  position: relative;
+  padding: var(--space-2) 0;
+}
+
+.timeline-entry::before {
+  content: "";
+  position: absolute;
+  left: 76px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+
+.timeline-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  padding-top: 1px;
+}
+
+.timeline-body {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.is-past .timeline-time {
+  color: var(--muted);
+}
+
+.now-before {
+  border-top: 2px solid var(--accent);
+  margin-top: var(--space-2);
+}
+
+.now-before::after {
+  content: "now";
+  position: absolute;
+  top: -11px;
+  left: 0;
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: var(--surface);
+  padding: 0 var(--space-1);
+}
+
+/* The pipeline graph and the duration bars. */
+
+.graph-scroll {
+  margin: 0;
+  overflow-x: auto;
+}
+
+.graph {
+  display: block;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  opacity: 0.6;
+}
+
+.graph-arrowhead {
+  fill: var(--muted);
+}
+
+.graph-node rect {
+  fill: var(--tone-bg);
+  stroke: var(--tone);
+  stroke-width: 1.5;
+}
+
+.graph-node:focus-visible {
+  outline: none;
+}
+
+.graph-node:focus-visible rect,
+.graph-node:hover rect {
+  stroke-width: 3;
+}
+
+.graph-job {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.graph-status {
+  fill: var(--tone);
+  font-size: 12px;
+}
+
+.bars {
+  margin: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.bar {
+  fill: var(--tone);
+  opacity: 0.85;
+}
+
+.bar-expected {
+  stroke: var(--muted);
+  stroke-dasharray: 4 3;
+}
+
+/* Chain steps. */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.step {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.step-header .button {
+  margin-left: auto;
+}
+
+.step-run {
+  display: grid;
+  gap: var(--space-1);
+}

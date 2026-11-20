@@ -21,12 +21,15 @@ run = [
 ]
 
 [tasks.lint]
-description = "Clippy on every crate, warnings as errors"
-run = "cargo clippy --workspace --all-targets -- -D warnings"
+description = "Clippy on every crate and oxlint on the screens, warnings as errors"
+run = [
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cd crates/downbeat-console/web && bun run check && bun run lint",
+]
 
 [tasks.test]
 description = "Run every test; database tests use a throwaway Postgres"
-run = "scripts/test.sh"
+run = ["cd crates/downbeat-console/web && bun run test", "scripts/test.sh"]
 
 [tasks.web]
 description = "Build the console's screens"
