@@ -246,3 +246,10 @@ A task spawned with `tokio::spawn` cannot be cancelled from outside, but it can 
 child compares the runtime's alive tasks before and after each function; if the function left any
 running, the child says so and the worker replaces it after the run. The leftover tasks die with
 the process and never reach the next run.
+
+## 41. Sign-in is tested against a real provider when Dex is available
+
+`tests/e2e/tests/sign_in_dex.rs` runs Dex with an in-memory store and one password user, fills in
+its login form, and checks that the console signs the person in and forwards a request for them.
+CI does not run it (Dex ships no release binary to download); `scripts/test.sh` runs it whenever
+`dex` is on `PATH`.

@@ -63,6 +63,7 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 | Authoring | `crates/downbeat/tests/authoring.rs` | The product-facing API compiles and behaves as the guide says. |
 | Check | `crates/downbeat/tests/check.rs` | `check` names each mistake. |
 | End to end | `tests/e2e/tests/` | Behaviour through real processes: a test product (`tests/e2e/src/lib.rs`) as scheduler and workers, the API through `downbeat-client`, the console. |
+| Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Runs when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`) or `DOWNBEAT_TEST_DEX` names it; otherwise it reports itself skipped. |
 | Docs | `tests/guide` | Every Rust sample in the README and the user guide compiles; samples written with "…" are syntax templates and are skipped. A sample may use the names in `tests/guide/src/scaffold.rs`. |
 | Example | `examples/market/tests` | The test kit (`downbeat::testing`) on a real definition: schedules on any date, with no database. |
 | Measurement | `tests/e2e/tests/measure.rs` | Opt-in (`-- --ignored`): the numbers in [docs/performance.md](docs/performance.md). |

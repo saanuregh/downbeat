@@ -134,8 +134,11 @@ The console uses OpenID Connect with the authorization-code flow, PKCE (`S256`),
   `session_idle_hours` without use, after `session_absolute_hours` in all, or at sign-out.
 - Every request that is not a GET must carry the session's CSRF token in an `x-csrf-token` header.
 
-The sign-in flow is tested end to end only against a small fake provider
-([`tests/e2e/tests/sign_in.rs`](../../tests/e2e/tests/sign_in.rs)).
+The sign-in flow is tested end to end against a small fake provider that checks PKCE and signs
+Ed25519 tokens ([`tests/e2e/tests/sign_in.rs`](../../tests/e2e/tests/sign_in.rs)), and against a
+real one, [Dex](https://dexidp.io), whose login form the test fills in
+([`tests/e2e/tests/sign_in_dex.rs`](../../tests/e2e/tests/sign_in_dex.rs); it runs when `dex` is
+on `PATH` or `DOWNBEAT_TEST_DEX` names it).
 
 ## Who may do what: grants
 

@@ -13,7 +13,7 @@ ed25519-dalek.workspace = true
 sha2.workspace = true
 downbeat.workspace = true
 downbeat-client.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["cookies"] }
 anyhow.workspace = true
 chrono.workspace = true
 futures.workspace = true
