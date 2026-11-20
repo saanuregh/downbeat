@@ -78,3 +78,35 @@ async fn chain_of(database: &Database, run: Uuid) -> Uuid {
     .await
     .unwrap()
 }
+
+#[tokio::test]
+async fn keep_runs_at_most_keeps_that_many_of_the_newest_chains() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+
+    // `ticker` uses the `frequent` preset: keep_runs_at_most = 20.
+    let mut runs = Vec::new();
+    for _ in 0..23 {
+        let run = client.start(ticker, ()).await.unwrap();
+        finished(&database.pool, run.run_id(), SOON).await;
+        runs.push(run.run_id());
+    }
+    eventually(
+        &database.pool,
+        "SELECT NOT EXISTS (SELECT 1 FROM downbeat.run_history WHERE notify_after IS NOT NULL)",
+        SOON,
+    )
+    .await;
+
+    downbeat::measure::prune(&database.pool, definition()).await.unwrap();
+
+    let kept: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT h.run_id FROM downbeat.run_history h JOIN downbeat.chain c USING (chain_id)
+          WHERE h.job_name = 'ticker' ORDER BY h.finished_at",
+    )
+    .fetch_all(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(kept, runs[3..], "the three oldest chains go, the newest twenty stay");
+}

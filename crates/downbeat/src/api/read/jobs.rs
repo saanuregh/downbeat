@@ -113,11 +113,15 @@ pub(crate) async fn pipeline(
     if view.jobs.is_empty() {
         return Err(Failure::forbidden("this token covers no job in that pipeline"));
     }
-    let chains: Vec<ChainRow> =
-        sqlx::query_as("SELECT * FROM downbeat.chain WHERE pipeline = $1 ORDER BY started_at DESC LIMIT 20")
-            .bind(&name)
-            .fetch_all(&state.pool)
-            .await?;
+    // A chain is readable only when its first job is covered (spec 14.14), so others are left out.
+    let chains: Vec<ChainRow> = sqlx::query_as(
+        "SELECT * FROM downbeat.chain WHERE pipeline = $1 AND ($2::text[] IS NULL OR first_job = ANY($2))
+          ORDER BY started_at DESC LIMIT 20",
+    )
+    .bind(&name)
+    .bind(caller.jobs.as_deref())
+    .fetch_all(&state.pool)
+    .await?;
     // Every chain's latest status per job, in one query; only the jobs the token covers.
     let chain_ids: Vec<Uuid> = chains.iter().map(|chain| chain.chain_id).collect();
     let statuses: Vec<(Uuid, String, String)> = sqlx::query_as(

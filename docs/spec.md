@@ -492,8 +492,8 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     `operate`. Pauses and resumes, overrides, backfills and mark as succeeded need `administer`,
     and so does a start with `ignore_conditions` or `timeout_seconds`.
 14. A token limited to jobs must see and act on only those jobs: lists are filtered, a single
-    item of another job is 403, a chain needs its first job covered to be read and every job in
-    it covered to be cancelled, and a queue pause or the pause of everything needs a token covering
+    item of another job is 403, a chain needs its first job covered to be read (and is left out of
+    a pipeline's recent chains otherwise) and every job in it covered to be cancelled, and a queue pause or the pause of everything needs a token covering
    every job.
 
 **Requests.**

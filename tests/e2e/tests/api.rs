@@ -6,7 +6,7 @@ mod support;
 use std::time::Duration;
 
 use chrono::NaiveDate;
-use downbeat_client::types::{BackfillRequest, MarkSucceededRequest, OverrideRequest, PauseRequest};
+use downbeat_client::types::{BackfillRequest, MarkSucceededRequest, OverrideRequest, PauseRequest, PipelineView};
 use downbeat_client::{Error, PrivateKey, Scope};
 use downbeat_e2e::*;
 use serde_json::json;
@@ -257,6 +257,24 @@ async fn a_caller_limited_to_some_jobs_sees_and_does_nothing_else() {
     let visible: Vec<&str> =
         pipelines.iter().flat_map(|pipeline| pipeline.jobs.iter().map(|node| node.job.as_str())).collect();
     assert_eq!(visible, ["echo"]);
+}
+
+#[tokio::test]
+async fn a_caller_limited_to_some_jobs_sees_only_chains_and_steps_of_those_jobs() {
+    let database = Database::fresh().await;
+    let (_app, service) = limited_service(&database).await;
+    let product = downbeat::InAppClient::connect(definition, &database.url).await.unwrap();
+    let hidden = product.start(guarded, Number { n: 1 }).await.unwrap();
+    finished(&database.pool, hidden.run_id(), SOON).await;
+    let seen = service.start("echo", &Text { text: "covered".into() }).send().await.unwrap();
+    finished(&database.pool, seen.run_id, SOON).await;
+    support::finished_job(&database.pool, "both", SOON).await;
+
+    let basics: PipelineView = service.as_caller().get("/v1/pipelines/basics").await.unwrap();
+    let firsts: Vec<&str> = basics.recent_chains.iter().map(|chain| chain.first_job.as_str()).collect();
+    assert_eq!(firsts, ["echo"], "a chain whose first job is not covered is left out");
+    let steps: Vec<&String> = basics.recent_chains[0].statuses.keys().collect();
+    assert_eq!(steps, ["echo"], "steps of jobs that are not covered are left out");
 }
 
 #[tokio::test]
