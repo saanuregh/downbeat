@@ -82,8 +82,8 @@ async fn day_report(_run: Run, (archive, candles): (Archive, Candles)) -> Result
 
 #[command(preset = heavy)]
 fn eod_ohlc(input: OhlcInput) -> Program<Candles> {
-    Program::new("./compute_central")
-        .args(["eod-ohlc-nse", "--date"])
+    Program::new("./compute")
+        .args(["eod-ohlc", "--date"])
         .arg(input.date)
         .env("BROKER_ID", input.broker_id)
         .pass_env(["DATABASE_URL"])
@@ -153,7 +153,7 @@ fn policies_come_from_the_attribute() {
 #[test]
 fn a_command_describes_its_program() {
     let program = eod_ohlc.test(OhlcInput { date: NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(), broker_id: 7 });
-    assert_eq!(program.args, ["eod-ohlc-nse", "--date", "2026-11-20"]);
+    assert_eq!(program.args, ["eod-ohlc", "--date", "2026-11-20"]);
     assert_eq!(program.env["BROKER_ID"], "7");
 }
 

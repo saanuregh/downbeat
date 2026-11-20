@@ -94,8 +94,10 @@ where
         tokio::select! {
             () = stop.cancelled() => return,
             _ = tick.tick() => {
-                if let Err(error) = task().await {
-                    tracing::warn!(error = %format!("{error:#}"), "a scheduler task failed; it will run again");
+                // A scheduler task never dies: a panic anywhere in it is logged and the task runs again.
+                let ran = crate::guard::guarded_async("a scheduler task", async { task().await.map_err(|error| format!("{error:#}")) }).await;
+                if let Err(error) = ran {
+                    tracing::warn!(%error, "a scheduler task failed; it will run again");
                 }
             }
         }

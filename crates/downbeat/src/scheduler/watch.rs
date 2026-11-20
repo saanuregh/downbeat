@@ -40,12 +40,8 @@ async fn slow_runs(pool: &PgPool) -> sqlx::Result<()> {
 async fn overdue_jobs(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     for (name, job) in &registry.jobs {
         let Some(every) = job.spec.policy.expect_success_every else { continue };
+        let Some(since) = history::overdue(pool, name, every).await? else { continue };
         let last_success = history::last_success(pool, name, None).await?.map(|(_, at)| at);
-        let since = last_success.unwrap_or_else(registry_started);
-        let overdue = Utc::now() - since > chrono::TimeDelta::from_std(every).unwrap_or(chrono::TimeDelta::MAX);
-        if !overdue {
-            continue;
-        }
         let quiet: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM downbeat.pause WHERE kind = 'job' AND name = $1 AND (until IS NULL OR until > now()))
                  OR EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event' AND job_name = $1
@@ -68,10 +64,4 @@ async fn overdue_jobs(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
         }
     }
     Ok(())
-}
-
-/// For a job that has never succeeded, overdue counts from when this process started.
-fn registry_started() -> DateTime<Utc> {
-    static STARTED: std::sync::OnceLock<DateTime<Utc>> = std::sync::OnceLock::new();
-    *STARTED.get_or_init(Utc::now)
 }

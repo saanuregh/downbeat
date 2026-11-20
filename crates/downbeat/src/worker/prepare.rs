@@ -34,9 +34,14 @@ pub(crate) async fn prepare(
         return Err(Decision::child_failed("the child process stopped while the run was being prepared"));
     }
     // Building the input and testing conditions run app code; they get the job's timeout.
-    let deadline = tokio::time::Instant::now() + job.spec.policy.timeout;
+    let timeout = match run.timeout_override() {
+        Some(crate::store::runs::Timeout::After(timeout)) => Some(timeout),
+        Some(crate::store::runs::Timeout::Never) => None,
+        None => Some(job.spec.policy.timeout),
+    };
+    let deadline = timeout.map(|timeout| tokio::time::Instant::now() + timeout);
     let wanted = run.run_id;
-    let prepared = wait_for(context, child, lease, Some(deadline), |message| match message {
+    let prepared = wait_for(context, child, lease, deadline, |message| match message {
         FromChild::Prepared { run_id, result } if run_id == wanted => Some(result),
         _ => None,
     })

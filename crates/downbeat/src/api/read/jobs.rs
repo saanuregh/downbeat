@@ -67,12 +67,7 @@ async fn job_view(state: &State, job: &RegisteredJob) -> Result<JobView, Failure
             .await?;
     let expected = history::expected_duration(&state.pool, name).await?;
     let overdue = match job.spec.policy.expect_success_every {
-        Some(every) => {
-            let last_success = history::last_success(&state.pool, name, None).await?.map(|(_, at)| at);
-            last_success.is_some_and(|at| {
-                Utc::now() - at > chrono::TimeDelta::from_std(every).unwrap_or(chrono::TimeDelta::MAX)
-            })
-        }
+        Some(every) => history::overdue(&state.pool, name, every).await?.is_some(),
         None => false,
     };
     Ok(JobView {

@@ -52,7 +52,9 @@ pub(crate) async fn plan_for(
         return Ok((plan, PlanSource::Override { note: row.note.clone() }));
     }
     if let Some(rule) = &schedule.calendar {
-        let day = (rule.call)(date, std::sync::Arc::clone(&registry.dependencies)).await?;
+        let what = format!("day rule {}", rule.name);
+        let day = crate::guard::guarded_async(&what, (rule.call)(date, std::sync::Arc::clone(&registry.dependencies)))
+            .await?;
         let plan = match day {
             Day::Normal => DayPlan::Normal,
             Day::Off(reason) => DayPlan::Off(reason),

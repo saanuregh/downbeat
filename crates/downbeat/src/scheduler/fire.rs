@@ -147,7 +147,9 @@ pub(crate) async fn create_run(
 ) -> Result<Created, String> {
     let job = registry.job(schedule.job).ok_or_else(|| format!("there is no job named {}", schedule.job))?;
     let input = match &schedule.input {
-        Some(input) => input(occurrence)?,
+        Some(input) => {
+            crate::guard::guarded(&format!("the input of schedule {}", schedule.name), || input(occurrence))?
+        }
         None => serde_json::Value::Null,
     };
     let ops = &job.spec.input_ops;

@@ -172,12 +172,41 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
 }
 
 /// Refused requests are counted and reported, since a burst of them is worth knowing about.
+///
+/// Each is logged; `on_event` hears at most once a minute per caller and status, with how many
+/// there were, so a flood of bad requests cannot flood the database.
 async fn refused(state: &State, caller: Option<String>, failure: &Failure) {
     tracing::warn!(?caller, ?failure, "a control API request was refused");
+    let status = failure.status().as_u16();
+    let Some(count) = state.refusals.count(caller.clone(), status) else { return };
     if let Ok(mut connection) = state.pool.acquire().await {
-        let response = failure.status();
-        let event = Event::RequestRefused { caller, status: response.as_u16(), reason: failure.message().to_owned() };
+        let event = Event::RequestRefused { caller, status, count, reason: failure.message().to_owned() };
         let _ = audit::event(&mut connection, &event, None, None, None).await;
+    }
+}
+
+/// Who was refused (the caller, if the token named a trusted one) and with which status.
+type RefusalKey = (Option<String>, u16);
+
+/// Refused requests per caller and status since each was last reported, and when that was.
+#[derive(Debug, Default)]
+pub(crate) struct Refusals(Mutex<HashMap<RefusalKey, (i64, Option<Instant>)>>);
+
+impl Refusals {
+    /// Counts one refusal; returns how many to report when a minute has passed since the last
+    /// report (or for the first).
+    fn count(&self, caller: Option<String>, status: u16) -> Option<i64> {
+        let mut counts = self.0.lock().expect("refusal counts");
+        let now = Instant::now();
+        let (count, reported) = counts.entry((caller, status)).or_insert((0, None));
+        *count += 1;
+        if reported.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+            return None;
+        }
+        let total = *count;
+        *count = 0;
+        *reported = Some(now);
+        Some(total)
     }
 }
 

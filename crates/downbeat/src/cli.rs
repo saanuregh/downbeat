@@ -29,8 +29,9 @@ enum Command {
         /// `worker`, to also run the worker role in this process.
         #[arg(value_parser = ["worker"])]
         also: Option<String>,
-        #[command(flatten)]
-        worker: WorkerArgs,
+        /// With `worker`: queues and slots, such as `heavy=1,default=8`. Default: `default=4`.
+        #[arg(long, value_parser = parse_queues, requires = "also")]
+        queues: Option<Queues>,
         #[command(flatten)]
         api: ApiArgs,
         #[command(flatten)]
@@ -154,8 +155,8 @@ async fn dispatch(command: Command, definition: fn() -> Definition) -> anyhow::R
         }
         Command::Health { common } => health(&common, definition()).await,
         Command::Worker { worker, common } => serve(definition, &common, Some(worker.queues.0), None).await,
-        Command::Scheduler { also, worker, api, common } => {
-            let queues = also.map(|_| worker.queues.0);
+        Command::Scheduler { also, queues, api, common } => {
+            let queues = also.map(|_| queues.map_or_else(|| vec![("default".to_owned(), 4)], |queues| queues.0));
             serve(definition, &common, queues, Some(api)).await
         }
     }

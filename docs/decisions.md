@@ -1,20 +1,20 @@
 # Decisions made while building
 
-The design (`docs/design/`, copied from the plan) says what downbeat is. This file records each
-choice the build had to make that the design left open, or where the build differs from it, with
+The specification (`docs/spec.md`) says what downbeat does. This file records each choice the
+build made that the original design left open, or where the build differs from that design, with
 the reason. Newest last. Each entry is final once written; a later entry may supersede it.
 
 ## 1. Dependency versions
 
 The workspace uses widely deployed major versions whose APIs are known and stable: `sqlx` 0.8,
 `axum` 0.8, `reqwest` 0.12, `jsonwebtoken` 10, `rand` 0.8, `syn` 2. Newer majors exist for some
-(`sqlx` 0.9, `reqwest` 0.13, `syn` 3). `sqlx` 0.8 also matches what the first two adopters already
-use, so their binaries carry one copy. Upgrading is a later, separate change.
+(`sqlx` 0.9, `reqwest` 0.13, `syn` 3). `sqlx` 0.8 is also what many existing
+services use, so a product's binary is likely to carry one copy. Upgrading is a later, separate change.
 
 ## 2. The database schema is named `downbeat`
 
-The design named it `jobs`. A public library should not claim a common schema name, and Axon
-already has a `jobs` schema for Cadence's tables. Every table lives in schema `downbeat`.
+The design named it `jobs`. A public library should not claim a common schema name that a product
+may already use. Every table lives in schema `downbeat`.
 
 ## 3. `JobData` types also derive `Serialize` and `Deserialize`
 
@@ -176,3 +176,21 @@ session's CSRF token. `public_url` must be https, or plain http on loopback. In 
 console answers only to this machine's own names, so a page elsewhere cannot reach it through DNS
 rebinding. The proxy forwards the raw path under `/v1/` only, refusing dot segments and encoded
 slashes.
+
+## 30. App code in the scheduler is guarded against panics
+
+From the documentation review. A schedule's input, a day rule and the callbacks are app code that
+runs in the scheduler role. A panic in any of them now costs that one call (the schedule is tried
+again a minute later, the callback five minutes later), and a scheduler task never dies.
+
+## 31. One rule for "overdue"
+
+A job is overdue when its latest success, or its first run if it has never succeeded, is older
+than its `expect_success_every`. The API and `on_event` use the same rule; a job that has never
+run is not overdue.
+
+## 32. Refused requests are reported at most once a minute
+
+Every refused control API request is logged; `RequestRefused` carries how many there were since
+the last report and is recorded at most once a minute per caller and status, so a flood of bad
+requests cannot flood the audit table.

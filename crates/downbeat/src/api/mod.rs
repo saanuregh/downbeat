@@ -125,6 +125,7 @@ pub(crate) struct ApiState {
     pub(crate) registry: Arc<Registry>,
     pub(crate) config: Config,
     rate_limits: RateLimits,
+    refusals: auth::Refusals,
 }
 
 pub(crate) type State = Arc<ApiState>;
@@ -136,7 +137,13 @@ pub(crate) async fn serve(
     stop: CancellationToken,
 ) -> anyhow::Result<()> {
     let listen = config.listen;
-    let state = Arc::new(ApiState { pool, registry, config, rate_limits: RateLimits::default() });
+    let state = Arc::new(ApiState {
+        pool,
+        registry,
+        config,
+        rate_limits: RateLimits::default(),
+        refusals: auth::Refusals::default(),
+    });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .map_err(|error| anyhow::anyhow!("listening on {listen}: {error}"))?;

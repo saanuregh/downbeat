@@ -103,12 +103,7 @@ async fn preview_start(
             .fetch_optional(&state.pool)
             .await?;
     match queued {
-        Some(run_id)
-            if !options.even_if_queued
-                && !options.dry_run
-                && !options.without_children
-                && !options.ignore_conditions =>
-        {
+        Some(run_id) if !options.deliberate() => {
             effects
                 .push(format!("Would join run {}, which is already queued for the same work.", reasons::short(run_id)));
         }

@@ -14,6 +14,7 @@ mod definition;
 mod dependencies;
 mod describe;
 mod events;
+mod guard;
 mod job;
 mod pipeline;
 mod protocol;

@@ -57,8 +57,9 @@ pub enum Event {
     ScheduleFailed { schedule: String, error: String },
     /// The database could not be reached for longer than a lease; running functions were stopped.
     DatabaseUnreachable { worker: String },
-    /// Requests to the control API were refused.
-    RequestRefused { caller: Option<String>, status: u16, reason: String },
+    /// Requests to the control API were refused: this many since the last report, at most one a
+    /// minute per caller and status.
+    RequestRefused { caller: Option<String>, status: u16, count: i64, reason: String },
 }
 
 /// One delivery of an event: the event and its de-duplication key.

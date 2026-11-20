@@ -39,7 +39,7 @@ async fn deliver_finished(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
             tracing::error!(%run_id, "on_finish failed for a day; this run's notification is dropped");
             true
         } else {
-            match on_finish(finished_run(registry, row)).await {
+            match crate::guard::guarded_async("on_finish", on_finish(finished_run(registry, row))).await {
                 Ok(()) => true,
                 Err(error) => {
                     tracing::warn!(%run_id, %error, "on_finish failed; it will be tried again in five minutes");
@@ -109,7 +109,12 @@ async fn deliver_events(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
                 tracing::error!(audit_id = row.audit_id, "on_event failed for a day; this event is dropped");
                 true
             }
-            Ok(event) => match on_event(EventDelivery { id: row.audit_id, at: row.at, event }).await {
+            Ok(event) => match crate::guard::guarded_async(
+                "on_event",
+                on_event(EventDelivery { id: row.audit_id, at: row.at, event }),
+            )
+            .await
+            {
                 Ok(()) => true,
                 Err(error) => {
                     tracing::warn!(audit_id = row.audit_id, %error, "on_event failed; it will be tried again in five minutes");

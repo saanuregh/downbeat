@@ -31,7 +31,7 @@ export function navigate(
   for (const listener of listeners) listener();
 }
 
-/** The current path and query, e.g. "/s/axon/runs?status=failed". */
+/** The current path and query, e.g. "/s/production/runs?status=failed". */
 export function useLocation(): { path: string; query: URLSearchParams } {
   const location = useSyncExternalStore(subscribe, snapshot);
   const [path = "/", search = ""] = location.split("?", 2);

@@ -9,7 +9,7 @@
 //! # async fn example() -> Result<(), downbeat_client::Error> {
 //! let scheduler = downbeat_client::Client::builder("https://jobs.internal:7400")
 //!     .caller("billing-service")
-//!     .audience("axon-production")
+//!     .audience("production")
 //!     .key_from_env("DOWNBEAT_KEY")?
 //!     .connect()
 //!     .await?;

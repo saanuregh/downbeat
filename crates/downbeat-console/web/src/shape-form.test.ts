@@ -73,7 +73,7 @@ describe("a form from a shape", () => {
   const fields = formFields(asShape(shape));
   const lastInput = {
     day: "2026-11-08",
-    exchange: "NSE",
+    exchange: "XNYS",
     limit: null,
     force: true,
     symbols: ["INFY", "TCS"],
@@ -85,7 +85,7 @@ describe("a form from a shape", () => {
     const values = valuesFromInput(fields, lastInput);
     expect(values).toEqual({
       day: "2026-11-08",
-      exchange: "NSE",
+      exchange: "XNYS",
       limit: "",
       force: "true",
       symbols: '["INFY","TCS"]',

@@ -52,11 +52,11 @@ struct Cli {
     /// and a scheduler on this machine. Listens on this machine only.
     #[arg(long)]
     local: bool,
-    /// With --local: the scheduler's address.
-    #[arg(long, default_value = "http://127.0.0.1:7400")]
-    scheduler: String,
-    /// With --local: where to listen.
-    #[arg(long)]
+    /// With --local: the scheduler's address. Default: `http://127.0.0.1:7400`.
+    #[arg(long, requires = "local")]
+    scheduler: Option<String>,
+    /// With --local: where to listen. Default: `127.0.0.1:7401`.
+    #[arg(long, requires = "local")]
     listen: Option<SocketAddr>,
     /// The console's own Postgres database.
     #[arg(long, env = "DOWNBEAT_CONSOLE_DATABASE_URL")]
@@ -96,7 +96,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         return keygen(&private_key_file);
     }
     let config = match (&cli.config, cli.local) {
-        (_, true) => Config::local(cli.listen, &cli.scheduler)?,
+        (_, true) => Config::local(cli.listen, cli.scheduler.as_deref().unwrap_or("http://127.0.0.1:7400"))?,
         (Some(path), false) => Config::from_file(path)?,
         (None, false) => anyhow::bail!("give --config <file>, or --local to try the console out"),
     };

@@ -105,7 +105,9 @@ async fn start_next_date(
         // A date the day rule turns off is passed over; dated overrides do not apply to the past.
         if let Some(first) = schedule.occurrences_on(date, &day_plan).into_iter().next() {
             let input = match &schedule.input {
-                Some(input) => input(&first)?,
+                Some(input) => {
+                    crate::guard::guarded(&format!("the input of schedule {}", schedule.name), || input(&first))?
+                }
                 None => serde_json::Value::Null,
             };
             let ops = &job.spec.input_ops;

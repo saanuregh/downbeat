@@ -39,7 +39,7 @@ pub(crate) struct StartOptions {
 
 impl StartOptions {
     /// Rule 1 of "the same work is done once" does not apply to a deliberate run.
-    fn deliberate(&self) -> bool {
+    pub(crate) fn deliberate(&self) -> bool {
         self.even_if_queued
             || self.dry_run
             || self.without_children

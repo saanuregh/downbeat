@@ -77,3 +77,22 @@ pub(crate) async fn expected_duration(pool: &PgPool, job: &str) -> sqlx::Result<
         _ => None,
     })
 }
+
+/// Since when a job has been waiting for a success: its latest success, or, if it has never
+/// succeeded, its first run. `None` for a job that has never run. The one rule `expect_success_every`
+/// is measured by, for the API and for `on_event` alike.
+pub(crate) async fn waiting_for_success_since(pool: &PgPool, job: &str) -> sqlx::Result<Option<DateTime<Utc>>> {
+    if let Some((_, at)) = last_success(pool, job, None).await? {
+        return Ok(Some(at));
+    }
+    sqlx::query_scalar("SELECT min(created_at) FROM downbeat.run_history WHERE job_name = $1 AND joined_run IS NULL")
+        .bind(job)
+        .fetch_one(pool)
+        .await
+}
+
+/// Whether a job has gone longer than `every` without a success.
+pub(crate) async fn overdue(pool: &PgPool, job: &str, every: Duration) -> sqlx::Result<Option<DateTime<Utc>>> {
+    let since = waiting_for_success_since(pool, job).await?;
+    Ok(since.filter(|since| Utc::now() - *since > chrono::TimeDelta::from_std(every).unwrap_or(chrono::TimeDelta::MAX)))
+}

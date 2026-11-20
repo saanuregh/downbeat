@@ -10,7 +10,7 @@ Errors are `{ "error": "<code>", "message": "<sentence>" }` with a 4xx/5xx statu
   { "person": { "email": "asha@example.com", "name": "Asha" },
     "csrf_token": "…",
     "local": false,
-    "schedulers": [ { "name": "axon-production", "label": "Axon production",
+    "schedulers": [ { "name": "production", "label": "Production",
                       "scope": "operate", "reachable": true, "api_version": 1 } ] }
   ```
   `scope` is `read`, `operate`, `administer`, or `null` (no grant: the scheduler is listed but
