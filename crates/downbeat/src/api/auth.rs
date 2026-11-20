@@ -68,6 +68,11 @@ impl Caller {
         }
     }
 
+    /// Refuses unless the token covers every one of these jobs, as acting on a whole chain needs.
+    pub(crate) fn require_jobs(&self, jobs: &[String]) -> Result<(), Failure> {
+        jobs.iter().try_for_each(|job| self.require_job(job))
+    }
+
     /// How the audit names who did something: the actor, and the caller that vouched for them.
     pub(crate) fn audit_name(&self) -> String {
         if self.actor == self.name { self.actor.clone() } else { format!("{} (via {})", self.actor, self.name) }
@@ -162,7 +167,9 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
         .map_err(|error| (Failure::from(error), None))?
         .unwrap_or(false);
         if !first_use {
-            return Err(unauthorized("this token has been used already; sign a new one for each request".into()));
+            // The token verified, so its caller is known and is named in the report.
+            let message = "this token has been used already; sign a new one for each request";
+            return Err((Failure::new(StatusCode::UNAUTHORIZED, "unauthorized", message), Some(claims.iss.clone())));
         }
     }
     let caller = Caller { name: claims.iss, actor: claims.sub, scope: claims.scope, jobs: claims.jobs };

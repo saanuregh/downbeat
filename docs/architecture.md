@@ -120,7 +120,7 @@ Every engine table is in schema `downbeat`, created by
 | `run_history` | Finished runs with status, reasons, output, error chain, stderr tail, callback state. | The ending routine, joined requests, mark as succeeded | Needs, `if_changed`, children's input, API, callbacks, pruning |
 | `schedule_state` | Per schedule: watermark, next due time, last registration, times digest. | Scheduler registration and firing, override changes | Firing, job and schedule views |
 | `schedule_override` | Dated overrides. Unique per schedule and date. | API | Firing, calendar, previews |
-| `pause` | Active pauses of schedules, jobs and queues. | API | Claim, firing, views, overdue check |
+| `pause` | Active pauses of schedules, jobs and queues, and of everything (`kind = 'all'`). | API | Claim, firing, views, overdue check |
 | `worker` | One row per worker or scheduler process: role, queues, jobs in its build, build, last seen. | Worker and scheduler heartbeats | `job_not_registered` sweep, queue views, `no_free_worker` reasons, `health` |
 | `backfill` | Backfills and their progress. | API, backfill driver | Backfill driver, API |
 | `idempotency` | Idempotency keys and the run each produced. | `starting::start` | `starting::start` |
@@ -249,7 +249,7 @@ The console's tables are in schema `console` of its own database
 
 ## Where to start reading
 
-1. [`examples/market/src/main.rs`](../examples/market/src/main.rs): what a product writes.
+1. [`examples/market/src/main.rs`](../examples/market/src/lib.rs): what a product writes.
 2. [`crates/downbeat/src/lib.rs`](../crates/downbeat/src/lib.rs) and `cli.rs`: how it starts.
 3. `registry.rs`: what a definition becomes.
 4. `worker/mod.rs`, `drive` and `decide`: the life of a run.
@@ -259,12 +259,11 @@ The console's tables are in schema `console` of its own database
 
 ## Tests
 
-| Layer | Where | What it covers | Needs Postgres |
-| --- | --- | --- | --- |
-| Unit | `#[cfg(test)]` modules beside the code | Pure logic: backoff, hashes, schedule times and zones, token signing, access rules, framing | No |
-| Authoring | [`crates/downbeat/tests/authoring.rs`](../crates/downbeat/tests/authoring.rs) | The product-facing API compiles as documented; `.test` works; policies come from attributes | No |
-| Check | [`crates/downbeat/tests/check.rs`](../crates/downbeat/tests/check.rs) | `check` reports each mistake the compiler cannot catch | No |
-| End to end | [`tests/e2e`](../tests/e2e) | A test product ([`src/lib.rs`](../tests/e2e/src/lib.rs)) run as real scheduler, worker and console processes: chains, conditions, retries, crashes, timeouts, memory, commands, recovery, shutdown, schedules, the API, the console and sign-in | Yes |
+Each layer of tests, and when to use it, is listed in
+[CONTRIBUTING.md](../CONTRIBUTING.md#how-the-tests-run). In short: unit tests beside the code for
+pure calculation; `crates/downbeat/tests` for the product-facing API and `check`; and
+end-to-end tests in [`tests/e2e`](../tests/e2e) that run a test product
+([`src/lib.rs`](../tests/e2e/src/lib.rs)) as real scheduler, worker and console processes.
 
 [`scripts/test.sh`](../scripts/test.sh) starts a throwaway Postgres cluster in a temporary
 directory (through [`scripts/postgres.sh`](../scripts/postgres.sh)), builds every binary (the

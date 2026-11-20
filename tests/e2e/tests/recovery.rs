@@ -163,3 +163,44 @@ async fn a_command_that_finishes_during_a_shutdown_is_recorded_as_finished() {
     let done = finished(&database.pool, run.run_id(), Duration::from_secs(5)).await;
     assert_eq!(done.status, "succeeded", "{}", done.reason);
 }
+
+#[tokio::test]
+async fn a_run_interrupted_a_third_time_is_reported() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    // Held while the test makes it a run already interrupted twice by earlier deploys.
+    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', 'counts', 'test', 'held')")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let run = client.start(counts, Seconds { seconds: 30 }).await.unwrap().run_id();
+    sqlx::query("UPDATE downbeat.run SET interruptions = 2 WHERE run_id = $1")
+        .bind(run)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM downbeat.pause").execute(&database.pool).await.unwrap();
+    let app = App::start(&database);
+
+    let running = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{run}' AND function_started_at IS NOT NULL)"
+    );
+    eventually(&database.pool, &running, Duration::from_secs(20)).await;
+    app.stop();
+
+    let reported = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event'
+          AND detail->>'event' = 'run_interrupted' AND run_id = '{run}' AND (detail->>'times')::int = 3)"
+    );
+    eventually(&database.pool, &reported, Duration::from_secs(10)).await;
+}
+
+#[tokio::test]
+async fn a_process_removes_its_own_worker_row_when_it_stops() {
+    let database = Database::fresh().await;
+    let app = App::start(&database);
+    eventually(&database.pool, "SELECT EXISTS (SELECT 1 FROM downbeat.worker)", Duration::from_secs(20)).await;
+    app.stop();
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.worker").fetch_one(&database.pool).await.unwrap();
+    assert_eq!(left, 0, "a stopped process leaves no row that would look alive");
+}

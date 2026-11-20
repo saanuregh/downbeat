@@ -70,6 +70,9 @@ pub struct RunView {
     pub log_link: Option<String>,
     /// Set when a person, not the job, recorded the outcome.
     pub marked_by: Option<String>,
+    /// When they did.
+    #[serde(default)]
+    pub marked_at: Option<DateTime<Utc>>,
     pub note: Option<String>,
     /// Only in the detail view.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -25,7 +25,7 @@ impl Drop for Console {
 }
 
 async fn console(database: &Database, scheduler: &str) -> (Console, String) {
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let port = support::free_port();
     let listen = format!("127.0.0.1:{port}");
     let process = Command::new(console_binary())
         .args(["--local", "--scheduler", &format!("http://{scheduler}"), "--listen", &listen])

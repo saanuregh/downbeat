@@ -258,6 +258,11 @@ a:hover {
   white-space: nowrap;
 }
 
+/* A date and time is read as one value, so it never breaks across lines. */
+time {
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);

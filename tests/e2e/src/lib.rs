@@ -200,6 +200,12 @@ pub async fn report(_run: Run) -> Result<()> {
     Ok(())
 }
 
+/// Follows `dated`, so a backfill's chain reaches a second job.
+#[job]
+pub async fn files_dated(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+    Ok(day)
+}
+
 #[job]
 pub async fn dated(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
     Ok(day)
@@ -303,6 +309,7 @@ fn failures(pipeline: &mut Pipeline) {
 fn clock(pipeline: &mut Pipeline) {
     pipeline.job(ticker).schedule(every(1.seconds()).in_environments(["schedules"]));
     pipeline.job(report).schedule(daily_at(["09:00", "17:00"]));
+    pipeline.job(files_dated).after(dated);
     pipeline.job(dated).schedule(
         daily_at(["06:00"])
             .on_weekdays([Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri])
@@ -333,6 +340,19 @@ pub fn definition() -> Definition {
     definition.on_finish(|finished: downbeat::FinishedRun| async move {
         match std::env::var_os(FINISHED_DIR) {
             Some(dir) => std::fs::write(std::path::Path::new(&dir).join(finished.run_id.to_string()), finished.status),
+            None => Ok(()),
+        }
+    });
+    // Each event is written to `event-<id>` in the same directory, holding its name.
+    definition.on_event(|delivery: downbeat::EventDelivery| async move {
+        match std::env::var_os(FINISHED_DIR) {
+            Some(dir) => {
+                let name = serde_json::to_value(&delivery.event)
+                    .ok()
+                    .and_then(|event| event["event"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                std::fs::write(std::path::Path::new(&dir).join(format!("event-{}", delivery.id)), name)
+            }
             None => Ok(()),
         }
     });

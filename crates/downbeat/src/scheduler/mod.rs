@@ -62,7 +62,7 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
         }
     }));
     tasks.spawn(every(registry.settings.heartbeat, stop.clone(), {
-        let pool = pool.clone();
+        let (pool, id) = (pool.clone(), id.clone());
         move || {
             let (pool, id) = (pool.clone(), id.clone());
             async move {
@@ -79,6 +79,9 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
         }
     }));
     while tasks.join_next().await.is_some() {}
+    // As the worker does: a stopped process leaves no row that looks alive.
+    sqlx::query("DELETE FROM downbeat.worker WHERE worker_id = $1").bind(&id).execute(&pool).await?;
+    tracing::info!("scheduler stopped");
     Ok(())
 }
 

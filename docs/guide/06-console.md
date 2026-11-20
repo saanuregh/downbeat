@@ -137,8 +137,8 @@ The console uses OpenID Connect with the authorization-code flow, PKCE (`S256`),
 The sign-in flow is tested end to end against a small fake provider that checks PKCE and signs
 Ed25519 tokens ([`tests/e2e/tests/sign_in.rs`](../../tests/e2e/tests/sign_in.rs)), and against a
 real one, [Dex](https://dexidp.io), whose login form the test fills in
-([`tests/e2e/tests/sign_in_dex.rs`](../../tests/e2e/tests/sign_in_dex.rs); it runs when `dex` is
-on `PATH` or `DOWNBEAT_TEST_DEX` names it).
+([`tests/e2e/tests/sign_in_dex.rs`](../../tests/e2e/tests/sign_in_dex.rs); it needs
+`DOWNBEAT_TEST_DEX`, which `scripts/test.sh` sets when `dex` is on `PATH`, and CI always runs it).
 
 ## Who may do what: grants
 

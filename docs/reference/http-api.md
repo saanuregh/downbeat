@@ -8,7 +8,8 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
 
 ## Conventions
 
-- Every path below `/v1` needs `Authorization: Bearer <token>`. A token is good for one request.
+- Every path below `/v1` needs `Authorization: Bearer <token>`. Sign a fresh token for each
+  request; a token for a request that is not a GET is accepted once.
 - Bodies are JSON. Send `Content-Type: application/json` with a body; the body is limited to
   256 KiB.
 - Times are RFC 3339 in UTC. Dates are `YYYY-MM-DD`. Ids of runs and chains are UUIDs.
@@ -23,7 +24,7 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
 | Method and path | Scope | Request | Response | Preview |
 | --- | --- | --- | --- | --- |
 | `GET /healthz` | none | | `Health` | |
-| `GET /readyz` | none | | `Health`; 503 when the database cannot be reached | |
+| `GET /readyz` | none | | `Health`; 503 `ApiError` (`database`) when the database cannot be reached | |
 | `GET /version` | none | | `Version` | |
 | `GET /v1/jobs` | R | | `JobView[]` | |
 | `GET /v1/jobs/{name}` | R | | `JobView` | |
@@ -115,7 +116,7 @@ All in `downbeat_api::types`. Optional fields are `null` when absent, unless not
 | `Page<T>` | `items: T[]`, `next_cursor?: string` (absent on the last page) |
 | `ApiError` | `error: string` (a code), `message: string` (a sentence that says what to do) |
 | `JobView` | `name`, `pipeline`, `kind` (`function` or `command`), `queue`, `triggers: string[]`, `policies: string[]` (those that differ from the defaults), `input` and `output` (shapes: `type_name`, `fields[]` of `name`, `type_name`, `compared`), `input_schema` (the input as a JSON Schema, draft 2020-12; a type downbeat does not recognise accepts any value there, but the scheduler still checks the real type), `supports_dry_run`, `last_run: RunSummary?`, `next_occurrence?`, `expected_seconds?`, `paused: PauseView?`, `overdue: bool` |
-| `RunView` | `run_id`, `job`, `pipeline?`, `chain_id`, `status`, `queued_because?`, `skipped_because?`, `failed_because?`, `reason`, `started_by`, `actor?`, `schedule?`, `queue`, `priority`, `due_at`, `created_at`, `started_at?`, `finished_at?`, `attempt`, `attempts`, `calls`, `lost_count`, `interruptions`, `dry_run`, `progress?`, `has_checkpoint`, `slow`, `expected_seconds?`, `input?`, `output?`, `log_link?`, `marked_by?`, `note?`, `detail?: RunDetail` (single-run view only; absent otherwise) |
+| `RunView` | `run_id`, `job`, `pipeline?`, `chain_id`, `status`, `queued_because?`, `skipped_because?`, `failed_because?`, `reason`, `started_by`, `actor?`, `schedule?`, `queue`, `priority`, `due_at`, `created_at`, `started_at?`, `finished_at?`, `attempt`, `attempts`, `calls`, `lost_count`, `interruptions`, `dry_run`, `progress?`, `has_checkpoint`, `slow`, `expected_seconds?`, `input?`, `output?`, `log_link?`, `marked_by?`, `marked_at?`, `note?`, `detail?: RunDetail` (single-run view only; absent otherwise) |
 | `RunDetail` | `error_chain: string[]`, `stderr_tail?`, `call_log: CallView[]` (the last ten calls), `parents: uuid[]`, `children: uuid[]` |
 | `CallView` | `worker`, `build`, `started_at`, `ended_at`, `ended` (a few words, such as `succeeded`, `error`, `not ready`, `interrupted`, `worker lost`) |
 | `RunSummary` | `run_id`, `status`, `reason`, `at` |

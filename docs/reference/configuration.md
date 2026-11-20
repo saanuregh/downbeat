@@ -93,7 +93,7 @@ key_env = "CONSOLE_STAGING_KEY"
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `listen` | socket address | Yes | | Where the console listens, such as `0.0.0.0:7401`. |
-| `public_url` | string | Yes | | The address people reach the console at. Sign-in redirects back to `<public_url>/auth/callback`. A trailing `/` is removed. |
+| `public_url` | string | Yes | | The address people reach the console at. Sign-in redirects back to `<public_url>/auth/callback`. A trailing `/` is removed. Must be `https`, or `http` on a loopback host such as `127.0.0.1` or `localhost`. |
 | `first_administrators` | array of emails | No | `[]` | People who administer every scheduler without any grant, matched by email, ignoring case. |
 | `session_idle_hours` | integer | No | `12` | A session ends after this long without use. |
 | `session_absolute_hours` | integer | No | `168` (7 days) | A session ends this long after sign-in, whatever its use. |
@@ -115,7 +115,7 @@ key_env = "CONSOLE_STAGING_KEY"
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `name` | string | Yes | | A short name, used in URLs (`/api/schedulers/<name>/…`) and in grants. |
+| `name` | string | Yes | | A short name, used in URLs (`/api/schedulers/<name>/…`) and in grants. Unique among the schedulers. |
 | `label` | string | No | `name` | The name people see. |
 | `url` | URL | Yes | | The scheduler's control API base address, such as `https://scheduler.internal:7400`. A trailing `/` is removed. |
 | `audience` | string | Yes | | That scheduler's `audience`, from its callers file. |

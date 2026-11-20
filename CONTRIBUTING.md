@@ -36,14 +36,14 @@ mise run check
 | --- | --- |
 | `mise run check` | Format check, Clippy, and every test. Run it before you open a pull request. |
 | `mise run fmt` | Format the Rust code and the console's screens. |
-| `mise run lint` | `cargo clippy --workspace --all-targets -- -D warnings`. |
-| `mise run test` | Every test, through `scripts/test.sh`. |
+| `mise run lint` | Clippy with warnings as errors, plus the screens' type-check and oxlint. |
+| `mise run test` | The screens' unit tests, then every Rust test through `scripts/test.sh`. |
 | `mise run web` | Install, type-check and build the console's screens. |
 | `mise run demo` | Run the example product and the console locally, with a throwaway database. |
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) does not use mise. It runs the same
-checks, plus the screens' lint and unit tests and a check that the example's schedule snapshot is
-current.
+checks, plus `cargo doc` with warnings as errors, a check that the example's schedule snapshot is
+current, and the Dex sign-in test.
 
 ## How the tests run
 
@@ -63,7 +63,7 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 | Authoring | `crates/downbeat/tests/authoring.rs` | The product-facing API compiles and behaves as the guide says. |
 | Check | `crates/downbeat/tests/check.rs` | `check` names each mistake. |
 | End to end | `tests/e2e/tests/` | Behaviour through real processes: a test product (`tests/e2e/src/lib.rs`) as scheduler and workers, the API through `downbeat-client`, the console. |
-| Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Runs when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`) or `DOWNBEAT_TEST_DEX` names it; otherwise it reports itself skipped. |
+| Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Needs `DOWNBEAT_TEST_DEX` naming a `dex` binary; `scripts/test.sh` sets it when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`). Otherwise it reports itself skipped. CI always runs it. |
 | Docs | `tests/guide` | Every Rust sample in the README and the user guide compiles; samples written with "…" are syntax templates and are skipped. A sample may use the names in `tests/guide/src/scaffold.rs`. |
 | Example | `examples/market/tests` | The test kit (`downbeat::testing`) on a real definition: schedules on any date, with no database. |
 | Measurement | `tests/e2e/tests/measure.rs` | Opt-in (`-- --ignored`): the numbers in [docs/performance.md](docs/performance.md). |
@@ -117,9 +117,10 @@ The engine's schema is versioned in
 5. Each migration runs in one transaction under an advisory lock. Cover it with an end-to-end
    test that exercises the new column or table.
 
-The console's schema works the same way, in
-[`crates/downbeat-console/src/store.rs`](crates/downbeat-console/src/store.rs) and
-`crates/downbeat-console/migrations/`. A console refuses to start against any newer schema.
+The console's schema is simpler: a list of `(version, sql)` in
+[`crates/downbeat-console/src/store.rs`](crates/downbeat-console/src/store.rs), with the files in
+`crates/downbeat-console/migrations/`. There is no `breaking` flag: a console refuses to start
+against any newer schema.
 
 ## Pull requests
 

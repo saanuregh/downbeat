@@ -177,3 +177,24 @@ async fn a_join_keeps_the_later_due_time_and_the_looser_expiry() {
     assert!(later_due, "the join's later due time wins");
     assert_eq!(expiry, None, "a request that never expires lifts the expiry");
 }
+
+#[tokio::test]
+async fn a_linked_run_has_no_turn_until_it_is_prepared() {
+    let database = Database::fresh().await;
+    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', 'shout', 'test', 'held')")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+    let parent = client.start(echo, Text { text: "quiet".into() }).await.unwrap();
+    finished(&database.pool, parent.run_id(), SOON).await;
+    support::eventually(&database.pool, "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE job_name = 'shout')", SOON)
+        .await;
+    let (turn_key, input): (Option<String>, Option<serde_json::Value>) =
+        sqlx::query_as("SELECT turn_key, input FROM downbeat.run WHERE job_name = 'shout'")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!((turn_key, input), (None, None), "its input, and so its turn, come from its parents when it runs");
+}

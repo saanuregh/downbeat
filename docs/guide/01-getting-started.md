@@ -15,7 +15,7 @@ A few words used throughout the guide:
 ## Requirements
 
 - Linux. The worker relies on process groups, the parent-death signal and `/proc`.
-- A recent stable Rust; this repository pins its version in
+- Rust 1.98 or newer (the crates' minimum supported version); this repository pins its own in
   [`rust-toolchain.toml`](../../rust-toolchain.toml).
 - PostgreSQL. downbeat creates and migrates its own tables in a schema named `downbeat`.
 
@@ -138,4 +138,5 @@ cargo run -- run-once nightly_report --input '"2026-11-19"'
 
 - [Jobs](02-jobs.md): everything about writing a job.
 - [Pipelines](03-pipelines.md): links between jobs, and conditions.
-- The [market example](../../examples/market/src/main.rs) is a complete small product.
+- The [market example](../../examples/market/src/lib.rs) is a complete small product (its
+  [`main.rs`](../../examples/market/src/main.rs) is the three-line entry point).

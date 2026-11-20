@@ -81,8 +81,8 @@ Modules: `worker/mod.rs`, `worker/prepare.rs`, `worker/call.rs`, `store/runs.rs`
 2. **Prepare.** While `starts = 0`, the worker must prepare the run before calling it: the child
    builds the input (for a `link` run, from its parents' history rows, through the link's
    adapter), computes the input hash and the turn key, and evaluates conditions (section 6).
-   The worker stores the input, hash and turn key, fenced. Preparing is bounded by the job's
-   `timeout` policy. A crash or a timeout while preparing is a failed call: it gets another
+   The worker stores the input, hash and turn key, fenced. Preparing is bounded by the run's
+   timeout (rule 10.5). A crash or a timeout while preparing is a failed call: it gets another
    attempt when `retry_on` lists it and attempts remain (section 4). A run with `starts > 0` must
    never be prepared again.
 3. **Function start.** The worker must record `starts = starts + 1`,
@@ -349,6 +349,9 @@ Modules: `worker/lease.rs`, `reaper.rs`, `definition.rs` (`Settings`).
    from when the last successful heartbeat was *sent*, the worker must stop the call (reason
    *unreachable*), record nothing, and later record a `DatabaseUnreachable` event.
 4. Stopping a call means: ask the function to stop, wait `kill_grace`, then kill the process group.
+   A child cut short while it runs other product code (preparing a run, naming a command's
+   program, or checking a command's output) is killed at once: that code is synchronous and cannot
+   be asked to stop. Such a child is never reused.
 5. The reaper runs every five seconds in every process with a role. A `running` run whose lease
    expired more than `kill_grace + 10 s` ago must be handled, skipping locked rows:
 
@@ -372,11 +375,12 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 
 1. Job code must never run in the worker process. Functions, `only_if` tests, link adapters and
    command functions run in a child: the product's own binary started with `DOWNBEAT_CHILD_FD`.
-   Three kinds of product code run in the scheduler process instead, each call guarded so that a
-   panic costs only that call: a schedule's `.input(…)` function and its day rule (section 8),
-   and, for the preview of a start with `ignore_conditions` (14.17), the job's `only_if` tests and
-   `done_for` closures, where a panic counts as false. When one process has both roles, that is
-   also the worker's process.
+   Some product code runs in the scheduler or API process instead, each call guarded so that a
+   panic costs only that call: a schedule's `.input(…)` function and its day rule (section 8);
+   decoding, hashing and reading the `one_per` field of an input before a run is created, and
+   decoding an output set by hand; and, for the preview of a start with `ignore_conditions`
+   (14.17), the job's `only_if` tests and `done_for` closures, where a panic counts as false.
+   When one process has both roles, that is also the worker's process.
 2. Every process the worker starts must be started from one dedicated thread, in a new process
    group, with a parent-death signal of SIGKILL and `oom_score_adj` 1000. It must exit at once if
    the worker died before the signal was set.
@@ -386,7 +390,8 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 4. A reused child must be replaced after `recycle_child_after` runs, after any call that ended
    in a panic, crash, timeout, memory kill, stop or shutdown, and after a function that returned
    with tasks it spawned still running (the child counts the runtime's alive tasks before and after
-   the call). A `fresh_process` job must get a new child for its run.
+   the call). A `fresh_process` job must get a new child for its run. It has no effect on a
+   command, whose program is always a new process.
 5. The timeout clock starts when the call starts. The timeout is the run's override when a person
    set one (`0` meaning none), else the job's `timeout`.
 6. With `max_memory`, the resident memory of the child (or the command's program) must be sampled
@@ -419,7 +424,7 @@ Modules: `cli.rs` (`wait_for_signal`, `serve`), `worker/mod.rs`, `definition.rs`
    queue uncounted.
 3. At a run's third interruption, and at each one after it, a `RunInterrupted` event must be
    recorded.
-4. The worker must delete its own `worker` row before it exits.
+4. The worker, and the scheduler, must each delete its own `worker` row before it exits.
 5. A definition whose `drain + kill_grace + 5 s` exceeds `stop_within` must be rejected.
 
 ## 12. Callback delivery

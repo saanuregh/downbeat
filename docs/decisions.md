@@ -326,3 +326,35 @@ be retried forever. That rule counted from `finished_at`, so a failure marked as
 days later was never delivered. Changing `finished_at` would distort how long the run took, so
 migration 3 adds `marked_at` beside `marked_by`, set in the same statement, and delivery counts
 its day from the later of the two. The column is nullable, so an older engine ignores it.
+
+## 51. CI runs the real sign-in test (supersedes part of 41)
+
+Dex publishes no release binary, so decision 41 left its test to machines that have `dex`. CI now
+installs Nix and builds `nixpkgs#dex-oidc`, and the test runs on every pull request. Nix is used
+for this one binary only; the rest of CI is unchanged and does not use mise.
+
+## 52. Cancelling a backfill needs every job in its current chain
+
+Cancelling a backfill cancels the chain of the date it is running, and a chain can reach jobs
+other than the backfill's own. A token limited to some jobs could therefore cancel runs of jobs it
+does not cover. It now needs every job in that chain covered, checked under the chain lock, as
+cancelling a chain does; one method on the caller, `require_jobs`, holds that rule for both.
+
+## 53. Keying an input outside a child is guarded
+
+Before a run is created, the scheduler and the API decode its input, hash it and read its
+`one_per` field, which calls the product's types. A panic there used to abort the whole batch of
+scheduled firings, and on the next tick the same schedule came first again. These three steps are
+now one guarded method, `InputOps::keyed`, used by every caller, and an output set by hand is
+decoded under the same guard.
+
+## 54. A child cut short while preparing is not reused
+
+When preparing a run times out, is cancelled or loses its lease, the worker kills the child. The
+child is now marked spoiled when that happens, and the slot starts a new one, so the next run is
+never charged with a crash it did not cause.
+
+## 55. The scheduler removes its own process row
+
+The worker deleted its row from `downbeat.worker` when it stopped, but the scheduler did not, so a
+stopped scheduler looked alive for up to a day. Both roles now delete their own rows.

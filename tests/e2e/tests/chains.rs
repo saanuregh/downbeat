@@ -236,3 +236,38 @@ async fn an_after_any_child_follows_a_cancelled_parent_too() {
             .unwrap();
     assert_eq!(output, json!({ "text": "ended: Cancelled by local." }));
 }
+
+#[tokio::test]
+async fn a_run_started_without_children_starts_none_when_it_ends() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let alone = StartRequest { input: json!({ "text": "alone" }), without_children: true, ..StartRequest::default() };
+    let alone: StartResponse = client.as_caller().post("/v1/jobs/echo/runs", Some(&alone), None).await.unwrap();
+    assert_eq!(finished(&database.pool, alone.run_id, SOON).await.status, "succeeded");
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let followers: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM downbeat.run WHERE $1 = ANY(parents))
+              + (SELECT count(*) FROM downbeat.run_history WHERE $1 = ANY(parents))",
+    )
+    .bind(alone.run_id)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(followers, 0, "echo is followed by shout, but not this time");
+}
+
+#[tokio::test]
+async fn restarting_a_run_starts_a_new_chain_with_the_same_input() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let first = client.start("echo", &Text { text: "again".into() }).send().await.unwrap();
+    let first = finished(&database.pool, first.run_id, SOON).await;
+
+    let restarted: Done =
+        client.as_caller().post(&format!("/v1/runs/{}/restart", first.run_id), None::<&()>, None).await.unwrap();
+    let new_run = restarted.run_id.expect("a restart names the run it started");
+    let second = finished(&database.pool, new_run, SOON).await;
+    assert_eq!(second.status, "succeeded");
+    assert_ne!(second.chain_id, first.chain_id, "a restart is a new chain");
+    assert_eq!(second.output, first.output, "with the same input");
+}

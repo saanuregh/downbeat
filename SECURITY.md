@@ -2,13 +2,11 @@
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a security problem. Email
-**security@example.invalid** with a description, the affected version or commit, and steps to
-reproduce. We aim to acknowledge a report within a few working days, and to agree a disclosure
-date with you.
-
-> **Maintainers:** `security@example.invalid` is a placeholder. Replace it with a monitored
-> address (or a private advisory link) before the first public release.
+Please do not open a public issue for a security problem. Report it through GitHub's
+[private vulnerability reporting](https://github.com/downbeat-rs/downbeat/security/advisories/new)
+with a description, the affected version or commit, and steps to reproduce. Only the maintainers
+see it. We aim to acknowledge a report within a few working days, and to agree a disclosure date
+with you.
 
 ## Supported versions
 

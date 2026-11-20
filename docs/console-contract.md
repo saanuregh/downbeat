@@ -11,7 +11,8 @@ Errors are `{ "error": "<code>", "message": "<sentence>" }` with a 4xx/5xx statu
     "csrf_token": "…",
     "local": false,
     "schedulers": [ { "name": "production", "label": "Production",
-                      "scope": "operate", "reachable": true, "api_version": 1 } ] }
+                      "scope": "operate", "reachable": true, "api_version": 1,
+                      "supported": true } ] }
   ```
   `scope` is `read`, `operate`, `administer`, or `null` (no grant: the scheduler is listed but
   nothing in it is shown). 401 when not signed in: the screens then send the browser to
@@ -30,9 +31,11 @@ request and response types are in `crates/downbeat-api/src/types.rs`; the endpoi
 ## Access
 
 - `GET /api/grants` → `[{ grant_id, to_person: string|null, to_group: string|null, scheduler, scope,
-  pipelines: string[]|null, created_by, created_at }]`
+  pipelines: string[]|null, created_by, created_at }]`: the grants on the schedulers the person
+  administers in full (every pipeline).
 - `POST /api/grants` with `{ to_person?: email, to_group?: string, scheduler, scope, pipelines?: string[] }`
-  (exactly one of `to_person`, `to_group`) → the new grant. Needs `administer` on that scheduler.
+  (exactly one of `to_person`, `to_group`) → the new grant. Needs `administer` on every pipeline of
+  that scheduler, so nobody can grant more than they hold. `DELETE` needs the same.
 - `DELETE /api/grants/{id}` → `{ "message": "…" }`.
 - `GET /api/people` → `[{ email, name, groups: string[], last_seen_at }]`. Needs `administer`
   somewhere.
@@ -40,7 +43,8 @@ request and response types are in `crates/downbeat-api/src/types.rs`; the endpoi
 ## Console audit and preferences
 
 - `GET /api/audit?before=<id>` → `{ items: [{ audit_id, at, actor, action, detail }], next_cursor }`:
-  sign-ins, sign-outs, grant changes, refused actions. What people did to jobs is the scheduler's
+  sign-ins, sign-outs, grant changes, refused actions, newest first, 50 to a page; `next_cursor`
+  is `null` on the last page. Needs `administer` on some scheduler. What people did to jobs is the scheduler's
   audit: `/api/schedulers/{name}/v1/audit`.
 - `GET /api/preferences` → `{ time_zone: string|null, filters: object }`;
   `PUT /api/preferences` with the same shape.

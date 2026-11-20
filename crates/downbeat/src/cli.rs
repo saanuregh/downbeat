@@ -206,7 +206,8 @@ async fn reaper(pool: sqlx::PgPool, registry: Arc<Registry>, stop: CancellationT
     Ok(())
 }
 
-/// SIGTERM or Ctrl-C: the worker stops claiming, and the scheduler stops once the worker is done.
+/// SIGTERM or Ctrl-C: the worker stops claiming and finishes as `drain` allows, while the scheduler
+/// and reaper stop at once.
 async fn wait_for_signal(shutdown: Shutdown, stop_scheduler: CancellationToken) {
     let mut terminate =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a SIGTERM handler");

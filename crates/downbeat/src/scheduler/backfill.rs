@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::plan;
+use crate::job::KeyedInput;
 use crate::registry::Registry;
 use crate::starting::turn_key;
 use crate::store::runs::{self, NewRun, Place, StartedBy};
@@ -118,10 +119,8 @@ async fn start_next_date(
                 }
                 None => serde_json::Value::Null,
             };
-            let ops = &job.spec.input_ops;
-            let input = (ops.normalize)(input, false)?;
-            let input_hash = (ops.hash)(&input)?;
-            let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose()?;
+            let KeyedInput { input, hash: input_hash, turn_value } =
+                job.spec.input_ops.keyed(schedule.job, input, false)?;
             let policy = &job.spec.policy;
             let expires_at = plan::expiry_of(schedule)
                 .map(|expiry| Utc::now() + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));

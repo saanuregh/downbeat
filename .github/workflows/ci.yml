@@ -50,5 +50,11 @@ jobs:
       - name: Example schedule snapshot is current
         run: cargo run -q -p market -- check --verify-snapshot examples/market/schedules.snapshot > /dev/null
 
+      # The real sign-in test runs against Dex, which publishes no release binary; Nix builds it.
+      - uses: cachix/install-nix-action@v31
+
+      - name: Dex for the real sign-in test
+        run: echo "DOWNBEAT_TEST_DEX=$(nix build --no-link --print-out-paths nixpkgs#dex-oidc)/bin/dex" >> "$GITHUB_ENV"
+
       - name: Test
         run: scripts/test.sh

@@ -12,6 +12,24 @@ use uuid::Uuid;
 
 pub const SOON: Duration = Duration::from_secs(20);
 
+/// A free local port that no other test in this process has been given.
+///
+/// Asking the OS for port 0 and passing the number on is racy: the port is free again the moment
+/// the probe closes, and a test running alongside may be handed the same one before the program
+/// it starts binds it. So each test process walks its own range, and each candidate is checked
+/// free before use.
+pub fn free_port() -> u16 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let base = 20_000 + (std::process::id() % 400) * 100;
+    loop {
+        let candidate = u16::try_from(base + NEXT.fetch_add(1, Ordering::Relaxed) % 10_000).unwrap();
+        if std::net::TcpListener::bind(("127.0.0.1", candidate)).is_ok() {
+            return candidate;
+        }
+    }
+}
+
 /// A database of its own for one test, created in the throwaway cluster `scripts/test.sh` starts.
 pub struct Database {
     pub url: String,
@@ -96,7 +114,7 @@ pub async fn with_api(database: &Database) -> (App, downbeat_client::Client) {
 /// The test product with the control API trusting the callers in this TOML (its `audience` is
 /// `test`). Returns the app and the API's base URL.
 pub async fn with_callers(database: &Database, callers: &str) -> (App, String) {
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let port = free_port();
     let listen = format!("127.0.0.1:{port}");
     let file = std::env::temp_dir().join(format!("callers-{}.toml", Uuid::new_v4()));
     std::fs::write(&file, callers).unwrap();
@@ -123,7 +141,7 @@ pub async fn with_api_at(database: &Database) -> (App, downbeat_client::Client, 
 /// The test product with the control API, in this environment (`schedules` turns on the
 /// every-second schedule).
 pub async fn with_api_in(database: &Database, environment: &str) -> (App, downbeat_client::Client, String) {
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let port = free_port();
     let listen = format!("127.0.0.1:{port}");
     let app = App::with(
         database,

@@ -99,6 +99,7 @@ export interface RunView {
   output: Json | null;
   log_link: string | null;
   marked_by: string | null;
+  marked_at?: string | null;
   note: string | null;
   detail?: RunDetail | null;
 }

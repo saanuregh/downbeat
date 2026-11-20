@@ -27,7 +27,7 @@ programs see and act on everything.
 
 ## A taste
 
-This code is taken from [`examples/market`](examples/market/src/main.rs). Every half hour during
+This code is taken from [`examples/market`](examples/market/src/lib.rs). Every half hour during
 market hours the product fetches prices. Whenever they changed, it builds candles.
 
 ```rust
@@ -78,9 +78,10 @@ You need Linux, the Rust toolchain named in [`rust-toolchain.toml`](rust-toolcha
 PostgreSQL's server programs (`initdb`, `pg_ctl`) on your `PATH`, or `PG_BIN` set to their
 directory.
 
-With [mise](https://mise.jdx.dev):
+With [mise](https://mise.jdx.dev), which installs the pinned tools (Bun, for the screens):
 
 ```sh
+mise install
 mise run demo
 ```
 
@@ -88,18 +89,20 @@ This starts a throwaway Postgres, runs the example product as scheduler and work
 the console without sign-in. Open <http://127.0.0.1:7401>. Ctrl-C stops everything and removes
 the database.
 
-Without mise, with a Postgres database of your own, run the two programs:
+Without mise, with a running Postgres and [Bun](https://bun.sh): build the screens first (they
+are compiled into the console), create a database, and run the two programs:
 
 ```sh
+(cd crates/downbeat-console/web && bun install --frozen-lockfile && bun run build)
+createdb downbeat_demo
 export DOWNBEAT_DATABASE_URL=postgres://localhost/downbeat_demo
 export DOWNBEAT_CONSOLE_DATABASE_URL=$DOWNBEAT_DATABASE_URL DOWNBEAT_ENVIRONMENT=dev
 cargo run -p market -- scheduler worker --queues default=4,heavy=1 --local &
 cargo run -p downbeat-console -- --local
 ```
 
-The console's screens are built with Bun. Build them first with
-`cd crates/downbeat-console/web && bun install && bun run build`. Without them, the console's
-API still works, but its pages say that the screens were not built.
+Without the screens, the console's API still works, but its pages say that the screens were not
+built.
 
 To add downbeat to your own product, read [Getting started](docs/guide/01-getting-started.md).
 
@@ -127,14 +130,14 @@ To add downbeat to your own product, read [Getting started](docs/guide/01-gettin
 ## Status
 
 downbeat is at version 0.1 and has not been released yet. Its APIs, its database schema and its
-control API may change before 1.0. It runs on Linux only, because it relies on process groups,
+control API may change before 1.0. The crates need Rust 1.98 or newer. It runs on Linux only, because it relies on process groups,
 the parent-death signal and `/proc`. See [CHANGELOG.md](CHANGELOG.md) for what 0.1 contains, and
 the guide for [known limits](docs/guide/05-running.md#known-limits).
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Please report vulnerabilities as described in
-[SECURITY.md](SECURITY.md), not in a public issue.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md). Please
+report vulnerabilities as described in [SECURITY.md](SECURITY.md), not in a public issue.
 
 ## License
 

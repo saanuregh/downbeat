@@ -9,6 +9,7 @@ use sqlx::{Acquire, PgConnection, PgPool};
 
 use super::plan;
 use crate::events::Event;
+use crate::job::KeyedInput;
 use crate::reasons;
 use crate::registry::Registry;
 use crate::schedule::{CompiledSchedule, Occurrence};
@@ -152,10 +153,7 @@ pub(crate) async fn create_run(
         }
         None => serde_json::Value::Null,
     };
-    let ops = &job.spec.input_ops;
-    let input = (ops.normalize)(input, false)?;
-    let input_hash = (ops.hash)(&input)?;
-    let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose()?;
+    let KeyedInput { input, hash: input_hash, turn_value } = job.spec.input_ops.keyed(schedule.job, input, false)?;
     let policy = &job.spec.policy;
     let expires_at =
         plan::expiry_of(schedule).map(|expiry| occurrence.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));

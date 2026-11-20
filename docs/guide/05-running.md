@@ -24,7 +24,7 @@ queue.
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `DOWNBEAT_DATABASE_URL` | `scheduler`, `worker`, `health` | The product's Postgres. The engine's tables are in its `downbeat` schema. |
-| `DOWNBEAT_ENVIRONMENT` | every command | Which of the definition's environments this is. It selects the schedules. Children inherit it. |
+| `DOWNBEAT_ENVIRONMENT` | `scheduler`, `worker`, `run-once`, `health` (`check` checks every environment) | Which of the definition's environments this is. It selects the schedules. Children inherit it. |
 | `DOWNBEAT_LISTEN` | `scheduler` | Where to serve the control API, such as `0.0.0.0:7400`. Off when unset. |
 | `DOWNBEAT_CALLERS` | `scheduler` | The [callers file](../reference/configuration.md#the-callers-file). Required with `DOWNBEAT_LISTEN`. |
 | `DOWNBEAT_BUILD` | `worker` | A build label recorded with each call of a function. Default: the binary's name and modification time. |
@@ -101,7 +101,6 @@ Definition::new().zone("UTC").settings(downbeat::Settings {
 | `stop_within` | 30 s | The time allowed between SIGTERM and SIGKILL. |
 | `poll` | 1 s | How often schedulers and worker slots look for work. |
 | `recycle_child_after` | 500 | A reused child process is replaced after this many runs. |
-
 | `queues` | none | A heartbeat and lease for particular queues, when theirs differ. |
 
 A queue of short jobs can use a short lease, so a lost worker's runs come back sooner. `check`
@@ -136,6 +135,67 @@ back to the queue; lost a second time, it fails as `worker_lost`.
 | Worker alive | `<binary> health`, run inside the worker's container. It succeeds when a worker on this host has refreshed its row within two heartbeats. It needs `DOWNBEAT_DATABASE_URL`. |
 
 Workers serve no HTTP.
+
+## Example service files
+
+These systemd units run a product binary named `market` as one scheduler and one worker, and the
+console beside them. Adapt the paths, users and queues.
+
+```ini
+# /etc/systemd/system/market-scheduler.service
+[Unit]
+Description=market: downbeat scheduler
+After=network-online.target
+
+[Service]
+User=market
+EnvironmentFile=/etc/market/env           # DOWNBEAT_DATABASE_URL, DOWNBEAT_ENVIRONMENT
+ExecStart=/usr/local/bin/market scheduler --listen 10.0.0.5:7400 --callers /etc/market/callers.toml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini
+# /etc/systemd/system/market-worker.service
+[Unit]
+Description=market: downbeat worker
+After=network-online.target
+
+[Service]
+User=market
+EnvironmentFile=/etc/market/env
+ExecStart=/usr/local/bin/market worker --queues default=8,heavy=1
+# Only the worker gets SIGTERM, so it can drain and stop its runs itself; anything still alive
+# after the timeout is killed. The timeout must exceed the definition's `stop_within` (30 s).
+KillMode=mixed
+TimeoutStopSec=40
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini
+# /etc/systemd/system/downbeat-console.service
+[Unit]
+Description=downbeat console
+After=network-online.target
+
+[Service]
+User=downbeat-console
+EnvironmentFile=/etc/downbeat/console-env   # DOWNBEAT_CONSOLE_DATABASE_URL, CONSOLE_OIDC_SECRET
+ExecStart=/usr/local/bin/downbeat-console --config /etc/downbeat/console.toml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+On Kubernetes, the same two rules apply: set `terminationGracePeriodSeconds` above `stop_within`,
+and give workers an exec liveness probe running `market health`. Point the scheduler's readiness
+probe at `GET /readyz` and its liveness probe at `GET /healthz`.
 
 ## Migrations
 
@@ -185,7 +245,7 @@ a readable diff. The market example's snapshot is
 - **Linux only.** Workers rely on process groups, the parent-death signal and `/proc`.
 - **Tasks a function spawns are not cancelled one by one.** When a function returns with tasks it
   spawned still running, the child counts them, logs it, and is replaced after the run, so they
-  cannot touch the next run ([decision 40](../decisions.md#40-a-child-that-holds-leftover-tasks-is-replaced)).
+  cannot touch the next run ([decision 40](../decisions.md#40-a-child-that-holds-leftover-tasks-is-replaced-supersedes-8)).
   A function should still await what it spawns.
 - **A command's background processes** are killed when the program exits only if they stayed in
   its process group. A program that detaches them is not contained; run such a worker in a

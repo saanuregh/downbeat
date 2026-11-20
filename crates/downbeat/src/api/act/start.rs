@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::api::State;
 use crate::api::auth::Caller;
 use crate::api::error::Failure;
+use crate::job::KeyedInput;
 use crate::job::Started;
 use crate::reasons;
 use crate::registry::RegisteredJob;
@@ -37,11 +38,10 @@ pub(crate) async fn start(
         caller.require(Scope::Administer)?;
     }
     let found = job(&state, &name)?;
-    let ops = &found.spec.input_ops;
-    let input = (ops.normalize)(request.input.clone(), true)
-        .map_err(|error| Failure::unprocessable(format!("the input does not match {name}'s input type: {error}")))?;
-    let input_hash = (ops.hash)(&input).map_err(Failure::unprocessable)?;
-    let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose().map_err(Failure::unprocessable)?;
+    let KeyedInput { input, hash: input_hash, turn_value } =
+        found.spec.input_ops.keyed(&name, request.input.clone(), true).map_err(|error| {
+            Failure::unprocessable(format!("the input does not match {name}'s input type: {error}"))
+        })?;
     if request.dry_run && !found.spec.policy.supports_dry_run {
         return Err(Failure::unprocessable(format!("{name} does not support dry runs")));
     }

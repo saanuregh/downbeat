@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 // One run: the reason first, then everything about it, and what can be done to it.
 import { ActionButton } from "../components/action";
 import { MarkSucceededButton } from "../components/action-forms";
@@ -21,6 +22,7 @@ import {
   shortId,
   timingAgainstExpected,
   formatStartedBy,
+  formatActor,
 } from "../format";
 import { useLoad } from "../load";
 import { Link } from "../router";
@@ -45,6 +47,23 @@ export function RunScreen({ params }: { params: Record<string, string> }) {
     api(`/runs/${encodeURIComponent(view.run_id)}/${action}`);
   const because =
     view.queued_because ?? view.skipped_because ?? view.failed_because;
+
+  // Who recorded the outcome by hand, and when; why is in the reason above.
+  const marked: [string, ReactNode][] = view.marked_by
+    ? [
+        [
+          "Marked as succeeded",
+          <span key="marked">
+            {formatActor(view.marked_by)}
+            {view.marked_at && (
+              <>
+                , <Time at={view.marked_at} />
+              </>
+            )}
+          </span>,
+        ],
+      ]
+    : [];
 
   return (
     <>
@@ -148,6 +167,7 @@ export function RunScreen({ params }: { params: Record<string, string> }) {
             `${view.calls}${view.lost_count ? `, ${view.lost_count} lost` : ""}${view.interruptions ? `, ${view.interruptions} interrupted` : ""}`,
           ],
           ["Started by", formatStartedBy(view)],
+          ...marked,
           ["Queue and priority", `${view.queue}, priority ${view.priority}`],
           [
             "Chain",
@@ -186,12 +206,6 @@ export function RunScreen({ params }: { params: Record<string, string> }) {
         <Section title="Progress">
           <p>{view.progress}</p>
         </Section>
-      )}
-      {view.marked_by && (
-        <p className="note note-wait">
-          Marked as succeeded by {view.marked_by}
-          {view.note ? `: ${view.note}` : "."}
-        </p>
       )}
 
       {detail && detail.error_chain.length > 0 && (

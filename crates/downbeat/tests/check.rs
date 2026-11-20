@@ -85,3 +85,17 @@ fn check_names_each_problem_and_its_fix() {
         assert!(problems.iter().any(|problem| problem.starts_with(expected)), "missing {expected:?} in {problems:#?}");
     }
 }
+
+#[test]
+fn check_refuses_shutdown_timings_that_cannot_fit_in_the_stop_window() {
+    let settings = downbeat::Settings {
+        drain: std::time::Duration::from_secs(30),
+        stop_within: std::time::Duration::from_secs(30),
+        ..downbeat::Settings::default()
+    };
+    let problems = downbeat::check_problems(Definition::new().zone("UTC").settings(settings));
+    assert!(
+        problems.iter().any(|problem| problem.starts_with("settings:") && problem.contains("stop_within")),
+        "{problems:#?}"
+    );
+}

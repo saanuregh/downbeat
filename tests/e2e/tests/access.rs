@@ -193,3 +193,46 @@ async fn a_caller_limited_to_some_jobs_sees_no_overrides_backfills_or_calendar_o
     let calendar: CalendarDay = billing.get(next_day).await;
     assert!(calendar.entries.is_empty() && calendar.days_off.is_empty(), "{calendar:?}");
 }
+
+#[tokio::test]
+async fn a_caller_limited_to_some_jobs_cannot_cancel_a_backfill_whose_chain_reaches_others() {
+    let database = Database::fresh().await;
+    let (admin_entry, admin_key) = caller("operator", "administer", None);
+    let (scheduling_entry, scheduling_key) = caller("scheduling", "administer", Some("[\"dated\"]"));
+    let callers = format!("audience = \"test\"\n{admin_entry}{scheduling_entry}");
+    let (_app, base) = with_callers(&database, &callers).await;
+    let signer = |caller: &str, key, jobs| Signer {
+        base: base.clone(),
+        caller: caller.into(),
+        audience: "test".into(),
+        key,
+        scope: Scope::Administer,
+        jobs,
+    };
+    let admin = signer("operator", admin_key, None);
+    let scheduling = signer("scheduling", scheduling_key, Some(vec!["dated".into()]));
+
+    // The backfill's date runs `dated`, then `files_dated`, which is held.
+    let pause = serde_json::to_value(PauseRequest { note: "hold".into(), until: None, until_resumed: true }).unwrap();
+    let _: serde_json::Value = admin.post("/v1/jobs/files_dated/pause", &pause).await;
+    let day = chrono::NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
+    let backfill =
+        BackfillRequest { job: "dated".into(), schedule: None, from: day, to: day, continue_on_failure: false };
+    let _: serde_json::Value = scheduling.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
+    support::eventually(
+        &database.pool,
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE job_name = 'files_dated')",
+        support::SOON,
+    )
+    .await;
+    let backfills: Vec<BackfillView> = scheduling.get("/v1/backfills").await;
+    let id = backfills[0].backfill_id;
+
+    let refused = scheduling.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;
+    assert_eq!(refused.status(), 403, "its chain now holds files_dated, which this caller does not cover");
+    let still: Vec<BackfillView> = admin.get("/v1/backfills").await;
+    assert_eq!(still[0].state, "running", "a refused cancel changes nothing");
+
+    let cancelled = admin.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;
+    assert_eq!(cancelled.status(), 200);
+}

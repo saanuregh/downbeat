@@ -218,7 +218,13 @@ async fn drive(
     } else {
         match prepare::prepare(context, child, run, job, lease).await {
             Ok(input) => input,
-            Err(decision) => return decision,
+            Err(decision) => {
+                // A child cut short while preparing was killed; the next run gets a new one.
+                if child.spoiled && !fresh {
+                    *warm = None;
+                }
+                return decision;
+            }
         }
     };
 
@@ -425,12 +431,15 @@ impl<'a> Verdict<'a> {
     }
 }
 
-/// Writes the decision, fenced. A failed write is tried again a few times; after that the lease
-/// lapses and the reaper takes the run back.
+/// Writes the decision, fenced. A failed write is tried twice more, a second apart; after that
+/// the lease lapses and the reaper takes the run back. A re-queue that turns into a cancel is not
+/// a failed write, so it does not use up a try.
 async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
+    const TRIES: u32 = 3;
     let held = Held { run_id: run.run_id, fence: run.fence, worker: &context.id };
     let mut requeued = false;
-    for attempt in 1..=3 {
+    let mut failed_writes = 0;
+    loop {
         let result = match &decision {
             Decision::Nothing => return,
             Decision::End(ending) => {
@@ -455,12 +464,14 @@ async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
         match result {
             Ok(Some(cancelled)) => decision = Decision::End(cancelled),
             Ok(None) => break,
-            Err(error) if attempt < 3 => {
+            Err(error) if failed_writes + 1 < TRIES => {
+                failed_writes += 1;
                 tracing::warn!(%error, run_id = %run.run_id, "recording a run's ending failed; trying again");
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Err(error) => {
                 tracing::error!(%error, run_id = %run.run_id, "recording a run's ending failed; its lease will lapse");
+                break;
             }
         }
     }

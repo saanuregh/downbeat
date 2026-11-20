@@ -126,8 +126,13 @@ impl Config {
             !file.sign_in.allowed_domains.is_empty() || !file.sign_in.allowed_groups.is_empty(),
             "sign_in needs allowed_domains or allowed_groups: otherwise anyone the provider knows could sign in"
         );
-        let mut schedulers = Vec::new();
+        let mut schedulers: Vec<Scheduler> = Vec::new();
         for entry in file.schedulers {
+            anyhow::ensure!(
+                !schedulers.iter().any(|known| known.name == entry.name),
+                "scheduler {} is listed twice; names are used in URLs and grants, so each must be unique",
+                entry.name
+            );
             let pem = match (&entry.key_file, &entry.key_env) {
                 (Some(path), None) => std::fs::read_to_string(path)
                     .map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?,

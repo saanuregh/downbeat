@@ -8,7 +8,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
-use support::{Database, SOON};
+use support::{Database, SOON, free_port};
 
 /// Dex's example password hash: the password is "password".
 const PASSWORD_HASH: &str = "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W";
@@ -20,10 +20,6 @@ impl Drop for Process {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
-}
-
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
 async fn wait_until_up(url: &str) {

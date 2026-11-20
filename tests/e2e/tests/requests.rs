@@ -31,6 +31,14 @@ async fn a_token_for_a_change_is_good_once() {
     assert_eq!(first.status(), 201);
     let (status, replayed) = json_error(local.send_with("POST", path, &body, &token).await).await;
     assert_eq!(status, 401, "{replayed:?}");
+    // The token verified before it was found used, so the report names its caller.
+    support::eventually(
+        &database.pool,
+        "SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event'
+          AND detail->>'event' = 'request_refused' AND detail->>'caller' = 'local')",
+        SOON,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -113,6 +121,9 @@ async fn marking_as_succeeded_starts_children_unless_the_run_was_started_without
     let alone: StartResponse = admin.post("/v1/jobs/panics/runs", Some(&alone), None).await.unwrap();
     assert_eq!(finished(&database.pool, alone.run_id, SOON).await.status, "failed");
     admin.mark_succeeded(alone.run_id, &mark).await.unwrap();
+    let marked = client.run(alone.run_id).await.unwrap();
+    assert_eq!(marked.marked_by.as_deref(), Some("local"));
+    assert!(marked.marked_at.is_some(), "the run says when it was marked");
 
     let linked = client.start("panics", &()).even_if_queued().send().await.unwrap();
     assert_eq!(finished(&database.pool, linked.run_id, SOON).await.status, "failed");

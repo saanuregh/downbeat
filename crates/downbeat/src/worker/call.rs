@@ -82,6 +82,7 @@ pub(crate) async fn wait_for<T>(
         }
     };
     child.process.kill();
+    child.spoiled = true;
     Err(interrupted)
 }
 

@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::api::State;
 use crate::api::auth::Caller;
 use crate::api::error::Failure;
+use crate::job::KeyedInput;
 use crate::reasons;
 use crate::starting::{self, StartError, StartJob, StartOptions};
 use crate::store::audit;
@@ -158,9 +159,8 @@ pub(crate) async fn restart(
             Vec::new(),
         );
     }
-    let ops = &found.spec.input_ops;
-    let input_hash = (ops.hash)(&input).map_err(Failure::unprocessable)?;
-    let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose().map_err(Failure::unprocessable)?;
+    let KeyedInput { input, hash: input_hash, turn_value } =
+        found.spec.input_ops.keyed(&job_name, input, false).map_err(Failure::unprocessable)?;
     let request = StartJob {
         job: job_name.clone(),
         input,
@@ -197,9 +197,11 @@ pub(crate) async fn mark_succeeded(
         return Err(Failure::conflict(format!("the run {}; only a failed run can be marked as succeeded", row.status)));
     }
     let found = job(&state, &row.job_name)?;
-    let output = (found.spec.normalize_output)(request.output, true).map_err(|error| {
-        Failure::unprocessable(format!("the output does not match {}'s output type: {error}", row.job_name))
-    })?;
+    let what = format!("the output type of {}", row.job_name);
+    let output =
+        crate::guard::guarded(&what, || (found.spec.normalize_output)(request.output, true)).map_err(|error| {
+            Failure::unprocessable(format!("the output does not match {}'s output type: {error}", row.job_name))
+        })?;
     if query.preview {
         let children = state.registry.children.get(row.job_name.as_str()).cloned().unwrap_or_default();
         return preview(
@@ -284,9 +286,7 @@ pub(crate) async fn cancel_chain(
     if jobs.is_empty() {
         return Err(Failure::not_found(format!("there is no chain {id}")));
     }
-    for job in &jobs {
-        caller.require_job(job)?;
-    }
+    caller.require_jobs(&jobs)?;
     if query.preview {
         let unfinished: Vec<String> = sqlx::query_scalar("SELECT job_name FROM downbeat.run WHERE chain_id = $1")
             .bind(id)

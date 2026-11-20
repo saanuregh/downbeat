@@ -14,8 +14,9 @@ use crate::units::format_duration;
 /// A finished run.
 pub(crate) fn finished(registry: &Registry, row: HistoryRow, detail: Option<RunDetail>) -> RunView {
     let attempts = registry.job(&row.job_name).map_or(1, |job| i32::from(job.spec.policy.attempts));
-    // Failures count failed calls; a run that ended any other way was on the attempt after them.
-    let attempt = i32::from(row.failures) + i32::from(row.status != "failed");
+    // Failures count failed calls; a run that ended any other way was on the attempt after them. A
+    // run marked as succeeded failed first, so its failures already count its last call.
+    let attempt = i32::from(row.failures) + i32::from(row.status != "failed" && row.marked_by.is_none());
     RunView {
         pipeline: registry.job(&row.job_name).map(|job| job.pipeline.clone()),
         log_link: registry.log_link_for(row.run_id),
@@ -49,6 +50,7 @@ pub(crate) fn finished(registry: &Registry, row: HistoryRow, detail: Option<RunD
         input: row.input,
         output: row.output,
         marked_by: row.marked_by,
+        marked_at: row.marked_at,
         note: row.note,
         detail,
     }
@@ -107,6 +109,7 @@ pub(crate) async fn unfinished(
         input: row.input,
         output: None,
         marked_by: None,
+        marked_at: None,
         note: None,
         detail,
     })

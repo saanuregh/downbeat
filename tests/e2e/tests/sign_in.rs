@@ -131,7 +131,7 @@ async fn setup(database: &Database, who_may_sign_in: &str) -> (support::App, Pro
     let (app, scheduler) = support::with_callers(database, &callers).await;
     let provider = start_provider().await;
 
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let port = support::free_port();
     let base = format!("http://127.0.0.1:{port}");
     let config = format!(
         r#"listen = "127.0.0.1:{port}"
@@ -428,7 +428,7 @@ async fn a_grant_limited_to_a_pipeline_shows_only_that_pipelines_jobs() {
         .unwrap();
     let mut names: Vec<&str> = jobs.as_array().unwrap().iter().map(|job| job["name"].as_str().unwrap()).collect();
     names.sort_unstable();
-    assert_eq!(names, ["dated", "report", "ticker"], "only the clock pipeline's jobs");
+    assert_eq!(names, ["dated", "files_dated", "report", "ticker"], "only the clock pipeline's jobs");
     let other =
         http.get(format!("{base}/api/schedulers/test/v1/jobs/echo")).header("cookie", &asha).send().await.unwrap();
     assert_eq!(other.status(), 403);

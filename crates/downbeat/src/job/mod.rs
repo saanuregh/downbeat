@@ -107,6 +107,27 @@ pub(crate) struct InputOps {
     pub(crate) turn_value: Option<TurnValueFn>,
 }
 
+/// An input ready to become a run: as its type writes it, the hash of its work, and its `one_per`
+/// value.
+pub(crate) struct KeyedInput {
+    pub(crate) input: Value,
+    pub(crate) hash: String,
+    pub(crate) turn_value: Option<String>,
+}
+
+impl InputOps {
+    /// Decodes, hashes and reads `one_per` from an input, outside a child process. These call the
+    /// product's types, so a panic is caught and becomes an error that names `job`.
+    pub(crate) fn keyed(&self, job: &str, value: Value, strict: bool) -> std::result::Result<KeyedInput, String> {
+        crate::guard::guarded(&format!("the input type of {job}"), || {
+            let input = (self.normalize)(value, strict)?;
+            let hash = (self.hash)(&input)?;
+            let turn_value = self.turn_value.map(|value_of| value_of(&input)).transpose()?;
+            Ok(KeyedInput { input, hash, turn_value })
+        })
+    }
+}
+
 impl JobSpec {
     /// A job done by a Rust function. Used by `#[job]`.
     #[doc(hidden)]

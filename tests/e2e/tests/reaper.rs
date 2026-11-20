@@ -169,3 +169,38 @@ async fn a_queued_run_with_a_cancel_requested_is_ended_by_the_reaper() {
     let done = finished(&database.pool, run, SOON).await;
     assert_eq!((done.status.as_str(), done.reason.as_str()), ("cancelled", "Cancelled by asha."));
 }
+
+#[tokio::test]
+async fn events_reach_on_event_and_one_that_does_not_decode_is_skipped() {
+    let database = Database::fresh().await;
+    let app = App::start(&database);
+    let insert = |detail: serde_json::Value| {
+        let pool = database.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "INSERT INTO downbeat.audit (actor, action, detail, notify_after)
+                 VALUES ('engine', 'event', $1, now()) RETURNING audit_id",
+            )
+            .bind(detail)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let known = insert(serde_json::json!({ "event": "database_unreachable", "worker": "w-1" })).await;
+    let unknown = insert(serde_json::json!({ "event": "something_from_a_newer_build" })).await;
+
+    let delivered = |id: i64| {
+        format!("SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE audit_id = {id} AND notify_after IS NULL)")
+    };
+    eventually(&database.pool, &delivered(known), SOON).await;
+    eventually(&database.pool, &delivered(unknown), SOON).await;
+    assert_eq!(
+        std::fs::read_to_string(app.finished_dir.join(format!("event-{known}"))).unwrap(),
+        "database_unreachable"
+    );
+    assert!(
+        !app.finished_dir.join(format!("event-{unknown}")).exists(),
+        "an event this build does not know is skipped"
+    );
+}

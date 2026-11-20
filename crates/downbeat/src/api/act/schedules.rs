@@ -226,13 +226,18 @@ pub(crate) async fn cancel_backfill(
     Query(query): Query<PreviewQuery>,
 ) -> Acted {
     caller.require(Scope::Administer)?;
-    let job: String = sqlx::query_scalar("SELECT job_name FROM downbeat.backfill WHERE backfill_id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| Failure::not_found(format!("there is no backfill {id}")))?;
+    let (job, current_chain): (String, Option<Uuid>) =
+        sqlx::query_as("SELECT job_name, current_chain FROM downbeat.backfill WHERE backfill_id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| Failure::not_found(format!("there is no backfill {id}")))?;
     caller.require_job(&job)?;
     if query.preview {
+        if let Some(chain) = current_chain {
+            let mut connection = state.pool.acquire().await?;
+            caller.require_jobs(&cancel::jobs_in_chain(&mut connection, chain).await?)?;
+        }
         return preview(vec!["Would stop the backfill and cancel the date it is running now.".to_owned()], Vec::new());
     }
     let by = caller.audit_name();
@@ -247,6 +252,9 @@ pub(crate) async fn cancel_backfill(
     let Some(chain) = chain else { return Err(Failure::conflict("the backfill is not running")) };
     if let Some(chain) = chain {
         lock_chain(&mut transaction, chain).await?;
+        // Cancelling the date it is running cancels a chain, which needs every job in it covered,
+        // as cancelling the chain itself does.
+        caller.require_jobs(&cancel::jobs_in_chain(&mut transaction, chain).await?)?;
         cancel::cancel_chain(
             &mut transaction,
             &state.registry,
