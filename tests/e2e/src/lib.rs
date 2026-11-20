@@ -3,8 +3,8 @@
 
 use std::time::Duration;
 
-use downbeat::{QueueTimings, Settings};
 use downbeat::prelude::*;
+use downbeat::{QueueTimings, Settings};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
@@ -222,7 +222,11 @@ pub fn definition() -> Definition {
         stop_within: Duration::from_secs(10),
         poll: Duration::from_millis(200),
         recycle_child_after: 500,
-        queues: [("quick".to_owned(), QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) })].into(),
+        queues: [(
+            "quick".to_owned(),
+            QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) },
+        )]
+        .into(),
     });
     definition.pipeline("basics", basics);
     definition.pipeline("failures", failures);

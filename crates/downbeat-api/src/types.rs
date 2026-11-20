@@ -110,6 +110,8 @@ pub struct JobView {
     pub policies: Vec<String>,
     pub input: Value,
     pub output: Value,
+    /// The input as a JSON Schema, for forms and callers in other languages.
+    pub input_schema: Value,
     pub supports_dry_run: bool,
     pub last_run: Option<RunSummary>,
     pub next_occurrence: Option<DateTime<Utc>>,

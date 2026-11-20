@@ -78,6 +78,7 @@ async fn job_view(state: &State, job: &RegisteredJob) -> Result<JobView, Failure
         triggers: crate::describe::triggers_and_conditions(&state.registry, job),
         policies: job.spec.policy.describe(),
         input: serde_json::to_value(&job.spec.input).unwrap_or_default(),
+        input_schema: job.spec.input.json_schema(),
         output: serde_json::to_value(&job.spec.output).unwrap_or_default(),
         supports_dry_run: job.spec.policy.supports_dry_run,
         last_run: last.as_ref().map(views::summary),

@@ -174,6 +174,27 @@ impl Run {
         self
     }
 
+    /// The same as [`Run::for_test`], due at this instant: a test's clock.
+    #[must_use]
+    pub fn due(mut self, at: DateTime<Utc>) -> Self {
+        self.due_at = at;
+        self
+    }
+
+    /// The same as [`Run::for_test`], on this attempt (counting failed calls, from 1).
+    #[must_use]
+    pub fn on_attempt(mut self, attempt: u32) -> Self {
+        self.attempt = attempt;
+        self
+    }
+
+    /// The same as [`Run::for_test`], already asked to stop: for a job that must notice.
+    #[must_use]
+    pub fn cancelled_already(self) -> Self {
+        self.cancelled.cancel();
+        self
+    }
+
     /// The same as [`Run::for_test`], as a dry run.
     #[must_use]
     pub fn dry(mut self) -> Self {

@@ -48,6 +48,9 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
 | `GET /v1/queues` | R | | `QueueView[]` | |
 | `POST /v1/queues/{name}/pause` | A (token covering every job) | `PauseRequest` | `Done` | ✓ |
 | `POST /v1/queues/{name}/resume` | A (token covering every job) | | `Done` | ✓ |
+| `GET /v1/pause` | R | | `PauseView?`: the pause of everything, if any | |
+| `POST /v1/pause` | A (token covering every job) | `PauseRequest` | `Done`: holds every run of every job | ✓ |
+| `POST /v1/resume` | A (token covering every job) | | `Done` | ✓ |
 | `GET /v1/overrides` | R | | `OverrideView[]`, from 30 days ago on | |
 | `POST /v1/overrides` | A | `OverrideRequest` | `Done` with the last override's `id` | ✓ |
 | `DELETE /v1/overrides/{id}` | A | | `Done` | ✓ |
@@ -111,7 +114,7 @@ All in `downbeat_api::types`. Optional fields are `null` when absent, unless not
 | `Version` | `api: u32`, `engine: string` (the engine crate's version) |
 | `Page<T>` | `items: T[]`, `next_cursor?: string` (absent on the last page) |
 | `ApiError` | `error: string` (a code), `message: string` (a sentence that says what to do) |
-| `JobView` | `name`, `pipeline`, `kind` (`function` or `command`), `queue`, `triggers: string[]`, `policies: string[]` (those that differ from the defaults), `input` and `output` (shapes: `type_name`, `fields[]` of `name`, `type_name`, `compared`), `supports_dry_run`, `last_run: RunSummary?`, `next_occurrence?`, `expected_seconds?`, `paused: PauseView?`, `overdue: bool` |
+| `JobView` | `name`, `pipeline`, `kind` (`function` or `command`), `queue`, `triggers: string[]`, `policies: string[]` (those that differ from the defaults), `input` and `output` (shapes: `type_name`, `fields[]` of `name`, `type_name`, `compared`), `input_schema` (the input as a JSON Schema, draft 2020-12; a type downbeat does not recognise accepts any value there, but the scheduler still checks the real type), `supports_dry_run`, `last_run: RunSummary?`, `next_occurrence?`, `expected_seconds?`, `paused: PauseView?`, `overdue: bool` |
 | `RunView` | `run_id`, `job`, `pipeline?`, `chain_id`, `status`, `queued_because?`, `skipped_because?`, `failed_because?`, `reason`, `started_by`, `actor?`, `schedule?`, `queue`, `priority`, `due_at`, `created_at`, `started_at?`, `finished_at?`, `attempt`, `attempts`, `calls`, `lost_count`, `interruptions`, `dry_run`, `progress?`, `has_checkpoint`, `slow`, `expected_seconds?`, `input?`, `output?`, `log_link?`, `marked_by?`, `note?`, `detail?: RunDetail` (single-run view only; absent otherwise) |
 | `RunDetail` | `error_chain: string[]`, `stderr_tail?`, `call_log: CallView[]` (the last ten calls), `parents: uuid[]`, `children: uuid[]` |
 | `CallView` | `worker`, `build`, `started_at`, `ended_at`, `ended` (a few words, such as `succeeded`, `error`, `not ready`, `interrupted`, `worker lost`) |

@@ -246,8 +246,10 @@ async fn skips_when_nothing_is_published() {
 
 - `.test` returns `Outcome::Succeeded(output)`, `Skipped(reason)`, `NotReady(reason)` or
   `Failed(error)`.
-- `Run::for_test()` is attempt 1, due now, never cancelled. `.with_checkpoint(&state)` continues
-  from a checkpoint, and `.dry()` makes it a dry run.
+- `Run::for_test()` is attempt 1, due now, never cancelled. Builders change that:
+  `.due(instant)` sets the clock the job sees, `.on_attempt(n)` the attempt, `.cancelled_already()`
+  asks it to stop, `.with_checkpoint(&state)` continues from a checkpoint, and `.dry()` makes it a
+  dry run.
 - `run.started_jobs()` lists what the function started with `run.start`, as job name and input.
   `run.reported()` lists its progress lines and checkpoints, in order.
 - For a command, `.test(input)` returns the `ProgramSpec` it would start, with `program`, `args`
@@ -257,3 +259,20 @@ async fn skips_when_nothing_is_published() {
   compiles, so a job outside every pipeline is reported there too.
 
 The [authoring tests](../../crates/downbeat/tests/authoring.rs) show these in use.
+
+### Testing schedules
+
+`downbeat::testing::Schedules` answers questions about a definition's schedules for any date or
+instant, with no database and no waiting: the test chooses the clock.
+
+| Method | Answers |
+| --- | --- |
+| `Schedules::of(definition(), Some("production"))` | Builds the definition as a role in that environment would, or returns `check`'s problems. |
+| `.on(schedule, date).await` | The occurrences on a local date, after the day rule. Dated overrides live in the database and are not applied. |
+| `.next_after(schedule, instant).await` | The first occurrence after an instant. |
+| `.between(schedule, after, until).await` | What a scheduler that was down in between would find missed. |
+| `.input_for(schedule, &occurrence)` | The input a run for that occurrence receives, as JSON. |
+
+The [market example's tests](../../examples/market/tests/market.rs) use it: fetches every half
+hour of a trading day, none at the weekend, the next fetch after a Friday evening, and two missed
+during an hour's outage.

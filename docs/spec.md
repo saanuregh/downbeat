@@ -57,7 +57,7 @@ Modules: `store/runs.rs`, `store/ending.rs`, `api/views.rs`.
    `out_of_memory`, `timeout`, `exit_code`, `signal`, `bad_input`, `output_too_large`,
    `need_not_met`, `gave_up`, `worker_lost` or `job_not_registered`.
 5. A queued run must report one `queued_because`, decided in this order when it is read:
-   1. `paused`, when an active pause covers its job or its queue;
+   1. `paused`, when an active pause covers everything, its job or its queue;
    2. `waiting_turn`, when another run with `starts > 0` holds its turn key;
    3. the stored value (`not_ready`, `need_not_met`, `backing_off`, `scheduled_later`), when the
       run's next claim time is still in the future;
@@ -71,7 +71,7 @@ Modules: `worker/mod.rs`, `worker/prepare.rs`, `worker/call.rs`, `store/runs.rs`
 1. **Claim.** One statement must mark the most urgent claimable run `running`, raise its fence,
    set its lease owner and `lease_expires_at = now() + lease`, and clear `function_started_at`.
    A run is claimable when it is `queued`, on the worker's queue, its `run_at` has passed, no
-   cancel was requested, its job is in the worker's build, no active pause covers its job or
+   cancel was requested, its job is in the worker's build, no active pause covers everything, its job or
    queue, and no other run with `starts > 0` holds its turn key (a null turn key never blocks).
    The most urgent is the highest `priority`, then the earliest `run_at`. Concurrent claims must
    skip locked rows.
@@ -477,7 +477,8 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     and so does a start with `ignore_conditions` or `timeout_seconds`.
 14. A token limited to jobs must see and act on only those jobs: lists are filtered, a single
     item of another job is 403, a chain needs its first job covered to be read and every job in
-    it covered to be cancelled, and a queue pause needs a token covering every job.
+    it covered to be cancelled, and a queue pause or the pause of everything needs a token covering
+   every job.
 
 **Requests.**
 

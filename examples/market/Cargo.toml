@@ -7,9 +7,12 @@ license.workspace = true
 publish = false
 
 [dependencies]
+chrono.workspace = true
+serde_json.workspace = true
 downbeat.workspace = true
 serde.workspace = true
 tokio.workspace = true
 
 [lints]
 workspace = true
+

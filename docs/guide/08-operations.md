@@ -28,7 +28,7 @@ A run's `status` is one of:
 | --- | --- | --- |
 | `no_free_worker` | Due, and waiting for a slot. The reason says whether every slot on the queue is busy or no running worker serves the queue. Also used for a run that was just released by a shutdown or taken back from a lost worker. | Add slots or workers for the queue, or check that a worker serving it is running. |
 | `waiting_turn` | Another run holds its turn: the same work, or the whole job with `one_at_a_time`, or the same value with `one_per`. The reason names the run it waits for. | Usually nothing. If the holder is stuck, look at it. |
-| `paused` | Its job or its queue is paused. The reason says by whom, until when, and why. | Resume when ready. |
+| `paused` | Its job or its queue is paused, or everything is. The reason says by whom, until when, and why. | Resume when ready. |
 | `need_not_met` | A need written with `.or_wait()` is not met yet. Checked again every `recheck_every`. | Look at the needed job. "Check now" re-checks at once. |
 | `not_ready` | The function returned `not_ready`, or the command exited with 75. The reason gives its message and the next check. | "Check now" re-checks at once. |
 | `backing_off` | A call failed and the next attempt waits for its backoff. The reason gives the error and the time of the next attempt. | "Check now" runs it at once. |
@@ -78,6 +78,7 @@ made each.
 | A schedule | The schedule creates no runs. Its position still moves forward, so resuming releases no backlog. The job can still be started by hand. | `administer` on the schedule's job |
 | A job | No worker claims any run of the job, however it was started. New runs are still created and wait, and same-work requests join them. | `administer` on the job |
 | A queue | No worker claims any run on the queue. | `administer`, with a token covering every job |
+| Everything (`POST /v1/pause`, "Pause everything" on the Queues screen) | No worker claims any run of any job, for an outage or maintenance. Schedules still create runs, which wait. | `administer`, with a token covering every job |
 
 - A pause needs a note, and either an end time (`until`) or an explicit `until_resumed: true`.
   An end in the past is refused.

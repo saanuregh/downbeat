@@ -206,3 +206,17 @@ two heartbeats.
 `POST /v1/pause` and `POST /v1/resume` hold and release every run of every job, from the design's
 list of things to add during the build. The pause is a row of kind `all`, added by migration 2,
 which older engines ignore.
+
+## 35. A test kit with the test's own clock
+
+`downbeat::testing::Schedules` answers, for any date or instant and with no database, what a
+definition's schedules would do: occurrences after the day rule, the next one, what an outage would
+miss, and each occurrence's input. `Run::for_test()` gained `.due(…)`, `.on_attempt(…)` and
+`.cancelled_already()`. Dated overrides live in the database and are not applied by the kit. The
+market example became a library with a binary, so its tests can use its definition.
+
+## 36. Each job's input is published as a JSON Schema
+
+`JobView.input_schema` is the input as a JSON Schema (draft 2020-12), built from the shape the
+`JobData` derive records. A type it does not recognise accepts any value there; the scheduler still
+checks every input against the real type.

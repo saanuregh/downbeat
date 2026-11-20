@@ -43,6 +43,55 @@ impl Shape {
     pub fn named(type_name: &str) -> Self {
         Shape { type_name: type_name.to_owned(), fields: Vec::new() }
     }
+
+    /// A JSON Schema (draft 2020-12) of the value, for a caller in another language or a form.
+    /// Types it does not recognise, such as a product's own newtypes, accept any value; the
+    /// scheduler still checks every input against the real type.
+    pub fn json_schema(&self) -> Value {
+        let mut schema = if self.fields.is_empty() {
+            schema_of(&self.type_name)
+        } else {
+            let properties: serde_json::Map<String, Value> =
+                self.fields.iter().map(|field| (field.name.clone(), schema_of(&field.type_name))).collect();
+            let required: Vec<&str> = self
+                .fields
+                .iter()
+                .filter(|field| !field.type_name.starts_with("Option<"))
+                .map(|field| field.name.as_str())
+                .collect();
+            serde_json::json!({ "type": "object", "properties": properties, "required": required })
+        };
+        if let Value::Object(map) = &mut schema {
+            map.insert("title".to_owned(), Value::String(self.type_name.clone()));
+        }
+        schema
+    }
+}
+
+/// The JSON Schema of a Rust type, written as `type_name` gives it.
+fn schema_of(type_name: &str) -> Value {
+    use serde_json::json;
+    let name = type_name.replace(' ', "");
+    let inner = |prefix: &str| name.strip_prefix(prefix).and_then(|rest| rest.strip_suffix('>')).map(str::to_owned);
+    if let Some(inner) = inner("Option<") {
+        return json!({ "anyOf": [schema_of(&inner), { "type": "null" }] });
+    }
+    if let Some(inner) = inner("Vec<") {
+        return json!({ "type": "array", "items": schema_of(&inner) });
+    }
+    let last = name.rsplit("::").next().unwrap_or(&name);
+    match last {
+        "()" => json!({ "type": "null" }),
+        "bool" => json!({ "type": "boolean" }),
+        "String" | "str" => json!({ "type": "string" }),
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "isize" => json!({ "type": "integer" }),
+        "f32" | "f64" => json!({ "type": "number" }),
+        "NaiveDate" => json!({ "type": "string", "format": "date" }),
+        "NaiveTime" => json!({ "type": "string", "format": "time" }),
+        "Uuid" => json!({ "type": "string", "format": "uuid" }),
+        _ if last.starts_with("DateTime<") => json!({ "type": "string", "format": "date-time" }),
+        _ => json!({}),
+    }
 }
 
 macro_rules! plain_job_data {
@@ -191,6 +240,32 @@ mod tests {
     #[test]
     fn hash_differs_for_different_values() {
         assert_ne!(identity_hash(&json!({"broker": 1})), identity_hash(&json!({"broker": 2})));
+    }
+
+    #[test]
+    fn describes_a_struct_as_a_json_schema() {
+        let shape = Shape {
+            type_name: "Report".into(),
+            fields: vec![
+                FieldShape { name: "day".into(), type_name: "NaiveDate".into(), compared: true },
+                FieldShape { name: "note".into(), type_name: "Option<String>".into(), compared: false },
+                FieldShape { name: "ids".into(), type_name: "Vec<u32>".into(), compared: true },
+            ],
+        };
+        assert_eq!(
+            shape.json_schema(),
+            json!({
+                "title": "Report",
+                "type": "object",
+                "properties": {
+                    "day": { "type": "string", "format": "date" },
+                    "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "ids": { "type": "array", "items": { "type": "integer" } },
+                },
+                "required": ["day", "ids"],
+            })
+        );
+        assert_eq!(Shape::named("()").json_schema(), json!({ "title": "()", "type": "null" }));
     }
 
     #[test]

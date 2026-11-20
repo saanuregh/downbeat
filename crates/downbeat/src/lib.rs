@@ -26,6 +26,7 @@ mod schedule;
 mod scheduler;
 mod starting;
 mod store;
+pub mod testing;
 mod units;
 mod worker;
 

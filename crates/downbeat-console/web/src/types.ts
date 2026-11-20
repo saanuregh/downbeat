@@ -139,6 +139,8 @@ export interface JobView {
   policies: string[];
   input: Json;
   output: Json;
+  /** The input as a JSON Schema, for callers in other languages. */
+  input_schema: unknown;
   supports_dry_run: boolean;
   last_run: RunSummary | null;
   next_occurrence: string | null;

@@ -218,7 +218,10 @@ impl Settings {
             .chain(self.queues.iter().map(|(queue, timings)| (format!("queue {queue}"), *timings)))
             .filter(|(_, timings)| timings.lease < timings.heartbeat * 2)
             .map(|(what, timings)| {
-                format!("the lease of {what} ({:?}) must be at least two heartbeats ({:?})", timings.lease, timings.heartbeat)
+                format!(
+                    "the lease of {what} ({:?}) must be at least two heartbeats ({:?})",
+                    timings.lease, timings.heartbeat
+                )
             })
             .collect()
     }
