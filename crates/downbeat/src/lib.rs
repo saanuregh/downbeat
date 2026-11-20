@@ -16,6 +16,8 @@ mod describe;
 mod events;
 mod guard;
 mod job;
+#[doc(hidden)]
+pub mod measure;
 mod pipeline;
 mod protocol;
 mod pruning;

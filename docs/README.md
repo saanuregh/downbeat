@@ -35,3 +35,4 @@ rule, and the architecture when you change the engine.
 | [Contributing](../CONTRIBUTING.md) | Setup, checks, tests, code style, migrations. |
 | [Security policy](../SECURITY.md) | Threat model summary and how to report a vulnerability. |
 | [Changelog](../CHANGELOG.md) | What each release contains. |
+| [Performance](performance.md) | What the hot paths cost, measured, and how to measure them again. |

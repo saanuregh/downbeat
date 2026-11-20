@@ -8,15 +8,20 @@ use sqlx::PgPool;
 use crate::registry::Registry;
 use crate::store::interval;
 
-/// Chains removed per statement.
+/// Chains removed per statement, so no statement holds its locks for long.
 const BATCH: i64 = 500;
+/// How long one pass may keep deleting. Measured at about two thousand chains a second, a pass
+/// keeps up with far more than the tens of thousands of runs a day the engine is sized for, and
+/// whatever is left waits for the next pass.
+const PASS_BUDGET: Duration = Duration::from_secs(300);
 
 pub(crate) async fn prune(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
+    let started = std::time::Instant::now();
     for (name, job) in &registry.jobs {
         let policy = &job.spec.policy;
-        prune_older_than(pool, name, policy.keep_runs_for).await?;
+        while prune_older_than(pool, name, policy.keep_runs_for).await? == BATCH && started.elapsed() < PASS_BUDGET {}
         if let Some(count) = policy.keep_runs_at_most {
-            prune_beyond_count(pool, name, i64::from(count)).await?;
+            while prune_beyond_count(pool, name, i64::from(count)).await? == BATCH && started.elapsed() < PASS_BUDGET {}
         }
     }
     sqlx::query(
@@ -47,18 +52,20 @@ const PRUNABLE: &str = "
            AND h.finished_at = (SELECT max(l.finished_at) FROM downbeat.run_history l
                                  WHERE l.job_name = h.job_name AND l.status = 'succeeded'))";
 
-async fn prune_older_than(pool: &PgPool, job: &str, keep_for: Duration) -> sqlx::Result<()> {
+/// Removes one batch of a job's chains older than its retention; returns how many went.
+async fn prune_older_than(pool: &PgPool, job: &str, keep_for: Duration) -> sqlx::Result<i64> {
     let sql = format!(
         "DELETE FROM downbeat.chain WHERE chain_id IN (
             SELECT c.chain_id FROM downbeat.chain c
              WHERE c.first_job = $1 AND c.started_at < now() - $2 AND {PRUNABLE}
              LIMIT $3)"
     );
-    sqlx::query(&sql).bind(job).bind(interval(keep_for)).bind(BATCH).execute(pool).await?;
-    Ok(())
+    let done = sqlx::query(&sql).bind(job).bind(interval(keep_for)).bind(BATCH).execute(pool).await?;
+    Ok(i64::try_from(done.rows_affected()).unwrap_or(i64::MAX))
 }
 
-async fn prune_beyond_count(pool: &PgPool, job: &str, keep: i64) -> sqlx::Result<()> {
+/// Removes one batch of a job's chains beyond the newest `keep`; returns how many went.
+async fn prune_beyond_count(pool: &PgPool, job: &str, keep: i64) -> sqlx::Result<i64> {
     let sql = format!(
         "DELETE FROM downbeat.chain WHERE chain_id IN (
             SELECT c.chain_id FROM downbeat.chain c
@@ -67,6 +74,6 @@ async fn prune_beyond_count(pool: &PgPool, job: &str, keep: i64) -> sqlx::Result
              ORDER BY h.finished_at DESC
              OFFSET $2 LIMIT $3)"
     );
-    sqlx::query(&sql).bind(job).bind(keep).bind(BATCH).execute(pool).await?;
-    Ok(())
+    let done = sqlx::query(&sql).bind(job).bind(keep).bind(BATCH).execute(pool).await?;
+    Ok(i64::try_from(done.rows_affected()).unwrap_or(i64::MAX))
 }

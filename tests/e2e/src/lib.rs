@@ -172,6 +172,18 @@ pub fn exits(plan: ExitPlan) -> Program<Text> {
         .env("PLAN_CODE", plan.code)
 }
 
+#[job]
+pub async fn noop(_run: Run, input: Number) -> Result<()> {
+    let _ = input;
+    Ok(())
+}
+
+#[job(fresh_process)]
+pub async fn fresh_noop(_run: Run, input: Number) -> Result<()> {
+    let _ = input;
+    Ok(())
+}
+
 #[command]
 pub fn leaves_a_process_behind() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "sleep 300 & echo started"])
@@ -186,6 +198,8 @@ fn basics(pipeline: &mut Pipeline) {
     pipeline.job(guarded).only_if("positive", |input: &Number| input.n > 0);
     pipeline.job(empty);
     pipeline.job(starter);
+    pipeline.job(noop);
+    pipeline.job(fresh_noop);
 }
 
 fn failures(pipeline: &mut Pipeline) {

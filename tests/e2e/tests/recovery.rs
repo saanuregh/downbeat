@@ -63,7 +63,10 @@ fn children_of(pid: u32) -> Vec<u32> {
         let Ok(child) = entry.file_name().to_string_lossy().parse::<u32>() else { continue };
         let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
         // The parent's id is the second field after the command, which is in parentheses.
-        let parent = stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(1)).and_then(|field| field.parse::<u32>().ok());
+        let parent = stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().nth(1))
+            .and_then(|field| field.parse::<u32>().ok());
         let marked = std::fs::read(format!("/proc/{child}/environ")).is_ok_and(|environ| {
             environ.split(|byte| *byte == 0).any(|variable| variable.starts_with(b"DOWNBEAT_CHILD_FD="))
         });
@@ -95,6 +98,7 @@ async fn children_are_the_first_to_go_when_memory_runs_out_and_die_with_their_wo
 
     app.kill();
     tokio::time::sleep(Duration::from_secs(1)).await;
-    let alive: Vec<&u32> = children.iter().filter(|child| std::path::Path::new(&format!("/proc/{child}")).exists()).collect();
+    let alive: Vec<&u32> =
+        children.iter().filter(|child| std::path::Path::new(&format!("/proc/{child}")).exists()).collect();
     assert!(alive.is_empty(), "children outlived their worker: {alive:?}");
 }

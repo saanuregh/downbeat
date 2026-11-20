@@ -226,3 +226,9 @@ checks every input against the real type.
 `downbeat_api::job_name!(pub send_report: ReportRequest)` declares a job's name and input type in
 a crate a product's services share, without the engine. `Client::start_job` takes such a name, so
 the compiler checks the input. Starting by name stays for callers with no shared crate.
+
+## 38. Pruning runs batch after batch, within a budget
+
+Measured (`docs/performance.md`): one hourly pass of 500 chains kept up with only about 12,000 runs
+a day. A pass now deletes batches until a job has nothing left to prune, for up to five minutes. An
+index on chains by first job did not make it faster, so none was added.
