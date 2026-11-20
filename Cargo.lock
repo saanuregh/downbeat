@@ -800,6 +800,7 @@ dependencies = [
  "chrono",
  "downbeat",
  "downbeat-client",
+ "futures",
  "reqwest",
  "serde",
  "serde_json",

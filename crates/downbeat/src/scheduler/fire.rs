@@ -28,8 +28,13 @@ pub(crate) async fn register(pool: &PgPool, registry: &Registry) -> sqlx::Result
         sqlx::query(
             "INSERT INTO downbeat.schedule_state (schedule, watermark, next_due_at, times_hash) VALUES ($1, now(), now(), $2)
              ON CONFLICT (schedule) DO UPDATE SET
-                watermark = CASE WHEN schedule_state.seen_at < now() - interval '10 minutes' OR schedule_state.times_hash <> $2
-                                 THEN GREATEST(schedule_state.watermark, now()) ELSE schedule_state.watermark END,
+                watermark = CASE WHEN schedule_state.seen_at < now() - interval '10 minutes'
+                                 THEN GREATEST(schedule_state.watermark, now())
+                                 -- Changed times start from now, less a few seconds, so builds that
+                                 -- alternate during a rolling deploy never skip an occurrence just due.
+                                 WHEN schedule_state.times_hash <> $2
+                                 THEN GREATEST(schedule_state.watermark, now() - interval '5 seconds')
+                                 ELSE schedule_state.watermark END,
                 next_due_at = CASE WHEN schedule_state.times_hash <> $2 THEN now() ELSE schedule_state.next_due_at END,
                 times_hash = $2,
                 seen_at = now()",

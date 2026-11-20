@@ -114,3 +114,32 @@ when a product asks for them.
 
 The listener allows each actor 20 requests a second on average with bursts of 100, in memory per
 scheduler. It protects against a runaway caller, not a determined one; that is the network's job.
+
+## 20. Only callers marked `acts_for_people` may name another actor
+
+From the first independent review. A caller's token names itself as the actor (`sub` equals
+`iss`) unless the callers file sets `acts_for_people = true` for it, as for the console. Rate
+limits and idempotency keys are per caller and actor together, so one caller cannot use another's
+keys or escape its own limit by changing the actor.
+
+## 21. A caller limited to some jobs sees and changes only those
+
+Every read filters to the jobs the token covers (pipelines, chains, schedules, queues, overrides,
+backfills, audit); actions that span jobs (pausing a queue) need a token that covers every job.
+
+## 22. Cancels read under the chain's lock, in one routine
+
+`store::cancel` is the one place that cancels a run or a chain. A run that goes back to the queue
+after someone asked for a cancel is ended as cancelled instead, and the claim never takes such a
+run.
+
+## 23. Every wait on a child is bounded
+
+Preparing a run, waiting for a command's program and checking its output now watch the job's
+timeout, the lease and shutdown, like the function call itself. Heartbeats and database calls made
+for a running function have deadlines, and every connection has a 60-second statement timeout.
+
+## 24. A command's leftover background processes are killed when it exits
+
+The program's process group is killed once its main process exits, so a background process cannot
+hold its standard error open and keep the run from finishing.

@@ -83,17 +83,30 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
         return Err(StartError::NoDryRun(request.job));
     }
     let mut transaction = pool.begin().await?;
+    // The key is claimed before the run is created. A second request with the same key waits on the
+    // unique index until the first commits, then finds its run, so two retries in flight never
+    // both create one.
     if let Some((actor, key)) = &request.idempotency {
-        let earlier: Option<Uuid> = sqlx::query_scalar(
-            "SELECT run_id FROM downbeat.idempotency WHERE actor = $1 AND job_name = $2 AND key = $3",
+        let claimed: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO downbeat.idempotency (actor, job_name, key, run_id) VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING RETURNING run_id",
         )
         .bind(actor)
         .bind(&request.job)
         .bind(key)
+        .bind(Uuid::nil())
         .fetch_optional(&mut *transaction)
         .await?;
-        if let Some(run_id) = earlier {
-            return Ok(StartResult { started: Started::New(run_id), repeated: true });
+        if claimed.is_none() {
+            let earlier: Uuid = sqlx::query_scalar(
+                "SELECT run_id FROM downbeat.idempotency WHERE actor = $1 AND job_name = $2 AND key = $3",
+            )
+            .bind(actor)
+            .bind(&request.job)
+            .bind(key)
+            .fetch_one(&mut *transaction)
+            .await?;
+            return Ok(StartResult { started: Started::New(earlier), repeated: true });
         }
     }
     let policy = &job.spec.policy;
@@ -121,7 +134,7 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
     };
     let created = runs::create(&mut transaction, &run).await?;
     if let Some((actor, key)) = &request.idempotency {
-        sqlx::query("INSERT INTO downbeat.idempotency (actor, job_name, key, run_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING")
+        sqlx::query("UPDATE downbeat.idempotency SET run_id = $4 WHERE actor = $1 AND job_name = $2 AND key = $3")
             .bind(actor)
             .bind(&request.job)
             .bind(key)

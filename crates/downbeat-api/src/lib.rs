@@ -9,7 +9,7 @@ mod token;
 pub mod types;
 
 pub use keys::{DEVELOPMENT_AUDIENCE, KeyError, PrivateKey, PublicKey, development_key};
-pub use token::{Claims, RequestBinding, Scope, TOKEN_TYPE, TokenError, sign, verify};
+pub use token::{Claims, LEEWAY_SECONDS, RequestBinding, Scope, TOKEN_TYPE, TokenError, sign, verify};
 
 /// The version of the control API this crate speaks. A console supports this one and the one before.
 pub const API_VERSION: u32 = 1;

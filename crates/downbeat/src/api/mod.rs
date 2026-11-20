@@ -41,6 +41,8 @@ pub(crate) struct TrustedCaller {
     pub(crate) keys: Vec<PublicKey>,
     pub(crate) max_scope: Scope,
     pub(crate) jobs: Option<Vec<String>>,
+    /// Whether its tokens may name someone else as the actor, as a console does for people.
+    pub(crate) acts_for_people: bool,
 }
 
 /// The callers file, as written.
@@ -60,6 +62,8 @@ struct CallerEntry {
     max_scope: Scope,
     #[serde(default)]
     jobs: Option<Vec<String>>,
+    #[serde(default)]
+    acts_for_people: bool,
 }
 
 impl Config {
@@ -75,8 +79,12 @@ impl Config {
                 listen.ip().is_loopback(),
                 "--local listens on this machine only; {listen} is not a loopback address"
             );
-            let caller =
-                TrustedCaller { keys: vec![development_key().public()], max_scope: Scope::Administer, jobs: None };
+            let caller = TrustedCaller {
+                keys: vec![development_key().public()],
+                max_scope: Scope::Administer,
+                jobs: None,
+                acts_for_people: true,
+            };
             return Ok(Some(Config {
                 listen,
                 audience: DEVELOPMENT_AUDIENCE.to_owned(),
@@ -95,7 +103,12 @@ impl Config {
         for entry in file.callers {
             let keys = entry.keys.iter().map(|key| PublicKey::from_base64(key)).collect::<Result<Vec<_>, _>>()?;
             anyhow::ensure!(!keys.is_empty(), "caller {} has no keys", entry.name);
-            let caller = TrustedCaller { keys, max_scope: entry.max_scope, jobs: entry.jobs };
+            let caller = TrustedCaller {
+                keys,
+                max_scope: entry.max_scope,
+                jobs: entry.jobs,
+                acts_for_people: entry.acts_for_people,
+            };
             anyhow::ensure!(
                 callers.insert(entry.name.clone(), caller).is_none(),
                 "caller {} is listed twice",

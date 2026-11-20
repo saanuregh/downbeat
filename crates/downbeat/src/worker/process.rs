@@ -150,6 +150,15 @@ impl Process {
         }
     }
 
+    /// Kills whatever is left of the process group after its leader has exited: anything a
+    /// program started in the background. The group id stays valid while any member is alive.
+    pub(crate) fn kill_group(&self) {
+        // SAFETY: killpg only sends a signal.
+        unsafe {
+            libc::killpg(self.pid, libc::SIGKILL);
+        }
+    }
+
     pub(crate) fn kill(&self) {
         self.signal_group(libc::SIGKILL);
     }

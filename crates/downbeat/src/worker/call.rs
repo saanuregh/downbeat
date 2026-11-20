@@ -25,6 +25,57 @@ const MEMORY_SAMPLE: Duration = Duration::from_secs(2);
 /// How much of a failed command's standard error is kept.
 const STDERR_TAIL: usize = 16 * 1024;
 
+/// What may cut short a wait for the child's answer.
+#[derive(Debug)]
+pub(crate) enum Interrupted {
+    Crashed { code: Option<i32>, signal: Option<i32> },
+    TimedOut,
+    Stopped(StopReason),
+    Shutdown,
+}
+
+impl From<Interrupted> for CallOutcome {
+    fn from(interrupted: Interrupted) -> CallOutcome {
+        match interrupted {
+            Interrupted::Crashed { code, signal } => CallOutcome::Crashed { code, signal },
+            Interrupted::TimedOut => CallOutcome::TimedOut,
+            Interrupted::Stopped(reason) => CallOutcome::Stopped(reason),
+            Interrupted::Shutdown => CallOutcome::Interrupted,
+        }
+    }
+}
+
+/// Waits for the child message `pick` accepts, while the run's deadline, its lease and the worker's
+/// shutdown can still stop it. A child that is cut short is killed: it may be stuck in app code.
+pub(crate) async fn wait_for<T>(
+    context: &WorkerContext,
+    child: &mut ChildHandle,
+    lease: &mut Lease,
+    deadline_at: Option<Instant>,
+    mut pick: impl FnMut(FromChild) -> Option<T>,
+) -> Result<T, Interrupted> {
+    let interrupted = loop {
+        tokio::select! {
+            message = child.next() => match message {
+                Some(message) => if let Some(found) = pick(message) { return Ok(found) },
+                None => return Err(match crashed(child).await {
+                    CallOutcome::Crashed { code, signal } => Interrupted::Crashed { code, signal },
+                    _ => Interrupted::Crashed { code: None, signal: None },
+                }),
+            },
+            () = deadline(deadline_at) => break Interrupted::TimedOut,
+            _ = lease.stop.changed() => break Interrupted::Stopped(lease.stopped().unwrap_or(StopReason::Lost)),
+            () = context.shutdown.stop_running.cancelled() => break Interrupted::Shutdown,
+        }
+    };
+    child.process.kill();
+    Err(interrupted)
+}
+
+/// How long a database call made for a running function may take, so the call loop keeps watching
+/// its deadline and lease.
+const ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// How one call ended.
 #[derive(Debug)]
 pub(crate) enum CallOutcome {
@@ -159,16 +210,20 @@ async fn answer(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, 
         FromChild::Checkpoint { run_id, state, request } if run_id == run.run_id => match request {
             None => lease.checkpoint(state),
             Some(request) => {
-                let result = match lease.checkpoint_now(state).await {
-                    Ok(true) => Ok(None),
-                    Ok(false) => Err("this worker no longer holds the run".to_owned()),
-                    Err(error) => Err(error.to_string()),
+                let result = match tokio::time::timeout(ANSWER_WITHIN, lease.checkpoint_now(state)).await {
+                    Ok(Ok(true)) => Ok(None),
+                    Ok(Ok(false)) => Err("this worker no longer holds the run".to_owned()),
+                    Ok(Err(error)) => Err(error.to_string()),
+                    Err(_) => Err("storing the checkpoint took too long".to_owned()),
                 };
                 let _ = child.send(&ToChild::Answer { run_id, request, result }).await;
             }
         },
         FromChild::Start { run_id, request, start } if run_id == run.run_id => {
-            let result = start_from_job(context, run, start).await.map(Some);
+            let result = match tokio::time::timeout(ANSWER_WITHIN, start_from_job(context, run, start)).await {
+                Ok(result) => result.map(Some),
+                Err(_) => Err("starting the job took too long".to_owned()),
+            };
             let _ = child.send(&ToChild::Answer { run_id, request, result }).await;
         }
         _ => {}
@@ -198,12 +253,15 @@ pub(crate) async fn command(
     if child.send(&ToChild::Go { run: run_info(run), input: input.clone(), checkpoint: None }).await.is_err() {
         return crashed(child).await;
     }
-    let spec = loop {
-        match child.next().await {
-            Some(FromChild::Program { run_id, result }) if run_id == run.run_id => break result,
-            Some(_) => {}
-            None => return crashed(child).await,
-        }
+    let wanted = run.run_id;
+    let spec = match wait_for(context, child, lease, limits.deadline, |message| match message {
+        FromChild::Program { run_id, result } if run_id == wanted => Some(result),
+        _ => None,
+    })
+    .await
+    {
+        Ok(spec) => spec,
+        Err(interrupted) => return interrupted.into(),
     };
     let spec = match spec {
         Ok(spec) => spec,
@@ -212,7 +270,9 @@ pub(crate) async fn command(
     let output_file = std::env::temp_dir().join(format!("downbeat-{}-{}.json", run.run_id, run.starts));
     let outcome = run_program(context, run, &spec, &input, &output_file, &limits, lease).await;
     let outcome = match outcome {
-        CallOutcome::Ended(ChildEnding::Output(_)) => read_output(child, run, &output_file).await,
+        CallOutcome::Ended(ChildEnding::Output(_)) => {
+            read_output(context, child, run, &output_file, &limits, lease).await
+        }
         other => other,
     };
     let _ = std::fs::remove_file(&output_file);
@@ -267,7 +327,18 @@ async fn run_program(
     let stop = loop {
         tokio::select! {
             status = process.wait() => {
-                let stderr_tail = tail.and_then(|tail| tail.join().ok()).unwrap_or_default();
+                // Anything the program left running in the background goes with it, and its
+                // standard error closes, so the tail can be read without waiting forever.
+                process.kill_group();
+                let stderr_tail = match tail {
+                    Some(tail) => tokio::time::timeout(std::time::Duration::from_secs(2), tokio::task::spawn_blocking(move || tail.join()))
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                        .and_then(Result::ok)
+                        .unwrap_or_default(),
+                    None => String::new(),
+                };
                 return match status {
                     Ok(status) if status.success() => CallOutcome::Ended(ChildEnding::Output(Value::Null)),
                     Ok(status) if status.code() == Some(EXIT_NOT_READY) => {
@@ -298,7 +369,14 @@ async fn run_program(
 
 /// Reads what a program wrote to its output file, and has the child check it against the command's
 /// output type.
-async fn read_output(child: &mut ChildHandle, run: &RunRow, output_file: &PathBuf) -> CallOutcome {
+async fn read_output(
+    context: &WorkerContext,
+    child: &mut ChildHandle,
+    run: &RunRow,
+    output_file: &PathBuf,
+    limits: &Limits,
+    lease: &mut Lease,
+) -> CallOutcome {
     let text = std::fs::read_to_string(output_file).unwrap_or_default();
     if text.len() > MAX_VALUE_BYTES {
         return CallOutcome::Ended(ChildEnding::OutputTooLarge(text.len()));
@@ -320,19 +398,18 @@ async fn read_output(child: &mut ChildHandle, run: &RunRow, output_file: &PathBu
     if child.send(&check).await.is_err() {
         return crashed(child).await;
     }
-    loop {
-        match child.next().await {
-            Some(FromChild::Checked { run_id, result }) if run_id == run.run_id => {
-                return CallOutcome::Ended(match result {
-                    Ok(output) => ChildEnding::Output(output),
-                    Err(error) => ChildEnding::BadInput(format!(
-                        "the program's output does not fit the command's output type: {error}"
-                    )),
-                });
-            }
-            Some(_) => {}
-            None => return crashed(child).await,
-        }
+    let wanted = run.run_id;
+    match wait_for(context, child, lease, limits.deadline, |message| match message {
+        FromChild::Checked { run_id, result } if run_id == wanted => Some(result),
+        _ => None,
+    })
+    .await
+    {
+        Ok(Ok(output)) => CallOutcome::Ended(ChildEnding::Output(output)),
+        Ok(Err(error)) => CallOutcome::Ended(ChildEnding::BadInput(format!(
+            "the program's output does not fit the command's output type: {error}"
+        ))),
+        Err(interrupted) => interrupted.into(),
     }
 }
 

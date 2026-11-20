@@ -70,7 +70,7 @@ pub(crate) async fn drive(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
             }
             Ok(None) => finish(&mut transaction, backfill.backfill_id, "done", "Every date has run.").await?,
             Err(error) => {
-                finish(&mut transaction, backfill.backfill_id, "failed", &format!("Stopped: {error}.")).await?
+                finish(&mut transaction, backfill.backfill_id, "failed", &format!("Stopped: {error}.")).await?;
             }
         }
     }

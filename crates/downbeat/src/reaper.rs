@@ -47,6 +47,7 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
 
 pub(crate) async fn sweep_once(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     take_back_lost(pool, registry).await?;
+    cancel_requested(pool, registry).await?;
     expire(pool, registry).await?;
     give_up(pool, registry).await?;
     unregistered(pool, registry).await?;
@@ -133,6 +134,22 @@ struct QueuedRow {
     expires_at: Option<DateTime<Utc>>,
     queued_reason: Option<String>,
     queued_because: Option<String>,
+}
+
+/// Queued runs that someone asked to cancel while they were held: they end as cancelled.
+async fn cancel_requested(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
+    let rows: Vec<(Uuid, Uuid, i64, String)> = sqlx::query_as(
+        "SELECT run_id, chain_id, fence, cancel_requested_by FROM downbeat.run
+          WHERE state = 'queued' AND cancel_requested_by IS NOT NULL LIMIT $1",
+    )
+    .bind(BATCH)
+    .fetch_all(pool)
+    .await?;
+    for (run_id, chain_id, fence, by) in rows {
+        ending::end(pool, registry, run_id, chain_id, fence, Ending::new(Status::Cancelled, reasons::cancelled(&by)))
+            .await?;
+    }
+    Ok(())
 }
 
 /// Queued runs never started whose occurrence has expired.

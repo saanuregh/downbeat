@@ -254,3 +254,13 @@ async fn a_job_can_start_another_job() {
     assert_eq!(echoed.output.unwrap()["text"], "started by a job");
     assert_eq!(echoed.started_by, "job");
 }
+
+#[tokio::test]
+async fn a_command_that_leaves_a_background_process_still_finishes() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+    let run = client.start(leaves_a_process_behind, ()).await.unwrap();
+    let done = finished(&database.pool, run.run_id(), std::time::Duration::from_secs(10)).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+}

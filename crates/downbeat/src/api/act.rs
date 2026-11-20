@@ -26,7 +26,8 @@ use crate::registry::RegisteredJob;
 use crate::schedule::Times;
 use crate::scheduler::plan;
 use crate::starting::{self, StartError, StartJob, StartOptions};
-use crate::store::ending::{self, Ending, HistoryRow, Status, lock_chain};
+use crate::store::cancel::{self, Cancelled};
+use crate::store::ending::{self, HistoryRow, lock_chain};
 use crate::store::runs::{self, NewRun, Place, RunRow, StartedBy, Timeout};
 use crate::store::{audit, history};
 
@@ -103,7 +104,7 @@ pub(crate) async fn start(
         options,
         started_by: started_by(&caller),
         actor: Some(caller.audit_name()),
-        idempotency: key.map(|key| (caller.actor.clone(), key)),
+        idempotency: key.map(|key| (format!("{}/{}", caller.name, caller.actor), key)),
     };
     let result = starting::start(&state.pool, &state.registry, request).await.map_err(|error| match error {
         StartError::Database(error) => Failure::from(error),
@@ -236,11 +237,8 @@ pub(crate) async fn cancel_run(
                 } else {
                     "it has no checkpoint"
                 };
-                format!(
-                    "Would stop {} after {} of work; {checkpoint}.",
-                    run.job_name,
-                    crate::units::format_duration((Utc::now() - started).to_std().unwrap_or_default())
-                )
+                let ran_for = crate::units::format_duration((Utc::now() - started).to_std().unwrap_or_default());
+                format!("Would stop {} after {ran_for} of work; {checkpoint}.", run.job_name)
             }
             None => format!("Would cancel the waiting run of {}.", run.job_name),
         };
@@ -249,22 +247,17 @@ pub(crate) async fn cancel_run(
     let by = caller.audit_name();
     let mut transaction = state.pool.begin().await?;
     lock_chain(&mut transaction, run.chain_id).await?;
-    let ending = Ending::new(Status::Cancelled, reasons::cancelled(&by));
-    let ended = if run.state == "queued" {
-        ending::end_locked(&mut transaction, &state.registry, run.run_id, run.fence, &ending).await?.is_some()
-    } else {
-        false
-    };
-    if !ended {
-        runs::request_cancel(&mut transaction, run.run_id, &by).await?;
-    }
+    let cancelled =
+        cancel::cancel_run(&mut transaction, &state.registry, run.run_id, &reasons::cancelled(&by), &by).await?;
     audit::record(&mut transaction, &by, "cancel_run", Some(&run.job_name), Some(run.run_id), None, json!({})).await?;
     transaction.commit().await?;
-    done(
-        if ended { "Cancelled." } else { "Asked the worker to stop the run; it will within a heartbeat." },
-        Some(run.run_id),
-        None,
-    )
+    match cancelled {
+        Cancelled::Ended => done("Cancelled.", Some(run.run_id), None),
+        Cancelled::Asked => {
+            done("Asked the worker to stop the run; it will within a heartbeat.", Some(run.run_id), None)
+        }
+        Cancelled::Gone => Err(Failure::conflict("the run finished before it could be cancelled")),
+    }
 }
 
 /// `POST /runs/{id}/retry`: the same job and input, in the same chain, which then continues.
@@ -279,13 +272,6 @@ pub(crate) async fn retry(
         return Err(Failure::conflict("the run has not finished; cancel it first or wait"));
     };
     let found = job(&state, &row.job_name)?;
-    let cancelled: bool = sqlx::query_scalar("SELECT cancelled_at IS NOT NULL FROM downbeat.chain WHERE chain_id = $1")
-        .bind(row.chain_id)
-        .fetch_one(&state.pool)
-        .await?;
-    if cancelled {
-        return Err(Failure::conflict("the chain was cancelled; restart from here to begin a new chain"));
-    }
     if query.preview {
         return preview(
             vec![format!(
@@ -320,6 +306,13 @@ pub(crate) async fn retry(
     };
     let mut transaction = state.pool.begin().await?;
     lock_chain(&mut transaction, row.chain_id).await?;
+    let cancelled: bool = sqlx::query_scalar("SELECT cancelled_at IS NOT NULL FROM downbeat.chain WHERE chain_id = $1")
+        .bind(row.chain_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+    if cancelled {
+        return Err(Failure::conflict("the chain was cancelled; restart from here to begin a new chain"));
+    }
     let created = runs::create(&mut transaction, &run).await?;
     audit::record(
         &mut transaction,
@@ -477,40 +470,34 @@ pub(crate) async fn cancel_chain(
     Query(query): Query<PreviewQuery>,
 ) -> Acted {
     caller.require(Scope::Operate)?;
-    let unfinished: Vec<RunRow> =
-        sqlx::query_as("SELECT * FROM downbeat.run WHERE chain_id = $1").bind(id).fetch_all(&state.pool).await?;
-    for run in &unfinished {
-        caller.require_job(&run.job_name)?;
+    let by = caller.audit_name();
+    let mut transaction = state.pool.begin().await?;
+    lock_chain(&mut transaction, id).await?;
+    let jobs = cancel::jobs_in_chain(&mut transaction, id).await?;
+    if jobs.is_empty() {
+        return Err(Failure::not_found(format!("there is no chain {id}")));
+    }
+    for job in &jobs {
+        caller.require_job(job)?;
     }
     if query.preview {
-        let names: Vec<&str> = unfinished.iter().map(|run| run.job_name.as_str()).collect();
+        let unfinished: Vec<String> = sqlx::query_scalar("SELECT job_name FROM downbeat.run WHERE chain_id = $1")
+            .bind(id)
+            .fetch_all(&mut *transaction)
+            .await?;
         return preview(
             vec![format!(
                 "Would cancel {} unfinished run(s) ({}) and create nothing more in the chain.",
                 unfinished.len(),
-                names.join(", ")
+                unfinished.join(", ")
             )],
             Vec::new(),
         );
     }
-    let by = caller.audit_name();
-    let mut transaction = state.pool.begin().await?;
-    lock_chain(&mut transaction, id).await?;
-    let found = sqlx::query("UPDATE downbeat.chain SET cancelled_at = now(), cancelled_by = $2 WHERE chain_id = $1 AND cancelled_at IS NULL")
-        .bind(id)
-        .bind(&by)
-        .execute(&mut *transaction)
-        .await?;
-    if found.rows_affected() == 0 {
-        return Err(Failure::conflict("there is no such chain, or it was already cancelled"));
-    }
-    let ending = Ending::new(Status::Cancelled, format!("Cancelled with its chain by {by}."));
-    for run in &unfinished {
-        let ended = run.state == "queued"
-            && ending::end_locked(&mut transaction, &state.registry, run.run_id, run.fence, &ending).await?.is_some();
-        if !ended {
-            runs::request_cancel(&mut transaction, run.run_id, &by).await?;
-        }
+    if !cancel::cancel_chain(&mut transaction, &state.registry, id, &format!("Cancelled with its chain by {by}."), &by)
+        .await?
+    {
+        return Err(Failure::conflict("the chain was already cancelled"));
     }
     audit::record(&mut transaction, &by, "cancel_chain", None, None, None, json!({ "chain_id": id })).await?;
     transaction.commit().await?;
@@ -668,7 +655,8 @@ fn known_job(state: &State, caller: &Caller, name: &str) -> Result<(), Failure> 
     job(state, name).map(|_| ())
 }
 
-fn known_queue(state: &State, _caller: &Caller, name: &str) -> Result<(), Failure> {
+fn known_queue(state: &State, caller: &Caller, name: &str) -> Result<(), Failure> {
+    caller.require_every_job()?;
     let known = state.registry.jobs.values().any(|job| job.spec.policy.queue == name);
     if known { Ok(()) } else { Err(Failure::not_found(format!("no job in this build uses queue {name}"))) }
 }
@@ -891,6 +879,12 @@ pub(crate) async fn cancel_backfill(
     Query(query): Query<PreviewQuery>,
 ) -> Acted {
     caller.require(Scope::Administer)?;
+    let job: String = sqlx::query_scalar("SELECT job_name FROM downbeat.backfill WHERE backfill_id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| Failure::not_found(format!("there is no backfill {id}")))?;
+    caller.require_job(&job)?;
     if query.preview {
         return preview(vec!["Would stop the backfill and cancel the date it is running now.".to_owned()], Vec::new());
     }
@@ -903,30 +897,20 @@ pub(crate) async fn cancel_backfill(
     .bind(format!("Cancelled by {by}."))
     .fetch_optional(&mut *transaction)
     .await?;
-    let Some(chain) = chain else { return Err(Failure::conflict("there is no running backfill with that id")) };
+    let Some(chain) = chain else { return Err(Failure::conflict("the backfill is not running")) };
     if let Some(chain) = chain {
         lock_chain(&mut transaction, chain).await?;
-        sqlx::query("UPDATE downbeat.chain SET cancelled_at = now(), cancelled_by = $2 WHERE chain_id = $1 AND cancelled_at IS NULL")
-            .bind(chain)
-            .bind(&by)
-            .execute(&mut *transaction)
-            .await?;
-        let unfinished: Vec<RunRow> = sqlx::query_as("SELECT * FROM downbeat.run WHERE chain_id = $1")
-            .bind(chain)
-            .fetch_all(&mut *transaction)
-            .await?;
-        let ending = Ending::new(Status::Cancelled, format!("Cancelled with its backfill by {by}."));
-        for run in unfinished {
-            let ended = run.state == "queued"
-                && ending::end_locked(&mut transaction, &state.registry, run.run_id, run.fence, &ending)
-                    .await?
-                    .is_some();
-            if !ended {
-                runs::request_cancel(&mut transaction, run.run_id, &by).await?;
-            }
-        }
+        cancel::cancel_chain(
+            &mut transaction,
+            &state.registry,
+            chain,
+            &format!("Cancelled with its backfill by {by}."),
+            &by,
+        )
+        .await?;
     }
-    audit::record(&mut transaction, &by, "cancel_backfill", None, None, None, json!({ "backfill_id": id })).await?;
+    audit::record(&mut transaction, &by, "cancel_backfill", Some(&job), None, None, json!({ "backfill_id": id }))
+        .await?;
     transaction.commit().await?;
     done("The backfill is cancelled.", None, Some(id))
 }

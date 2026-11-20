@@ -75,6 +75,13 @@ impl Lease {
     }
 }
 
+impl Drop for Lease {
+    /// A lease is never renewed by a slot that has gone, whatever way it went.
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 async fn beat(
     pool: PgPool,
     (run_id, fence, worker): (Uuid, i64, String),
@@ -104,7 +111,15 @@ async fn beat(
         };
         let sent = Instant::now();
         let held = Held { run_id, fence, worker: &worker };
-        match runs::heartbeat(&pool, held, length, progress.as_deref(), checkpoint.as_ref()).await {
+        // A heartbeat that hangs (a half-open connection) must not outlast the lease.
+        let within = length.saturating_sub(last_good_send.elapsed());
+        let sent_heartbeat = tokio::time::timeout(
+            within,
+            runs::heartbeat(&pool, held, length, progress.as_deref(), checkpoint.as_ref()),
+        )
+        .await;
+        let sent_heartbeat = sent_heartbeat.unwrap_or_else(|_| Err(sqlx::Error::PoolTimedOut));
+        match sent_heartbeat {
             Ok(Some(cancel)) => {
                 last_good_send = sent;
                 if let Some(by) = cancel {

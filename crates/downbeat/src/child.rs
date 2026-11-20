@@ -30,7 +30,8 @@ pub(crate) const CHILD_FD: &str = "DOWNBEAT_CHILD_FD";
 /// The environment whose schedules apply; children build the definition the same way.
 pub(crate) const ENVIRONMENT: &str = "DOWNBEAT_ENVIRONMENT";
 
-type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Option<Started>, String>>>>>;
+/// Answers the running functions wait for, by run and request number.
+type Pending = Arc<Mutex<HashMap<(Uuid, u64), oneshot::Sender<Result<Option<Started>, String>>>>>;
 
 /// Runs the child until the worker closes the socket.
 pub(crate) fn main(definition: fn() -> Definition, descriptor: &str) -> std::process::ExitCode {
@@ -87,8 +88,8 @@ async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Resu
                     token.cancel();
                 }
             }
-            ToChild::Answer { request, result, .. } => {
-                if let Some(answer) = pending.lock().expect("pending answers").remove(&request) {
+            ToChild::Answer { run_id, request, result } => {
+                if let Some(answer) = pending.lock().expect("pending answers").remove(&(run_id, request)) {
                     let _ = answer.send(result);
                 }
             }
@@ -247,7 +248,7 @@ impl ChildLink {
     fn ask(&self, message: impl FnOnce(u64) -> FromChild) -> oneshot::Receiver<Result<Option<Started>, String>> {
         let request = self.next.fetch_add(1, Ordering::SeqCst);
         let (answer, receiver) = oneshot::channel();
-        self.pending.lock().expect("pending answers").insert(request, answer);
+        self.pending.lock().expect("pending answers").insert((self.run_id, request), answer);
         let _ = self.outgoing.send(message(request));
         receiver
     }

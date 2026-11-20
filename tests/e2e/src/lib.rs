@@ -172,6 +172,11 @@ pub fn exits(plan: ExitPlan) -> Program<Text> {
         .env("PLAN_CODE", plan.code)
 }
 
+#[command]
+pub fn leaves_a_process_behind() -> Program<()> {
+    Program::new("/bin/sh").args(["-c", "sleep 300 & echo started"])
+}
+
 fn basics(pipeline: &mut Pipeline) {
     pipeline.job(echo);
     pipeline.job(shout).after(echo);
@@ -194,6 +199,7 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(hungry);
     pipeline.job(single);
     pipeline.job(exits);
+    pipeline.job(leaves_a_process_behind);
 }
 
 fn clock(pipeline: &mut Pipeline) {

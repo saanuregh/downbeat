@@ -45,6 +45,19 @@ impl Caller {
         }
     }
 
+    /// Refuses unless the token covers every job: for actions on things that span jobs.
+    pub(crate) fn require_every_job(&self) -> Result<(), Failure> {
+        match self.jobs {
+            Some(_) => Err(Failure::forbidden("this needs a token that covers every job")),
+            None => Ok(()),
+        }
+    }
+
+    /// Whether the token covers this job.
+    pub(crate) fn covers(&self, job: &str) -> bool {
+        self.jobs.as_ref().is_none_or(|jobs| jobs.iter().any(|allowed| allowed == job))
+    }
+
     /// Refuses unless the token covers this job.
     pub(crate) fn require_job(&self, job: &str) -> Result<(), Failure> {
         match &self.jobs {
@@ -111,6 +124,12 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
     .map_err(|error| unauthorized(error.to_string()))?;
     let trusted = &config.callers[&claims.iss];
     let refuse = |message: String| (Failure::forbidden(message), Some(claims.iss.clone()));
+    if claims.sub != claims.iss && !trusted.acts_for_people {
+        return Err(refuse(format!(
+            "caller {} may only act as itself; its tokens must name it as the actor",
+            claims.iss
+        )));
+    }
     if claims.scope > trusted.max_scope {
         return Err(refuse(format!(
             "caller {} may be granted at most {}; the token asks for {}",
@@ -123,7 +142,7 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
             return Err(refuse(format!("caller {} is limited to some jobs; its token must name them", claims.iss)));
         }
     }
-    if !state.rate_limits.allow(&claims.sub) {
+    if !state.rate_limits.allow(&format!("{}/{}", claims.iss, claims.sub)) {
         return Err((
             Failure::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "too many requests from this actor; slow down"),
             Some(claims.iss.clone()),
@@ -131,12 +150,13 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
     }
     if parts.method != Method::GET {
         let first_use: bool = sqlx::query_scalar(
-            "INSERT INTO downbeat.used_token (caller, jti, expires_at) VALUES ($1, $2, to_timestamp($3::bigint))
+            "INSERT INTO downbeat.used_token (caller, jti, expires_at) VALUES ($1, $2, to_timestamp($3::bigint + $4::bigint + 1))
              ON CONFLICT DO NOTHING RETURNING true",
         )
         .bind(&claims.iss)
         .bind(&claims.jti)
         .bind(claims.exp)
+        .bind(downbeat_api::LEEWAY_SECONDS)
         .fetch_optional(&state.pool)
         .await
         .map_err(|error| (Failure::from(error), None))?

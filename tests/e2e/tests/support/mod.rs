@@ -83,6 +83,28 @@ pub async fn with_api(database: &Database) -> (App, downbeat_client::Client) {
     (app, client)
 }
 
+/// The test product with the control API trusting the callers in this TOML (its `audience` is
+/// `test`). Returns the app and the API's base URL.
+pub async fn with_callers(database: &Database, callers: &str) -> (App, String) {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let listen = format!("127.0.0.1:{port}");
+    let file = std::env::temp_dir().join(format!("callers-{}.toml", Uuid::new_v4()));
+    std::fs::write(&file, callers).unwrap();
+    let path = file.display().to_string();
+    let app = App::with(
+        database,
+        &["scheduler", "worker", "--queues", "default=2", "--listen", &listen, "--callers", &path],
+        "test",
+    );
+    let base = format!("http://{listen}");
+    let deadline = tokio::time::Instant::now() + SOON;
+    while reqwest::get(format!("{base}/healthz")).await.is_err() {
+        assert!(tokio::time::Instant::now() < deadline, "the API did not come up");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    (app, base)
+}
+
 /// The same, with the API's address.
 pub async fn with_api_at(database: &Database) -> (App, downbeat_client::Client, String) {
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();

@@ -211,3 +211,61 @@ async fn a_chain_shows_every_job_it_could_reach() {
         assert!(jobs.contains(&job), "{jobs:?}");
     }
 }
+
+/// A service limited to one job, which may act only as itself.
+async fn limited_service(database: &Database) -> (support::App, downbeat_client::Client) {
+    let key = PrivateKey::generate();
+    let callers = format!(
+        "audience = \"test\"\n[[caller]]\nname = \"billing\"\nkeys = [\"{}\"]\nmax_scope = \"administer\"\njobs = [\"echo\"]\n",
+        key.public().to_base64()
+    );
+    let (app, base) = support::with_callers(database, &callers).await;
+    let client = downbeat_client::Client::builder(&base)
+        .caller("billing")
+        .audience("test")
+        .key(key)
+        .jobs(["echo"])
+        .scope(Scope::Administer)
+        .connect()
+        .await
+        .unwrap();
+    (app, client)
+}
+
+#[tokio::test]
+async fn a_service_may_only_act_as_itself() {
+    let database = Database::fresh().await;
+    let (_app, service) = limited_service(&database).await;
+    let impersonating = service.acting_for("alice", Scope::Operate, Some(vec!["echo".into()]));
+    let refused = impersonating.start("echo", &Text { text: "x".into() }).send().await.unwrap_err();
+    assert!(matches!(refused, Error::Api { status: 403, .. }), "{refused}");
+    service.start("echo", &Text { text: "as myself".into() }).send().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_caller_limited_to_some_jobs_sees_and_does_nothing_else() {
+    let database = Database::fresh().await;
+    let (_app, service) = limited_service(&database).await;
+    let other = service.as_caller().start("panics", &()).send().await.unwrap_err();
+    assert!(matches!(other, Error::Api { status: 403, .. }), "{other}");
+
+    let pause = PauseRequest { note: "maintenance".into(), until: None, until_resumed: true };
+    let queue = service.as_caller().pause("queue", "default", &pause).await.unwrap_err();
+    assert!(matches!(queue, Error::Api { status: 403, .. }), "{queue}");
+
+    let pipelines = service.pipelines().await.unwrap();
+    let visible: Vec<&str> =
+        pipelines.iter().flat_map(|pipeline| pipeline.jobs.iter().map(|node| node.job.as_str())).collect();
+    assert_eq!(visible, ["echo"]);
+}
+
+#[tokio::test]
+async fn concurrent_retries_with_one_idempotency_key_create_one_run() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let input = Text { text: "once".into() };
+    let attempts = (0..8).map(|_| client.start("echo", &input).idempotency_key("payment-9").even_if_queued().send());
+    let results = futures::future::join_all(attempts).await;
+    let ids: std::collections::BTreeSet<_> = results.into_iter().map(|result| result.unwrap().run_id).collect();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+}

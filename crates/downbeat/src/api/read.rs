@@ -136,7 +136,9 @@ pub(crate) async fn pipelines(
 ) -> Answer<Vec<PipelineView>> {
     caller.require(Scope::Read)?;
     let names: Vec<String> = state.registry.pipelines.keys().cloned().collect();
-    Ok(Json(names.iter().map(|name| pipeline_view(&state, name)).collect()))
+    let views =
+        names.iter().map(|name| pipeline_view(&state, &caller, name)).filter(|view| !view.jobs.is_empty()).collect();
+    Ok(Json(views))
 }
 
 pub(crate) async fn pipeline(
@@ -148,7 +150,10 @@ pub(crate) async fn pipeline(
     if !state.registry.pipelines.contains_key(&name) {
         return Err(Failure::not_found(format!("there is no pipeline named {name}")));
     }
-    let mut view = pipeline_view(&state, &name);
+    let mut view = pipeline_view(&state, &caller, &name);
+    if view.jobs.is_empty() {
+        return Err(Failure::forbidden("this token covers no job in that pipeline"));
+    }
     let chains: Vec<ChainRow> =
         sqlx::query_as("SELECT * FROM downbeat.chain WHERE pipeline = $1 ORDER BY started_at DESC LIMIT 20")
             .bind(&name)
@@ -176,10 +181,12 @@ pub(crate) async fn pipeline(
     Ok(Json(view))
 }
 
-fn pipeline_view(state: &State, name: &str) -> PipelineView {
+/// A pipeline as the caller may see it: only the jobs its token covers.
+fn pipeline_view(state: &State, caller: &Caller, name: &str) -> PipelineView {
     let jobs = state.registry.pipelines.get(name).cloned().unwrap_or_default();
     let nodes = jobs
         .iter()
+        .filter(|job| caller.covers(job))
         .filter_map(|job| state.registry.job(job))
         .map(|job| PipelineNode {
             job: job.spec.name.to_owned(),
@@ -213,6 +220,7 @@ pub(crate) async fn chain(
         sqlx::query_as("SELECT * FROM downbeat.chain WHERE chain_id = $1").bind(id).fetch_optional(&state.pool).await?;
     let ChainRow { pipeline, first_job, started_at, cancelled_at, cancelled_by, .. } =
         chain.ok_or_else(|| Failure::not_found(format!("there is no chain {id}")))?;
+    caller.require_job(&first_job)?;
     let ended: Vec<HistoryRow> = sqlx::query_as(
         "SELECT * FROM downbeat.run_history WHERE chain_id = $1 AND joined_run IS NULL ORDER BY finished_at DESC",
     )
@@ -235,7 +243,7 @@ pub(crate) async fn chain(
         order.push(job);
     }
     let mut nodes = Vec::new();
-    for job in &order {
+    for job in order.iter().filter(|job| caller.covers(job)) {
         let mut runs: Vec<RunSummary> = unfinished
             .iter()
             .filter(|run| &run.job_name == job)
@@ -579,7 +587,7 @@ pub(crate) async fn schedules(
 ) -> Answer<Vec<ScheduleView>> {
     caller.require(Scope::Read)?;
     let mut views = Vec::new();
-    for schedule in state.registry.schedules.values() {
+    for schedule in state.registry.schedules.values().filter(|schedule| caller.covers(schedule.job)) {
         let next: Option<DateTime<Utc>> =
             sqlx::query_scalar("SELECT next_due_at FROM downbeat.schedule_state WHERE schedule = $1")
                 .bind(&schedule.name)
@@ -602,7 +610,15 @@ pub(crate) async fn queues(
     Extension(caller): Extension<Caller>,
 ) -> Answer<Vec<QueueView>> {
     caller.require(Scope::Read)?;
-    let mut names: Vec<String> = state.registry.jobs.values().map(|job| job.spec.policy.queue.to_owned()).collect();
+    // A caller limited to some jobs sees only their queues, and only their runs in them.
+    let mut names: Vec<String> = state
+        .registry
+        .jobs
+        .values()
+        .filter(|job| caller.covers(job.spec.name))
+        .map(|job| job.spec.policy.queue.to_owned())
+        .collect();
+    let covered: Option<Vec<String>> = caller.jobs.clone();
     names.sort();
     names.dedup();
     let workers: Vec<(String, serde_json::Value, String, DateTime<Utc>)> = sqlx::query_as(
@@ -613,14 +629,17 @@ pub(crate) async fn queues(
     let mut views = Vec::new();
     for name in names {
         let queued: Vec<RunRow> = sqlx::query_as(
-            "SELECT * FROM downbeat.run WHERE queue = $1 AND state = 'queued' ORDER BY run_at LIMIT 500",
+            "SELECT * FROM downbeat.run WHERE queue = $1 AND state = 'queued' AND ($2::text[] IS NULL OR job_name = ANY($2))
+              ORDER BY run_at LIMIT 500",
         )
         .bind(&name)
+        .bind(&covered)
         .fetch_all(&state.pool)
         .await?;
         let running: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM downbeat.run WHERE queue = $1 AND state = 'running'")
+            sqlx::query_scalar("SELECT count(*) FROM downbeat.run WHERE queue = $1 AND state = 'running' AND ($2::text[] IS NULL OR job_name = ANY($2))")
                 .bind(&name)
+                .bind(&covered)
                 .fetch_one(&state.pool)
                 .await?;
         let longest = queued.iter().map(|run| run.run_at).min().map(|at| (Utc::now() - at).num_seconds().max(0));
@@ -662,7 +681,10 @@ pub(crate) async fn overrides(
     let rows: Vec<plan::OverrideRow> = sqlx::query_as("SELECT * FROM downbeat.schedule_override WHERE on_date >= (now() - interval '30 days')::date ORDER BY on_date, schedule LIMIT 500")
         .fetch_all(&state.pool)
         .await?;
-    Ok(Json(rows.into_iter().map(override_view).collect()))
+    let visible = |row: &plan::OverrideRow| {
+        state.registry.schedules.get(&row.schedule).is_some_and(|schedule| caller.covers(schedule.job))
+    };
+    Ok(Json(rows.into_iter().filter(|row| visible(row)).map(override_view).collect()))
 }
 
 pub(crate) fn override_view(row: plan::OverrideRow) -> OverrideView {
@@ -685,7 +707,7 @@ pub(crate) async fn backfills(
     let rows: Vec<BackfillRow> = sqlx::query_as("SELECT * FROM downbeat.backfill ORDER BY created_at DESC LIMIT 200")
         .fetch_all(&state.pool)
         .await?;
-    Ok(Json(rows.into_iter().map(backfill_view).collect()))
+    Ok(Json(rows.into_iter().filter(|row| caller.covers(&row.job_name)).map(backfill_view).collect()))
 }
 
 pub(crate) fn backfill_view(row: BackfillRow) -> BackfillView {
@@ -720,10 +742,12 @@ pub(crate) async fn audit(
     let limit = query.limit.unwrap_or(50).clamp(1, MAX_PAGE);
     let rows: Vec<AuditRow> = sqlx::query_as(
         "SELECT audit_id, at, actor, action, job_name, run_id, schedule, detail FROM downbeat.audit
-          WHERE ($1::bigint IS NULL OR audit_id < $1) ORDER BY audit_id DESC LIMIT $2",
+          WHERE ($1::bigint IS NULL OR audit_id < $1) AND ($3::text[] IS NULL OR job_name = ANY($3))
+          ORDER BY audit_id DESC LIMIT $2",
     )
     .bind(query.before)
     .bind(limit + 1)
+    .bind(&caller.jobs)
     .fetch_all(&state.pool)
     .await?;
     let more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;

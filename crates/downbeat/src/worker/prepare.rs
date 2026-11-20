@@ -3,14 +3,16 @@
 
 use serde_json::{Value, json};
 
+use super::call::{Interrupted, wait_for};
 use super::child::ChildHandle;
+use super::lease::{Lease, StopReason};
 use super::{Decision, WorkerContext};
 use crate::pipeline::{LinkKind, NeedTest, WhenUnmet};
 use crate::protocol::{FromChild, Prepared, RunInfo, ToChild};
 use crate::reasons;
 use crate::registry::RegisteredJob;
 use crate::starting::turn_key;
-use crate::store::ending::{Ending, HistoryRow};
+use crate::store::ending::{Ending, HistoryRow, Status};
 use crate::store::history;
 use crate::store::runs::{self, Held, Requeue, RunRow};
 
@@ -21,6 +23,7 @@ pub(crate) async fn prepare(
     child: &mut ChildHandle,
     run: &RunRow,
     job: &RegisteredJob,
+    lease: &mut Lease,
 ) -> Result<Value, Decision> {
     let parents = match (&job.link, run.started_by.as_str()) {
         (Some(link), "link") => Some(handed_over(context, run, link.kind).await?),
@@ -30,13 +33,21 @@ pub(crate) async fn prepare(
     if child.send(&ToChild::Prepare { run: info, input: run.input.clone(), parents }).await.is_err() {
         return Err(Decision::child_failed("the child process stopped while the run was being prepared"));
     }
-    let prepared = loop {
-        match child.next().await {
-            Some(FromChild::Prepared { run_id, result }) if run_id == run.run_id => break result,
-            Some(_) => {}
-            None => return Err(Decision::child_failed("the child process stopped while the run was being prepared")),
-        }
-    };
+    // Building the input and testing conditions run app code; they get the job's timeout.
+    let deadline = tokio::time::Instant::now() + job.spec.policy.timeout;
+    let wanted = run.run_id;
+    let prepared = wait_for(context, child, lease, Some(deadline), |message| match message {
+        FromChild::Prepared { run_id, result } if run_id == wanted => Some(result),
+        _ => None,
+    })
+    .await
+    .map_err(|interrupted| match interrupted {
+        Interrupted::Crashed { .. } => Decision::End(Ending::failed("crash", "Failed: the process crashed while the run was being prepared.")),
+        Interrupted::TimedOut => Decision::End(Ending::failed("timeout", "Failed: preparing the run (building its input and testing its conditions) took longer than the job's timeout.")),
+        Interrupted::Stopped(StopReason::CancelRequested(by)) => Decision::End(Ending::new(Status::Cancelled, reasons::cancelled(&by))),
+        Interrupted::Stopped(_) => Decision::Nothing,
+        Interrupted::Shutdown => Decision::child_failed("the worker shut down while the run was being prepared"),
+    })?;
     let prepared = prepared.map_err(|error| Decision::End(Ending::failed("bad_input", reasons::bad_input(&error))))?;
 
     let policy = &job.spec.policy;

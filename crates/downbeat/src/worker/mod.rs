@@ -215,7 +215,7 @@ async fn drive(
     let input = if run.has_begun() {
         run.input.clone().unwrap_or(serde_json::Value::Null)
     } else {
-        match prepare::prepare(context, child, run, job).await {
+        match prepare::prepare(context, child, run, job, lease).await {
             Ok(input) => input,
             Err(decision) => return decision,
         }
@@ -412,7 +412,7 @@ impl Verdict<'_> {
 
 /// Writes the decision, fenced. A failed write is tried again a few times; after that the lease
 /// lapses and the reaper takes the run back.
-async fn record(context: &WorkerContext, run: &RunRow, decision: Decision) {
+async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
     let held = Held { run_id: run.run_id, fence: run.fence, worker: &context.id };
     for attempt in 1..=3 {
         let result = match &decision {
@@ -420,18 +420,27 @@ async fn record(context: &WorkerContext, run: &RunRow, decision: Decision) {
             Decision::End(ending) => {
                 ending::end(&context.pool, &context.registry, run.run_id, run.chain_id, run.fence, ending.clone())
                     .await
-                    .map(|_| ())
+                    .map(|_| None)
             }
-            Decision::Requeue(requeue) => runs::requeue(&context.pool, held, requeue).await.map(|_| ()),
+            Decision::Requeue(requeue) => {
+                runs::requeue(&context.pool, held, requeue).await.map(|requeued| match requeued {
+                    // Someone asked for a cancel while the function ran: the run ends instead.
+                    runs::Requeued::CancelRequested(by) => {
+                        Some(Ending::new(Status::Cancelled, reasons::cancelled(&by)).with_call(requeue.call.clone()))
+                    }
+                    runs::Requeued::Queued | runs::Requeued::Lost => None,
+                })
+            }
         };
         match result {
-            Ok(()) => break,
+            Ok(Some(cancelled)) => decision = Decision::End(cancelled),
+            Ok(None) => break,
             Err(error) if attempt < 3 => {
                 tracing::warn!(%error, run_id = %run.run_id, "recording a run's ending failed; trying again");
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Err(error) => {
-                tracing::error!(%error, run_id = %run.run_id, "recording a run's ending failed; its lease will lapse")
+                tracing::error!(%error, run_id = %run.run_id, "recording a run's ending failed; its lease will lapse");
             }
         }
     }

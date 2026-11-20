@@ -17,8 +17,9 @@ use crate::keys::{PrivateKey, PublicKey};
 pub const TOKEN_TYPE: &str = "downbeat-request+jwt";
 /// The longest a token may live.
 const LIFETIME_SECONDS: i64 = 60;
-/// How far apart the caller's and the scheduler's clocks may be.
-const LEEWAY_SECONDS: i64 = 5;
+/// How far apart the caller's and the scheduler's clocks may be. A token is accepted until its
+/// `exp` plus this, so a record of a used token must be kept at least that long.
+pub const LEEWAY_SECONDS: i64 = 5;
 
 /// What a request may do. Each scope includes the ones before it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

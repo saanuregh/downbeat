@@ -25,7 +25,7 @@ impl Store {
         let pool = PgPoolOptions::new()
             .max_connections(connections)
             .acquire_timeout(Duration::from_secs(10))
-            .connect_with(options.application_name("downbeat"))
+            .connect_with(options.application_name("downbeat").options([("statement_timeout", "60s")]))
             .await?;
         migrate(&pool).await?;
         Ok(Store { pool })
@@ -42,6 +42,7 @@ pub(crate) fn interval(duration: Duration) -> sqlx::postgres::types::PgInterval 
 }
 
 pub(crate) mod audit;
+pub(crate) mod cancel;
 pub(crate) mod ending;
 pub(crate) mod history;
 pub(crate) mod runs;

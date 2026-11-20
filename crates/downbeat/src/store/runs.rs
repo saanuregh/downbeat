@@ -254,7 +254,7 @@ pub(crate) async fn claim(
                 claimed_at = now(), function_started_at = NULL, queued_because = NULL
           WHERE run_id = (
                 SELECT c.run_id FROM downbeat.run c
-                 WHERE c.state = 'queued' AND c.queue = $1 AND c.run_at <= now()
+                 WHERE c.state = 'queued' AND c.queue = $1 AND c.run_at <= now() AND c.cancel_requested_by IS NULL
                    AND c.job_name = ANY($4)
                    AND NOT EXISTS (SELECT 1 FROM downbeat.pause p
                                     WHERE ((p.kind = 'job' AND p.name = c.job_name) OR (p.kind = 'queue' AND p.name = c.queue))
@@ -386,8 +386,18 @@ pub(crate) struct Requeue {
     pub(crate) call: Option<Call>,
 }
 
-/// Sends a run back to the queue. False when the worker no longer holds it.
-pub(crate) async fn requeue(pool: &PgPool, held: Held<'_>, requeue: &Requeue) -> sqlx::Result<bool> {
+/// What sending a run back to the queue did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Requeued {
+    Queued,
+    /// Someone asked for the run to be cancelled; it must end instead. Their name.
+    CancelRequested(String),
+    /// The worker no longer holds the run.
+    Lost,
+}
+
+/// Sends a run back to the queue, unless someone asked for it to be cancelled.
+pub(crate) async fn requeue(pool: &PgPool, held: Held<'_>, requeue: &Requeue) -> sqlx::Result<Requeued> {
     let call = requeue.call.as_ref().map(|call| serde_json::to_value(call).unwrap_or(Value::Null));
     let done = sqlx::query(
         "UPDATE downbeat.run
@@ -396,7 +406,7 @@ pub(crate) async fn requeue(pool: &PgPool, held: Held<'_>, requeue: &Requeue) ->
                 failures = failures + CASE WHEN $7 THEN 1 ELSE 0 END,
                 interruptions = interruptions + CASE WHEN $8 THEN 1 ELSE 0 END,
                 call_log = CASE WHEN $9::jsonb IS NULL THEN call_log ELSE downbeat.append_call(call_log, $9::jsonb) END
-          WHERE run_id = $1 AND fence = $2 AND lease_owner = $3 AND state = 'running'",
+          WHERE run_id = $1 AND fence = $2 AND lease_owner = $3 AND state = 'running' AND cancel_requested_by IS NULL",
     )
     .bind(held.run_id)
     .bind(held.fence)
@@ -409,7 +419,21 @@ pub(crate) async fn requeue(pool: &PgPool, held: Held<'_>, requeue: &Requeue) ->
     .bind(call)
     .execute(pool)
     .await?;
-    Ok(done.rows_affected() == 1)
+    if done.rows_affected() == 1 {
+        return Ok(Requeued::Queued);
+    }
+    let cancel: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT cancel_requested_by FROM downbeat.run WHERE run_id = $1 AND fence = $2 AND lease_owner = $3 AND state = 'running'",
+    )
+    .bind(held.run_id)
+    .bind(held.fence)
+    .bind(held.worker)
+    .fetch_optional(pool)
+    .await?;
+    Ok(match cancel {
+        Some(Some(by)) => Requeued::CancelRequested(by),
+        _ => Requeued::Lost,
+    })
 }
 
 /// Marks a run as reported slow, once.
