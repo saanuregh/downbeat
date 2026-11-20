@@ -22,7 +22,10 @@ The first version.
   `heavy` and `external`, and product-defined presets.
 - `Run`: cancellation, progress, checkpoints, `run.start`, dry runs.
 - Dependencies built lazily per process with `Definition::provide`.
-- `.test(…)` on every job handle, and `Run::for_test()`.
+- `.test(…)` on every job handle, and `Run::for_test()` with `.due(…)`, `.on_attempt(…)` and
+  `.cancelled_already()`.
+- `downbeat::testing::Schedules`: a definition's schedules on any date or instant, with no database.
+- Each job's input published as a JSON Schema.
 
 ### Pipelines
 
@@ -46,12 +49,13 @@ The first version.
 
 - Scheduler and worker roles in the product's binary; any number of each, with no leader.
 - Child processes with process groups, a parent-death signal and out-of-memory protection;
-  memory sampling; timeouts; leases, heartbeats and fencing; a reaper for lost workers and
-  expired, given-up and unregistered runs.
+  memory sampling; timeouts; leases, heartbeats and fencing, settable per queue; a reaper for lost
+  workers and expired, given-up and unregistered runs; a child that a function left tasks running
+  in is replaced.
 - Graceful shutdown that releases runs, with timings checked against `stop_within`.
 - `on_finish` and `on_event` callbacks delivered at least once from the database; `log_link` and
   `redact`.
-- History pruning by chain.
+- History pruning by chain, batch after batch within a budget.
 - The `check`, `run-once` and `health` commands, and schedule snapshots for CI.
 - `InAppClient` for starting jobs from inside the product.
 - Linux only.
@@ -59,11 +63,11 @@ The first version.
 ### Control API
 
 - Versioned HTTP API for every read and action, with a reason on every state and a preview of
-  every action.
+  every action, including pausing everything for an outage.
 - Per-request Ed25519 tokens bound to the request, a callers file with scopes and job limits,
   replay protection, idempotency keys, and a rate limit per caller and actor.
 - `downbeat-api` crate with the wire types and token signing; `downbeat-client` crate for Rust
-  callers (starts by job name).
+  callers, starting jobs by name or, through `job_name!`, with a typed input.
 
 ### Console
 
@@ -76,6 +80,7 @@ The first version.
 ### Project
 
 - Example product `examples/market`, `mise run demo`, end-to-end tests against throwaway
-  Postgres, and documentation.
+  Postgres, documentation whose Rust samples are compiled, and a measurement of the hot paths
+  (`docs/performance.md`).
 
 [0.1.0]: https://github.com/downbeat-rs/downbeat
