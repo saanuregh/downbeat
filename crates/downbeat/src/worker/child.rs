@@ -70,12 +70,35 @@ impl ChildHandle {
     /// about any other run is dropped (spec 10.3). Safe to cancel: a message is taken only when it
     /// is returned or dropped.
     pub(crate) async fn next_for(&mut self, run_id: Uuid) -> Option<FromChild> {
-        loop {
-            let message = self.next().await?;
-            if message.run_id() == Some(run_id) {
-                return Some(message);
-            }
-            tracing::debug!(%run_id, ?message, "a message from the child about another run was ignored");
+        next_about(&mut self.messages, run_id).await
+    }
+}
+
+/// The next message on `messages` about this run, dropping any about another run.
+async fn next_about(messages: &mut mpsc::UnboundedReceiver<FromChild>, run_id: Uuid) -> Option<FromChild> {
+    loop {
+        let message = messages.recv().await?;
+        if message.run_id() == Some(run_id) {
+            return Some(message);
         }
+        tracing::debug!(%run_id, ?message, "a message from the child about another run was ignored");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_message_about_another_run_is_dropped() {
+        let (ours, theirs) = (Uuid::now_v7(), Uuid::now_v7());
+        let (sender, mut messages) = mpsc::unbounded_channel();
+        sender.send(FromChild::Started { run_id: theirs }).unwrap();
+        sender.send(FromChild::Ready).unwrap();
+        sender.send(FromChild::Started { run_id: ours }).unwrap();
+        drop(sender);
+
+        assert_eq!(next_about(&mut messages, ours).await, Some(FromChild::Started { run_id: ours }));
+        assert_eq!(next_about(&mut messages, ours).await, None, "nothing else was about this run");
     }
 }

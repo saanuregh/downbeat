@@ -411,6 +411,19 @@ mod tests {
     }
 
     #[test]
+    fn a_token_without_exactly_three_parts_is_refused() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let token = token(&key, b"{}");
+        let check = |text: &str| verify(text, |_| Some(&keys[..]), "prod", request(b"{}"), NOW);
+        assert!(check(&token).is_ok(), "the token itself verifies");
+        let (signing_input, signature) = token.rsplit_once('.').unwrap();
+        assert_eq!(check(signing_input), Err(TokenError::Malformed), "two parts");
+        assert_eq!(check(&format!("{token}.{signature}")), Err(TokenError::Malformed), "four parts");
+        assert_eq!(check(&format!("{token}.")), Err(TokenError::Malformed), "four parts, the last empty");
+    }
+
+    #[test]
     fn scopes_are_ordered() {
         assert!(Scope::Read < Scope::Operate && Scope::Operate < Scope::Administer);
     }

@@ -9,6 +9,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// A value a job takes as input or returns as output.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be a job's input or output",
+    label = "not a job input or output",
+    note = "add `#[derive(Serialize, Deserialize, JobData)]` to `{Self}`"
+)]
 pub trait JobData: Serialize + DeserializeOwned + Send + Sync + 'static {
     /// The part of the value that decides "the same work" and "unchanged". By default, all of it.
     fn identity(&self) -> Value {

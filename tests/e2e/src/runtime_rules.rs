@@ -254,6 +254,29 @@ pub async fn records_its_span(_run: Run, input: Text) -> Result<()> {
     Ok(())
 }
 
+/// Fails when its text starts with `fail`, is skipped when it starts with `skip`, and succeeds
+/// otherwise; `follows_success` and `follows_failure` follow it.
+#[job]
+pub async fn ends_as_told(_run: Run, input: Text) -> Result<Text> {
+    if input.text.starts_with("fail") {
+        return Err(JobError::msg("fails on purpose"));
+    }
+    if input.text.starts_with("skip") {
+        return skip("skipped on purpose");
+    }
+    Ok(input)
+}
+
+#[job]
+pub async fn follows_success(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+#[job]
+pub async fn follows_failure(_run: Run, failure: Failure) -> Result<Failure> {
+    Ok(failure)
+}
+
 pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(takes_lopsided);
     pipeline.job(starts_lopsided);
@@ -296,4 +319,7 @@ pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(program_is_missing);
     pipeline.job(checkpoints_then_naps);
     pipeline.job(records_its_span);
+    pipeline.job(ends_as_told);
+    pipeline.job(follows_success).after(ends_as_told);
+    pipeline.job(follows_failure).after_failure(ends_as_told);
 }
