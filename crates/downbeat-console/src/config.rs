@@ -108,6 +108,13 @@ impl Config {
             std::fs::read_to_string(path).map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?;
         let file: File = toml::from_str(&text).map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
         anyhow::ensure!(!file.schedulers.is_empty(), "list at least one [[scheduler]]");
+        let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
+            .iter()
+            .any(|start| file.public_url.starts_with(start));
+        anyhow::ensure!(
+            file.public_url.starts_with("https://") || loopback,
+            "public_url must be https: the session cookie is only sent over an encrypted connection"
+        );
         anyhow::ensure!(
             !file.sign_in.allowed_domains.is_empty() || !file.sign_in.allowed_groups.is_empty(),
             "sign_in needs allowed_domains or allowed_groups: otherwise anyone the provider knows could sign in"

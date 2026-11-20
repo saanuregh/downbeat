@@ -132,7 +132,15 @@ pub(crate) async fn login(
 /// Only paths on this console, so the return address cannot send the browser elsewhere.
 fn safe_return(path: Option<&str>) -> String {
     match path {
-        Some(path) if path.starts_with('/') && !path.starts_with("//") && !path.contains('\\') => path.to_owned(),
+        // Browsers drop tabs and newlines when reading a URL, so "/\t/x" would become "//x".
+        Some(path)
+            if path.starts_with('/')
+                && !path.starts_with("//")
+                && !path.contains('\\')
+                && !path.chars().any(char::is_control) =>
+        {
+            path.to_owned()
+        }
         _ => "/".to_owned(),
     }
 }
@@ -182,6 +190,10 @@ pub(crate) async fn callback(
         .email()
         .map(|email| email.as_str().to_owned())
         .ok_or_else(|| Failure::unauthorized("the identity provider did not share an email address"))?;
+    // An email the provider has not verified could be anyone's, and grants follow emails.
+    if claims.email_verified() != Some(true) {
+        return Err(Failure::forbidden("the identity provider has not verified this email address"));
+    }
     let name =
         claims.name().and_then(|names| names.get(None)).map_or_else(|| email.clone(), |name| name.as_str().to_owned());
     let sign_in = state.config.sign_in.as_ref().expect("a provider implies sign-in settings");
@@ -240,10 +252,14 @@ fn interval(duration: std::time::Duration) -> sqlx::postgres::types::PgInterval 
 /// `POST /auth/logout`: ends the session at once.
 pub(crate) async fn logout(Extract(state): Extract<State>, headers: HeaderMap) -> Result<Response, Failure> {
     if let Some(session) = session_cookie(&headers) {
+        // Signing out changes something, so it carries the session's CSRF token like everything else.
+        let csrf = headers.get("x-csrf-token").and_then(|value| value.to_str().ok()).unwrap_or_default();
         let person: Option<String> = sqlx::query_scalar(
-            "DELETE FROM console.session s USING console.person p WHERE s.session_hash = $1 AND p.person_id = s.person_id RETURNING p.email",
+            "DELETE FROM console.session s USING console.person p
+              WHERE s.session_hash = $1 AND s.csrf_token = $2 AND p.person_id = s.person_id RETURNING p.email",
         )
         .bind(hash(&session))
+        .bind(csrf)
         .fetch_optional(&state.pool)
         .await?;
         if let Some(email) = person {
@@ -286,6 +302,16 @@ pub(crate) async fn require(Extract(state): Extract<State>, mut request: Request
 
 async fn authenticate(state: &State, headers: &HeaderMap) -> Result<Session, Failure> {
     if state.config.local {
+        // Everyone here is an administrator, so a page elsewhere must not reach it by pointing its
+        // own name at this machine: only this machine's own names are answered.
+        let port = state.config.listen.port();
+        let host = headers.get(header::HOST).and_then(|value| value.to_str().ok()).unwrap_or_default();
+        let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")];
+        if !ours.iter().any(|name| name == host) {
+            return Err(Failure::forbidden(
+                "in --local mode the console answers only to 127.0.0.1, localhost or [::1]",
+            ));
+        }
         let person = store::upsert_person(&state.pool, "local", "local@localhost", "Local", &[]).await?;
         return Ok(Session { person, csrf_token: state.local_csrf.clone() });
     }
@@ -314,6 +340,8 @@ mod tests {
         assert_eq!(safe_return(Some("/runs?status=failed")), "/runs?status=failed");
         assert_eq!(safe_return(Some("https://evil.example")), "/");
         assert_eq!(safe_return(Some("//evil.example")), "/");
+        assert_eq!(safe_return(Some("/\t/evil.example")), "/");
+        assert_eq!(safe_return(Some("/\n/evil.example")), "/");
         assert_eq!(safe_return(None), "/");
     }
 }

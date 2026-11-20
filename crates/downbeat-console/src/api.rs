@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::State;
-use crate::access::highest;
+use crate::access::{administers_fully, highest};
 use crate::error::Failure;
 use crate::proxy::version_of;
 use crate::session::Session;
@@ -46,9 +46,11 @@ pub(crate) async fn me(
     Extension(session): Extension<Arc<Session>>,
 ) -> Result<Json<Me>, Failure> {
     let grants = store::grants_of(&state.pool, &session.person).await?;
+    // Every scheduler is asked at once, so one that is down costs one timeout, not one each.
+    let versions =
+        futures::future::join_all(state.config.schedulers.iter().map(|scheduler| version_of(&state, scheduler))).await;
     let mut schedulers = Vec::new();
-    for scheduler in &state.config.schedulers {
-        let version = version_of(&state, scheduler).await;
+    for (scheduler, version) in state.config.schedulers.iter().zip(versions) {
         schedulers.push(SchedulerView {
             name: scheduler.name.clone(),
             label: scheduler.label.clone(),
@@ -66,13 +68,16 @@ pub(crate) async fn me(
     }))
 }
 
-/// Refuses unless the person administers this scheduler.
+/// Refuses unless the person administers every pipeline of this scheduler, so nobody can grant
+/// more than they hold.
 async fn require_administer(state: &State, session: &Session, scheduler: &str) -> Result<(), Failure> {
     let grants = store::grants_of(&state.pool, &session.person).await?;
-    if highest(&state.config, &session.person, &grants, scheduler) == Some(Scope::Administer) {
+    if administers_fully(&state.config, &session.person, &grants, scheduler) {
         Ok(())
     } else {
-        Err(Failure::forbidden(format!("only people who administer {scheduler} can change who may do what on it")))
+        Err(Failure::forbidden(format!(
+            "only people who administer all of {scheduler} can change who may do what on it"
+        )))
     }
 }
 
@@ -81,17 +86,29 @@ pub(crate) async fn grants(
     Extract(state): Extract<State>,
     Extension(session): Extension<Arc<Session>>,
 ) -> Result<Json<Vec<Grant>>, Failure> {
-    administers_something(&state, &session).await?;
-    Ok(Json(store::grants(&state.pool).await?))
+    let administered = administered_schedulers(&state, &session).await?;
+    let grants = store::grants(&state.pool).await?;
+    Ok(Json(grants.into_iter().filter(|grant| administered.contains(&grant.scheduler)).collect()))
+}
+
+/// The schedulers this person administers in full.
+async fn administered_schedulers(state: &State, session: &Session) -> Result<Vec<String>, Failure> {
+    let grants = store::grants_of(&state.pool, &session.person).await?;
+    let administered: Vec<String> = state
+        .config
+        .schedulers
+        .iter()
+        .filter(|scheduler| administers_fully(&state.config, &session.person, &grants, &scheduler.name))
+        .map(|scheduler| scheduler.name.clone())
+        .collect();
+    if administered.is_empty() {
+        return Err(Failure::forbidden("this is for people who administer a scheduler"));
+    }
+    Ok(administered)
 }
 
 async fn administers_something(state: &State, session: &Session) -> Result<(), Failure> {
-    let grants = store::grants_of(&state.pool, &session.person).await?;
-    let any =
-        state.config.schedulers.iter().any(|scheduler| {
-            highest(&state.config, &session.person, &grants, &scheduler.name) == Some(Scope::Administer)
-        });
-    if any { Ok(()) } else { Err(Failure::forbidden("this is for people who administer a scheduler")) }
+    administered_schedulers(state, session).await.map(|_| ())
 }
 
 #[derive(Debug, Deserialize)]

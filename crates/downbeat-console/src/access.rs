@@ -21,11 +21,8 @@ pub(crate) fn first_administrator(config: &Config, person: &Person) -> bool {
     config.local || config.first_administrators.iter().any(|email| email.eq_ignore_ascii_case(&person.email))
 }
 
-/// The most this person may do on a scheduler, for requests that need at least `needed`.
-///
-/// Among the person's grants on the scheduler that reach `needed`, the token takes the highest
-/// scope, and is limited to the pipelines of the grants at that scope (unless one of them covers
-/// every pipeline).
+/// What this person may do on a scheduler with the scope `needed`: that scope, limited to the
+/// pipelines of every grant that reaches it (or none, when one of them covers every pipeline).
 pub(crate) fn access(
     config: &Config,
     person: &Person,
@@ -34,32 +31,33 @@ pub(crate) fn access(
     needed: Scope,
 ) -> Option<Access> {
     if first_administrator(config, person) {
-        return Some(Access { scope: Scope::Administer, pipelines: None });
+        return Some(Access { scope: needed, pipelines: None });
     }
-    let applicable: Vec<(Scope, &Option<Vec<String>>)> = grants
+    let reaching: Vec<&Option<Vec<String>>> = grants
         .iter()
         .filter(|grant| grant.scheduler == scheduler)
-        .filter_map(|grant| grant.scope.parse::<Scope>().ok().map(|scope| (scope, &grant.pipelines)))
-        .filter(|(scope, _)| *scope >= needed)
+        .filter(|grant| grant.scope.parse::<Scope>().is_ok_and(|scope| scope >= needed))
+        .map(|grant| &grant.pipelines)
         .collect();
-    let top = applicable.iter().map(|(scope, _)| *scope).max()?;
-    // For reading, every grant counts; for acting, only those at the scope the token will carry.
-    let counted: Vec<&Option<Vec<String>>> = applicable
-        .iter()
-        .filter(|(scope, _)| needed == Scope::Read || *scope == top)
-        .map(|(_, pipelines)| *pipelines)
-        .collect();
-    let scope = if needed == Scope::Read { Scope::Read } else { top };
-    let pipelines = if counted.iter().any(|pipelines| pipelines.is_none()) {
+    if reaching.is_empty() {
+        return None;
+    }
+    let pipelines = if reaching.iter().any(|pipelines| pipelines.is_none()) {
         None
     } else {
         let mut all: Vec<String> =
-            counted.iter().filter_map(|pipelines| pipelines.as_ref()).flatten().cloned().collect();
+            reaching.iter().filter_map(|pipelines| pipelines.as_ref()).flatten().cloned().collect();
         all.sort();
         all.dedup();
         Some(all)
     };
-    Some(Access { scope, pipelines })
+    Some(Access { scope: needed, pipelines })
+}
+
+/// Whether this person administers every pipeline of a scheduler: only they may change who may
+/// do what on it, so nobody can grant more than they hold.
+pub(crate) fn administers_fully(config: &Config, person: &Person, grants: &[Grant], scheduler: &str) -> bool {
+    access(config, person, grants, scheduler, Scope::Administer).is_some_and(|access| access.pipelines.is_none())
 }
 
 /// The highest scope a person has on a scheduler, for the screens to show only what they may do.
@@ -117,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn acting_uses_the_highest_grant_and_its_pipelines() {
+    fn a_token_carries_the_scope_needed_and_the_pipelines_that_reach_it() {
         let grants = [grant("read", None), grant("operate", Some(&["eod"]))];
         let asha = person("asha@example.com", &[]);
         assert_eq!(
@@ -130,5 +128,23 @@ mod tests {
         );
         assert_eq!(access(&config(), &asha, &grants, "prod", Scope::Administer), None);
         assert_eq!(highest(&config(), &asha, &grants, "prod"), Some(Scope::Operate));
+    }
+
+    #[test]
+    fn operating_everywhere_is_not_narrowed_by_a_pipeline_administration() {
+        let grants = [grant("operate", None), grant("administer", Some(&["eod"]))];
+        let asha = person("asha@example.com", &[]);
+        assert_eq!(
+            access(&config(), &asha, &grants, "prod", Scope::Operate),
+            Some(Access { scope: Scope::Operate, pipelines: None })
+        );
+        assert_eq!(
+            access(&config(), &asha, &grants, "prod", Scope::Administer),
+            Some(Access { scope: Scope::Administer, pipelines: Some(vec!["eod".into()]) })
+        );
+        assert!(
+            !administers_fully(&config(), &asha, &grants, "prod"),
+            "administering one pipeline is not administering the scheduler"
+        );
     }
 }

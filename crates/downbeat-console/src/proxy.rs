@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::body::Bytes;
-use axum::extract::{Extension, Path, State as Extract};
+use axum::extract::{Extension, OriginalUri, Path, State as Extract};
 use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use downbeat_api::types::PipelineView;
@@ -37,9 +37,9 @@ pub(crate) struct PipelineCache(Mutex<HashMap<String, (Instant, JobsByPipeline)>
 pub(crate) async fn forward(
     Extract(state): Extract<State>,
     Extension(session): Extension<Arc<Session>>,
-    Path((name, rest)): Path<(String, String)>,
+    Path((name, _rest)): Path<(String, String)>,
     method: Method,
-    uri: Uri,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, Failure> {
@@ -47,43 +47,40 @@ pub(crate) async fn forward(
         .config
         .scheduler(&name)
         .ok_or_else(|| Failure::not_found(format!("there is no scheduler named {name}")))?;
-    if !rest.starts_with("v1/") {
-        return Err(Failure::not_found("only the scheduler's /v1 API is forwarded"));
-    }
-    let target = match uri.query() {
-        Some(query) => format!("/{rest}?{query}"),
-        None => format!("/{rest}"),
-    };
+    let target =
+        target_path(&uri, &name).ok_or_else(|| Failure::not_found("only the scheduler's /v1 API is forwarded"))?;
 
-    let needed = if method == Method::GET { Scope::Read } else { Scope::Operate };
+    // A read is signed with `read`; a change first with `operate`, then, if the scheduler says the
+    // action needs more, with `administer`. Each carries the pipelines of the grants that reach it.
+    let scopes: &[Scope] = if method == Method::GET { &[Scope::Read] } else { &[Scope::Operate, Scope::Administer] };
     let grants = store::grants_of(&state.pool, &session.person).await?;
-    let Some(granted) = access(&state.config, &session.person, &grants, &name, needed) else {
-        store::audit(
-            &state.pool,
+    let mut response = None;
+    for scope in scopes {
+        let Some(granted) = access(&state.config, &session.person, &grants, &name, *scope) else { continue };
+        let jobs = match granted.pipelines {
+            None => None,
+            Some(pipelines) => Some(jobs_of(&state, scheduler, &pipelines).await?),
+        };
+        let answer = send(
+            &state,
+            scheduler,
             &session.person.email,
-            "refused",
-            json!({ "scheduler": name, "method": method.as_str(), "path": target }),
+            granted.scope,
+            jobs,
+            method.clone(),
+            &target,
+            &body,
+            headers.get(IDEMPOTENCY_HEADER),
         )
         .await?;
-        return Err(Failure::forbidden(format!("you have no grant that lets you do this on {}", scheduler.label)));
-    };
-    let jobs = match granted.pipelines {
-        None => None,
-        Some(pipelines) => Some(jobs_of(&state, scheduler, &pipelines).await?),
-    };
-    let response = send(
-        &state,
-        scheduler,
-        &session.person.email,
-        granted.scope,
-        jobs,
-        method.clone(),
-        &target,
-        &body,
-        headers.get(IDEMPOTENCY_HEADER),
-    )
-    .await?;
-    if response.status() == StatusCode::FORBIDDEN && method != Method::GET {
+        let refused = answer.status() == StatusCode::FORBIDDEN;
+        response = Some(answer);
+        if !refused {
+            break;
+        }
+    }
+    let refused = response.as_ref().is_none_or(|answer| answer.status() == StatusCode::FORBIDDEN);
+    if refused {
         store::audit(
             &state.pool,
             &session.person.email,
@@ -92,7 +89,25 @@ pub(crate) async fn forward(
         )
         .await?;
     }
-    Ok(response)
+    response
+        .ok_or_else(|| Failure::forbidden(format!("you have no grant that lets you do this on {}", scheduler.label)))
+}
+
+/// The scheduler path and query a console path forwards to: exactly as the browser sent it, after
+/// `/api/schedulers/{name}`, and only under `/v1/`. Dot segments are refused, so a path cannot be
+/// normalised out of the API, and so is an encoded slash, which would change the route.
+fn target_path(uri: &Uri, scheduler: &str) -> Option<String> {
+    let prefix = format!("/api/schedulers/{scheduler}");
+    let path = uri.path().strip_prefix(&prefix)?;
+    let lowered = path.to_ascii_lowercase();
+    let dot_segment = path.split('/').any(|segment| segment == "." || segment == "..") || lowered.contains("%2e");
+    if !path.starts_with("/v1/") || dot_segment || lowered.contains("%2f") || lowered.contains("%5c") {
+        return None;
+    }
+    Some(match uri.query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_owned(),
+    })
 }
 
 /// Sends one signed request to a scheduler and relays its answer.
@@ -178,4 +193,26 @@ pub(crate) async fn version_of(state: &State, scheduler: &Scheduler) -> Option<u
         state.http.get(format!("{}/version", scheduler.url)).timeout(Duration::from_secs(3)).send().await.ok()?;
     let version: downbeat_api::types::Version = answer.json().await.ok()?;
     Some(version.api)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(path: &str) -> Option<String> {
+        target_path(&path.parse().unwrap(), "prod")
+    }
+
+    #[test]
+    fn forwards_the_raw_path_under_v1_only() {
+        assert_eq!(
+            target("/api/schedulers/prod/v1/jobs/send%20report/runs?preview=true").as_deref(),
+            Some("/v1/jobs/send%20report/runs?preview=true")
+        );
+        assert_eq!(target("/api/schedulers/prod/healthz"), None);
+        assert_eq!(target("/api/schedulers/prod/v1/../healthz"), None);
+        assert_eq!(target("/api/schedulers/prod/v1/%2e%2e/healthz"), None);
+        assert_eq!(target("/api/schedulers/prod/v1/jobs/a%2Fb"), None);
+        assert_eq!(target("/api/schedulers/other/v1/jobs"), None);
+    }
 }

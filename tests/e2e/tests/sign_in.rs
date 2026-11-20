@@ -228,7 +228,19 @@ async fn a_person_signs_in_and_is_given_what_their_grants_allow() {
         .unwrap();
     assert_eq!(start.status(), 403, "read access cannot start a job");
 
-    let logout = http.post(format!("{base}/auth/logout")).header("cookie", &asha).send().await.unwrap();
+    let asha_me: Value =
+        http.get(format!("{base}/api/me")).header("cookie", &asha).send().await.unwrap().json().await.unwrap();
+    let without_token = http.post(format!("{base}/auth/logout")).header("cookie", &asha).send().await.unwrap();
+    assert_eq!(without_token.status(), 204);
+    let still = http.get(format!("{base}/api/me")).header("cookie", &asha).send().await.unwrap();
+    assert_eq!(still.status(), 200, "signing out needs the session's CSRF token");
+    let logout = http
+        .post(format!("{base}/auth/logout"))
+        .header("cookie", &asha)
+        .header("x-csrf-token", asha_me["csrf_token"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
     assert_eq!(logout.status(), 204);
     let after = http.get(format!("{base}/api/me")).header("cookie", &asha).send().await.unwrap();
     assert_eq!(after.status(), 401, "a session ends at once on sign-out");
@@ -240,4 +252,40 @@ async fn someone_outside_the_allowed_domains_cannot_sign_in() {
     let (_app, provider, _console, base) = setup(&database).await;
     *provider.next_email.lock().unwrap() = "mallory@elsewhere.org".into();
     assert_eq!(sign_in(&base).await, Err(403));
+}
+
+#[tokio::test]
+async fn someone_who_administers_one_pipeline_cannot_grant_the_whole_scheduler() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database).await;
+    let http = reqwest::Client::new();
+
+    *provider.next_email.lock().unwrap() = "asha@example.com".into();
+    let asha = sign_in(&base).await.unwrap();
+    *provider.next_email.lock().unwrap() = "boss@example.com".into();
+    let boss = sign_in(&base).await.unwrap();
+    let csrf_of = |me: &Value| me["csrf_token"].as_str().unwrap().to_owned();
+    let boss_me: Value =
+        http.get(format!("{base}/api/me")).header("cookie", &boss).send().await.unwrap().json().await.unwrap();
+    let granted = http
+        .post(format!("{base}/api/grants"))
+        .header("cookie", &boss)
+        .header("x-csrf-token", csrf_of(&boss_me))
+        .json(&json!({ "to_person": "asha@example.com", "scheduler": "test", "scope": "administer", "pipelines": ["basics"] }))
+        .send()
+        .await
+        .unwrap();
+    assert!(granted.status().is_success(), "{}", granted.text().await.unwrap());
+
+    let asha_me: Value =
+        http.get(format!("{base}/api/me")).header("cookie", &asha).send().await.unwrap().json().await.unwrap();
+    let escalate = http
+        .post(format!("{base}/api/grants"))
+        .header("cookie", &asha)
+        .header("x-csrf-token", csrf_of(&asha_me))
+        .json(&json!({ "to_person": "asha@example.com", "scheduler": "test", "scope": "administer" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(escalate.status(), 403, "administering one pipeline must not let her grant the whole scheduler");
 }

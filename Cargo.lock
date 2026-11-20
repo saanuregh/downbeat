@@ -777,6 +777,7 @@ dependencies = [
  "clap",
  "downbeat-api",
  "downbeat-client",
+ "futures",
  "openidconnect",
  "rand 0.8.8",
  "reqwest",

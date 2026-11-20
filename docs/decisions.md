@@ -155,3 +155,24 @@ product does not use must be removed from that product's build, or named in a pi
 `examples/market` is a small product written the way the design intends; its schedule snapshot is
 committed and CI fails when it is stale. `mise run demo` runs it with the console on this machine
 against a throwaway Postgres.
+
+## 27. A console token carries exactly the scope a request needs
+
+From the console review. A read is signed with `read`; a change first with `operate`, and again
+with `administer` only when the scheduler refuses the first. Each token is limited to the pipelines
+of every grant that reaches its scope, so a pipeline administration never narrows what a person may
+operate elsewhere.
+
+## 28. Only someone who administers a whole scheduler manages its grants
+
+Administering some pipelines does not let a person change grants, so nobody can grant more than
+they hold. The grants list shows the schedulers the person administers in full.
+
+## 29. Console sign-in hardening
+
+The identity provider must have verified the person's email (grants and first administrators
+follow emails). The return path after sign-in refuses control characters. Signing out needs the
+session's CSRF token. `public_url` must be https, or plain http on loopback. In `--local` mode the
+console answers only to this machine's own names, so a page elsewhere cannot reach it through DNS
+rebinding. The proxy forwards the raw path under `/v1/` only, refusing dot segments and encoded
+slashes.
