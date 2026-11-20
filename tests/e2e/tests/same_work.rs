@@ -105,10 +105,7 @@ async fn one_per_keeps_runs_for_one_value_apart_and_lets_others_run() {
 #[tokio::test]
 async fn a_schedule_that_joins_queued_work_leaves_hidden_rows_that_are_not_delivered_and_go_soon() {
     let database = Database::fresh().await;
-    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', 'ticker', 'test', 'held')")
-        .execute(&database.pool)
-        .await
-        .unwrap();
+    database.hold("ticker").await;
     let (app, client, _) = support::with_api_in(&database, "schedules").await;
 
     // Each second the schedule asks for the same work again, and joins the one held run.
@@ -181,10 +178,7 @@ async fn a_join_keeps_the_later_due_time_and_the_looser_expiry() {
 #[tokio::test]
 async fn a_linked_run_has_no_turn_until_it_is_prepared() {
     let database = Database::fresh().await;
-    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', 'shout', 'test', 'held')")
-        .execute(&database.pool)
-        .await
-        .unwrap();
+    database.hold("shout").await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
     let _app = App::start(&database);
     let parent = client.start(echo, Text { text: "quiet".into() }).await.unwrap();
@@ -197,4 +191,64 @@ async fn a_linked_run_has_no_turn_until_it_is_prepared() {
             .await
             .unwrap();
     assert_eq!((turn_key, input), (None, None), "its input, and so its turn, come from its parents when it runs");
+}
+
+#[tokio::test]
+async fn a_job_that_starts_work_already_queued_joins_it() {
+    let database = Database::fresh().await;
+    database.hold("echo").await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let queued = client.start(echo, Text { text: "started by asha".into() }).await.unwrap().run_id();
+    let _app = App::start(&database);
+
+    let starter_run = client.start(starter, Text { text: "asha".into() }).await.unwrap().run_id();
+    let done = finished(&database.pool, starter_run, SOON).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+    assert_eq!(done.output, Some(serde_json::json!({ "text": queued.to_string() })), "run.start joined the queued run");
+    let echo_runs: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.run WHERE job_name = 'echo'")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(echo_runs, 1);
+}
+
+#[tokio::test]
+async fn each_deliberate_request_creates_a_run_instead_of_joining() {
+    let database = Database::fresh().await;
+    for job in ["echo", "rehearses"] {
+        database.hold(job).await;
+    }
+    let (_app, _client, listen) = support::with_api_at(&database).await;
+    let local = support::Signer::local(&format!("http://{listen}"));
+    let start = |job: &'static str, extra: serde_json::Value| {
+        let local = &local;
+        async move {
+            let mut body = serde_json::json!({ "input": { "text": "same" } });
+            body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            local.post::<downbeat_client::types::StartResponse>(&format!("/v1/jobs/{job}/runs"), &body).await
+        }
+    };
+
+    for job in ["echo", "rehearses"] {
+        let first = start(job, serde_json::json!({})).await;
+        let again = start(job, serde_json::json!({})).await;
+        assert!(again.joined && again.run_id == first.run_id, "a plain request for {job} joins: {again:?}");
+    }
+    let not_before = (chrono::Utc::now() + chrono::TimeDelta::hours(1)).to_rfc3339();
+    let deliberate = [
+        ("rehearses", serde_json::json!({ "dry_run": true })),
+        ("echo", serde_json::json!({ "without_children": true })),
+        ("echo", serde_json::json!({ "ignore_conditions": true })),
+        ("echo", serde_json::json!({ "not_before": not_before })),
+        ("echo", serde_json::json!({ "timeout_seconds": 30 })),
+    ];
+    for (job, flag) in deliberate {
+        let started = start(job, flag.clone()).await;
+        assert!(!started.joined, "{job} with {flag} joined queued work");
+    }
+    let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.run WHERE job_name IN ('echo', 'rehearses')")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(runs, 2 + 5, "each deliberate request made its own run");
 }

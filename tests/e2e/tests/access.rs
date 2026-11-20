@@ -236,3 +236,15 @@ async fn a_caller_limited_to_some_jobs_cannot_cancel_a_backfill_whose_chain_reac
     let cancelled = admin.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;
     assert_eq!(cancelled.status(), 200);
 }
+
+#[tokio::test]
+async fn a_caller_limited_to_some_jobs_is_refused_a_token_that_names_no_jobs() {
+    let database = Database::fresh().await;
+    let (_app, _admin, mut billing) = operator_and_billing(&database).await;
+
+    assert_eq!(billing.send("GET", "/v1/jobs", b"").await.status(), 200);
+    billing.jobs = None;
+    assert_eq!(billing.send("GET", "/v1/jobs", b"").await.status(), 403);
+    billing.jobs = Some(vec!["echo".into(), "panics".into()]);
+    assert_eq!(billing.send("GET", "/v1/jobs", b"").await.status(), 403, "a job outside the caller's list");
+}

@@ -1,5 +1,6 @@
 //! The reaper ends what nothing else will: runs past their expiry or `give_up_after`, runs of a job
 //! no worker has, and runs whose worker was lost twice. A worker cut off from its database stops.
+//! It also deletes expired used-token records. Callbacks older than a day are dropped.
 
 mod support;
 
@@ -9,15 +10,6 @@ use downbeat::InAppClient;
 use downbeat_e2e::*;
 use support::{App, Database, SOON, eventually, finished};
 use uuid::Uuid;
-
-/// Pauses a job directly in the database, so its runs stay queued for the test to age.
-async fn hold(database: &Database, job: &str) {
-    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', $1, 'test', 'held')")
-        .bind(job)
-        .execute(&database.pool)
-        .await
-        .unwrap();
-}
 
 async fn queued_echo(client: &InAppClient, text: &str) -> Uuid {
     client.start(echo, Text { text: text.into() }).await.unwrap().run_id()
@@ -31,7 +23,7 @@ async fn set(database: &Database, sql: &str, run_id: Uuid) {
 async fn a_queued_run_past_its_expiry_expires_but_a_started_one_never_does() {
     let database = Database::fresh().await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
-    hold(&database, "echo").await;
+    database.hold("echo").await;
     let _app = App::start(&database);
 
     let never_started = queued_echo(&client, "never started").await;
@@ -80,7 +72,7 @@ async fn a_run_queued_past_give_up_after_fails_with_its_last_reason() {
 async fn a_run_of_a_job_no_worker_has_ends_after_an_hour() {
     let database = Database::fresh().await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
-    hold(&database, "echo").await;
+    database.hold("echo").await;
     let _app = App::start(&database);
     eventually(&database.pool, "SELECT EXISTS (SELECT 1 FROM downbeat.worker WHERE role = 'worker')", SOON).await;
 
@@ -161,7 +153,7 @@ async fn a_worker_cut_off_from_its_database_stops_the_run_and_says_so_later() {
 async fn a_queued_run_with_a_cancel_requested_is_ended_by_the_reaper() {
     let database = Database::fresh().await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
-    hold(&database, "echo").await;
+    database.hold("echo").await;
     let _app = App::start(&database);
 
     let run = queued_echo(&client, "unwanted").await;
@@ -203,4 +195,118 @@ async fn events_reach_on_event_and_one_that_does_not_decode_is_skipped() {
         !app.finished_dir.join(format!("event-{unknown}")).exists(),
         "an event this build does not know is skipped"
     );
+}
+
+#[tokio::test]
+async fn a_run_whose_worker_died_before_its_function_started_is_queued_again_with_nothing_counted() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let run = queued_echo(&client, "claimed by a worker that died").await;
+    // As if a worker had claimed it and died while preparing it.
+    set(
+        &database,
+        "UPDATE downbeat.run SET state = 'running', fence = fence + 1, lease_owner = 'gone-1',
+                lease_expires_at = now() - interval '1 hour', claimed_at = now() - interval '1 hour'
+          WHERE run_id = $1",
+        run,
+    )
+    .await;
+
+    let _app = App::start(&database);
+    let done = finished(&database.pool, run, SOON).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+    assert_eq!((done.lost_count, done.failures, done.starts), (0, 0, 1));
+    let reported: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE detail->>'event' = 'worker_lost' AND run_id = $1)",
+    )
+    .bind(run)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert!(!reported, "no worker_lost event for a function that never started");
+}
+
+#[tokio::test]
+async fn a_worker_lost_after_the_function_started_is_reported() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let first = App::start(&database);
+
+    let run = client.start(counts, Seconds { seconds: 3 }).await.unwrap().run_id();
+    eventually(
+        &database.pool,
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{run}' AND function_started_at IS NOT NULL)"
+        ),
+        SOON,
+    )
+    .await;
+    first.kill();
+    set(&database, "UPDATE downbeat.run SET lease_expires_at = now() - interval '1 hour' WHERE run_id = $1", run).await;
+
+    let _second = App::start(&database);
+    let reported = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event'
+          AND detail->>'event' = 'worker_lost' AND run_id = '{run}')"
+    );
+    eventually(&database.pool, &reported, SOON).await;
+    let done = finished(&database.pool, run, Duration::from_secs(30)).await;
+    assert_eq!((done.status.as_str(), done.lost_count), ("succeeded", 1), "{}", done.reason);
+}
+
+#[tokio::test]
+async fn the_reaper_deletes_expired_used_token_records() {
+    let database = Database::fresh().await;
+    sqlx::query(
+        "INSERT INTO downbeat.used_token (caller, jti, expires_at)
+         VALUES ('billing', 'expired', now() - interval '1 minute'), ('billing', 'current', now() + interval '1 hour')",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    let _app = App::start(&database);
+
+    eventually(&database.pool, "SELECT NOT EXISTS (SELECT 1 FROM downbeat.used_token WHERE jti = 'expired')", SOON)
+        .await;
+    let kept: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM downbeat.used_token WHERE jti = 'current')")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert!(kept, "a record that has not expired stays");
+}
+
+#[tokio::test]
+async fn an_on_finish_delivery_for_a_run_that_finished_over_a_day_ago_is_dropped() {
+    let database = Database::fresh().await;
+    let chain = Uuid::new_v4();
+    sqlx::query("INSERT INTO downbeat.chain (chain_id, pipeline, first_job, started_by) VALUES ($1, 'basics', 'echo', 'person')")
+        .bind(chain)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let (stale, recent) = (Uuid::new_v4(), Uuid::new_v4());
+    for (run, finished_ago) in [(stale, "25 hours"), (recent, "1 minute")] {
+        sqlx::query(
+            "INSERT INTO downbeat.run_history (run_id, job_name, queue, priority, due_at, started_by, chain_id,
+                    created_at, status, reason, finished_at, notify_after)
+             VALUES ($1, 'echo', 'default', 0, now(), 'person', $2, now() - $3::interval, 'succeeded', 'Succeeded.',
+                     now() - $3::interval, now())",
+        )
+        .bind(run)
+        .bind(chain)
+        .bind(finished_ago)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    }
+    let app = App::start(&database);
+
+    for run in [stale, recent] {
+        let delivered = format!(
+            "SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE run_id = '{run}' AND notify_after IS NULL)"
+        );
+        eventually(&database.pool, &delivered, SOON).await;
+    }
+    assert!(app.finished_dir.join(recent.to_string()).exists(), "a recent run is delivered");
+    assert!(!app.finished_dir.join(stale.to_string()).exists(), "a run that finished over a day ago is dropped");
 }

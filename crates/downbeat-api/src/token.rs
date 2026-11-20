@@ -318,6 +318,22 @@ mod tests {
     }
 
     #[test]
+    fn a_token_for_another_method_or_path_is_refused() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let token = token(&key, b"{}");
+        let check = |method, path_and_query| {
+            verify(&token, |_| Some(&keys[..]), "prod", RequestBinding { method, path_and_query, body: b"{}" }, NOW)
+        };
+
+        assert!(check("post", "/v1/jobs/report/runs").is_ok(), "the method is compared without case");
+        assert_eq!(check("PUT", "/v1/jobs/report/runs"), Err(TokenError::WrongRequest));
+        assert_eq!(check("POST", "/v1/jobs/other/runs"), Err(TokenError::WrongRequest));
+        assert_eq!(check("POST", "/v1/jobs/report/runs?preview=true"), Err(TokenError::WrongRequest));
+        assert_eq!(check("POST", "/jobs/report/runs"), Err(TokenError::WrongRequest), "htu includes /v1");
+    }
+
+    #[test]
     fn scopes_are_ordered() {
         assert!(Scope::Read < Scope::Operate && Scope::Operate < Scope::Administer);
     }

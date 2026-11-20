@@ -49,6 +49,21 @@ impl Database {
         let pool = PgPool::connect(&url).await.expect("the test database is reachable");
         Database { url, pool }
     }
+
+    /// Pauses a job directly in the database, so the runs started after stay queued until the test
+    /// lets them go with `release`.
+    pub async fn hold(&self, job: &str) {
+        sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', $1, 'test', 'held')")
+            .bind(job)
+            .execute(&self.pool)
+            .await
+            .unwrap();
+    }
+
+    /// Lifts every pause `hold` made.
+    pub async fn release(&self) {
+        sqlx::query("DELETE FROM downbeat.pause WHERE paused_by = 'test'").execute(&self.pool).await.unwrap();
+    }
 }
 
 /// The test product, running as one process with the roles asked for.

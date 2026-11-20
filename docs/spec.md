@@ -238,8 +238,9 @@ all of these hold:
 | No run in this chain | — | — | — |
 
 A created child must: belong to the chain; record its parents' run ids; take its priority and
-queue from its own policy; inherit `dry_run`; not inherit `ignore_conditions` or
-`without_children`; be `started_by = link`; and never join other work.
+queue from its own policy; inherit `dry_run`; not inherit `ignore_conditions`; be
+`started_by = link`; and never join other work. (A run started `without_children` has no
+children, so that flag never reaches one.)
 
 **Child input.** At preparation, the child receives one value per parent, in the link's order:
 for `.after`, the parent's output; for `.after_failure`, `Failure { job, run_id, kind, reason }`

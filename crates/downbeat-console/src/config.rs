@@ -192,3 +192,63 @@ impl Config {
         self.schedulers.iter().find(|scheduler| scheduler.name == name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Write as _;
+
+    use super::Config;
+
+    /// Writes a config file with this `public_url` and these scheduler names, each with its own
+    /// key file, in a fresh directory, and reads it.
+    fn read(public_url: &str, schedulers: &[&str]) -> anyhow::Result<Config> {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "console-config-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_file = dir.join("key.pem");
+        std::fs::write(&key_file, downbeat_api::PrivateKey::generate().to_pem()).unwrap();
+        let mut text = format!(
+            "listen = \"127.0.0.1:7401\"\npublic_url = \"{public_url}\"\n\n[sign_in]\nissuer = \"https://id.example.com\"\n\
+             client_id = \"console\"\nclient_secret_env = \"CONSOLE_SECRET\"\nallowed_domains = [\"example.com\"]\n"
+        );
+        for name in schedulers {
+            write!(
+                text,
+                "\n[[scheduler]]\nname = \"{name}\"\nurl = \"https://{name}.example.com\"\naudience = \"{name}\"\n\
+                 key_file = \"{}\"\n",
+                key_file.display()
+            )
+            .unwrap();
+        }
+        let path = dir.join("console.toml");
+        std::fs::write(&path, text).unwrap();
+        let config = Config::from_file(&path);
+        std::fs::remove_dir_all(&dir).unwrap();
+        config
+    }
+
+    #[test]
+    fn public_url_must_be_https_or_http_on_a_loopback_host() {
+        for accepted in
+            ["https://console.example.com", "http://localhost:7401", "http://127.0.0.1:7401", "http://[::1]:7401"]
+        {
+            assert!(read(accepted, &["prod"]).is_ok(), "{accepted} is refused");
+        }
+        for refused in ["http://console.example.com", "http://10.0.0.5:7401", "ftp://console.example.com"] {
+            let error = read(refused, &["prod"]).expect_err(refused).to_string();
+            assert!(error.contains("public_url must be https"), "{refused}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_scheduler_listed_twice_is_refused() {
+        assert!(read("https://console.example.com", &["prod", "uat"]).is_ok());
+        let error = read("https://console.example.com", &["prod", "prod"]).expect_err("a duplicate").to_string();
+        assert!(error.contains("scheduler prod is listed twice"), "{error}");
+    }
+}

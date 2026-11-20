@@ -164,7 +164,6 @@ async fn a_cancelled_chain_starts_nothing_more() {
 
     let _: Done = client.as_caller().post(&format!("/v1/chains/{chain}/cancel"), None::<&()>, None).await.unwrap();
     assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "cancelled");
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let children: i64 = sqlx::query_scalar(
         "SELECT (SELECT count(*) FROM downbeat.run WHERE chain_id = $1)
               + (SELECT count(*) FROM downbeat.run_history WHERE chain_id = $1 AND job_name <> 'empty')",
@@ -270,4 +269,41 @@ async fn restarting_a_run_starts_a_new_chain_with_the_same_input() {
     assert_eq!(second.status, "succeeded");
     assert_ne!(second.chain_id, first.chain_id, "a restart is a new chain");
     assert_eq!(second.output, first.output, "with the same input");
+}
+
+#[tokio::test]
+async fn a_child_inherits_a_dry_run_but_not_ignore_conditions_or_without_children() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    let local = Signer::local(&format!("http://{listen}"));
+
+    let start = json!({ "input": { "text": "rehearsal" }, "dry_run": true, "ignore_conditions": true });
+    let parent: StartResponse = local.post("/v1/jobs/rehearses/runs", &start).await;
+    let parent = finished(&database.pool, parent.run_id, SOON).await;
+    assert_eq!(parent.status, "succeeded", "{}", parent.reason);
+    let child = finished_job(&database.pool, "after_rehearses", SOON).await;
+    assert_eq!(child.chain_id, parent.chain_id);
+    let flags: (bool, bool, bool) = sqlx::query_as(
+        "SELECT dry_run, ignore_conditions, without_children FROM downbeat.run_history WHERE run_id = $1",
+    )
+    .bind(child.run_id)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(flags, (true, false, false), "(dry_run, ignore_conditions, without_children) of the child");
+
+    // A parent with without_children starts no child at all, so the flag never reaches one.
+    let alone = json!({ "input": { "text": "alone" }, "without_children": true });
+    let alone: StartResponse = local.post("/v1/jobs/rehearses/runs", &alone).await;
+    let alone = finished(&database.pool, alone.run_id, SOON).await;
+    let children: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM downbeat.run WHERE chain_id = $1)
+              + (SELECT count(*) FROM downbeat.run_history WHERE chain_id = $1 AND run_id <> $2)",
+    )
+    .bind(alone.chain_id)
+    .bind(alone.run_id)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(children, 0);
 }

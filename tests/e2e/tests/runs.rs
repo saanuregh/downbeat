@@ -298,3 +298,41 @@ async fn a_crash_while_a_run_is_prepared_gets_another_attempt() {
     assert_eq!(done.status, "succeeded", "{}", done.reason);
     assert_eq!(done.failures, 1, "the crash counted as a failed attempt");
 }
+
+#[tokio::test]
+async fn with_one_slot_the_highest_priority_run_is_claimed_first() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    database.hold("echo").await;
+    // Queued oldest first with the lowest priority, so priority alone decides the order.
+    let mut runs = Vec::new();
+    for (text, priority) in [("low", 1), ("middle", 5), ("high", 9)] {
+        runs.push(client.start(echo, Text { text: text.into() }).priority(priority).await.unwrap().run_id());
+    }
+    let _app = App::with(&database, &["scheduler", "worker", "--queues", "default=1"], "test");
+    database.release().await;
+    for run in &runs {
+        assert_eq!(finished(&database.pool, *run, SOON).await.status, "succeeded");
+    }
+
+    let order: Vec<String> = sqlx::query_scalar(
+        "SELECT input->>'text' FROM downbeat.run_history WHERE run_id = ANY($1) ORDER BY started_at",
+    )
+    .bind(&runs)
+    .fetch_all(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(order, ["high", "middle", "low"]);
+}
+
+#[tokio::test]
+async fn an_output_over_64_kib_fails_the_run() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+
+    let run = client.start(too_big, ()).await.unwrap().run_id();
+    let done = finished(&database.pool, run, SOON).await;
+    assert_eq!((done.status.as_str(), done.failed_because.as_deref()), ("failed", Some("output_too_large")));
+    assert_eq!(done.output, None, "the oversized output is not stored");
+}

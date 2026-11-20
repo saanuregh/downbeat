@@ -190,6 +190,23 @@ pub async fn starter(run: Run, input: Text) -> Result<Text> {
     Ok(Text { text: started.run_id().to_string() })
 }
 
+/// Returns more than the 64 KiB a value may hold.
+#[job]
+pub async fn too_big(_run: Run) -> Result<String> {
+    Ok("x".repeat(70 * 1024))
+}
+
+/// A job that may be asked for a dry run, followed by `after_rehearses`.
+#[job(supports_dry_run)]
+pub async fn rehearses(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+#[job]
+pub async fn after_rehearses(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
 #[job(preset = frequent)]
 pub async fn ticker(_run: Run) -> Result<()> {
     Ok(())
@@ -285,6 +302,8 @@ fn basics(pipeline: &mut Pipeline) {
     pipeline.job(fresh_noop);
     pipeline.job(child_pid);
     pipeline.job(leaves_a_task);
+    pipeline.job(rehearses);
+    pipeline.job(after_rehearses).after(rehearses);
 }
 
 fn failures(pipeline: &mut Pipeline) {
@@ -304,6 +323,7 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(leaves_a_process_behind);
     pipeline.job(crashes_while_prepared).only_if("not tested before", not_tested_before);
     pipeline.job(finishes_when_asked_to_stop);
+    pipeline.job(too_big);
 }
 
 fn clock(pipeline: &mut Pipeline) {

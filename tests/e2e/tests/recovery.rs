@@ -169,17 +169,14 @@ async fn a_run_interrupted_a_third_time_is_reported() {
     let database = Database::fresh().await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
     // Held while the test makes it a run already interrupted twice by earlier deploys.
-    sqlx::query("INSERT INTO downbeat.pause (kind, name, paused_by, note) VALUES ('job', 'counts', 'test', 'held')")
-        .execute(&database.pool)
-        .await
-        .unwrap();
+    database.hold("counts").await;
     let run = client.start(counts, Seconds { seconds: 30 }).await.unwrap().run_id();
     sqlx::query("UPDATE downbeat.run SET interruptions = 2 WHERE run_id = $1")
         .bind(run)
         .execute(&database.pool)
         .await
         .unwrap();
-    sqlx::query("DELETE FROM downbeat.pause").execute(&database.pool).await.unwrap();
+    database.release().await;
     let app = App::start(&database);
 
     let running = format!(
