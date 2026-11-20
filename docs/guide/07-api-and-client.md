@@ -141,10 +141,20 @@ let started = scheduler
 println!("{} joined={} repeated={}", started.run_id, started.joined, started.repeated);
 ```
 
-- **Starts are by name.** `start` takes the job's name and any `Serialize` input. The scheduler
-  checks the input against the job's type and answers 422 when it does not fit. Typed starts
-  through a shared crate of job handles are not implemented
-  ([decision 18](../decisions.md#18-the-rust-client-starts-jobs-by-name)).
+- **Typed starts.** A product declares the jobs its services may start, with their input types, in
+  a small crate those services share. `start_job` then checks the input type at compile time:
+
+  ```rust
+  // In the shared crate. Its types derive `Serialize`; the product also derives `JobData` on them,
+  // for example behind a cargo feature only the product enables.
+  downbeat_client::job_name!(pub send_report: ReportRequest);
+
+  // In a service.
+  scheduler.start_job(send_report, &ReportRequest { user_id: 42 }).send().await?;
+  ```
+
+  `start(name, &input)` does the same by name, for when there is no shared crate. Either way the
+  scheduler checks the input against the job's real type and answers 422 when it does not fit.
 - **Retries are safe.** `send` gives every start an idempotency key (yours, or a generated one)
   and retries with the same key after a connection error, a timeout, a 429 or a 5xx, up to four
   tries. A refused request (401, 403, 422) is not retried.

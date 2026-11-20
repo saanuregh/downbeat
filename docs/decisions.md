@@ -220,3 +220,9 @@ market example became a library with a binary, so its tests can use its definiti
 `JobView.input_schema` is the input as a JSON Schema (draft 2020-12), built from the shape the
 `JobData` derive records. A type it does not recognise accepts any value there; the scheduler still
 checks every input against the real type.
+
+## 37. Typed starts through declared job names (supersedes 18)
+
+`downbeat_api::job_name!(pub send_report: ReportRequest)` declares a job's name and input type in
+a crate a product's services share, without the engine. `Client::start_job` takes such a name, so
+the compiler checks the input. Starting by name stays for callers with no shared crate.

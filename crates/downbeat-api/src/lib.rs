@@ -11,6 +11,30 @@ pub mod types;
 pub use keys::{DEVELOPMENT_AUDIENCE, KeyError, PrivateKey, PublicKey, development_key};
 pub use token::{Claims, LEEWAY_SECONDS, RequestBinding, Scope, TOKEN_TYPE, TokenError, sign, verify};
 
+/// A job a program outside the product's binary may start, named with its input type, so the
+/// compiler checks what is sent. Declare them with [`job_name!`] in a small crate the product's
+/// services share; the scheduler still checks every input against the job's real type.
+pub trait JobName: Copy {
+    type Input: serde::Serialize;
+    const NAME: &'static str;
+}
+
+/// Declares a job's name and input type for programs that start it through the control API:
+/// `job_name!(pub send_report: ReportRequest);`.
+#[macro_export]
+macro_rules! job_name {
+    ($vis:vis $name:ident: $input:ty) => {
+        #[allow(non_camel_case_types)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        $vis struct $name;
+
+        impl $crate::JobName for $name {
+            type Input = $input;
+            const NAME: &'static str = stringify!($name);
+        }
+    };
+}
+
 /// The version of the control API this crate speaks. A console supports this one and the one before.
 pub const API_VERSION: u32 = 1;
 

@@ -193,5 +193,3 @@ a readable diff. The market example's snapshot is
 - **No sandbox.** Every child runs as the same operating-system user with the same credentials.
 - **No CPU limit**, and memory sampling has gaps (see above).
 - **Rate limits are in memory, per scheduler.**
-- **Typed starts in `downbeat-client` are by name only**; see
-  [the API chapter](07-api-and-client.md#downbeat-client).

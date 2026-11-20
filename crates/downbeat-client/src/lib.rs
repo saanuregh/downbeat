@@ -22,5 +22,5 @@ mod error;
 
 pub use client::{ActingClient, Builder, Client, Start};
 pub use downbeat_api::types;
-pub use downbeat_api::{PrivateKey, PublicKey, Scope, development_key};
+pub use downbeat_api::{JobName, PrivateKey, PublicKey, Scope, development_key, job_name};
 pub use error::Error;

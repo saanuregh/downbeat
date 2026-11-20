@@ -289,3 +289,13 @@ async fn pausing_everything_holds_every_job_until_resumed() {
     admin.resume_everything().await.unwrap();
     assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "succeeded");
 }
+
+#[tokio::test]
+async fn a_service_starts_a_job_by_its_declared_name_and_input_type() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    // What a product's shared crate declares; its name must match the job's.
+    downbeat_client::job_name!(echo: Text);
+    let started = client.start_job(echo, &Text { text: "typed".into() }).send().await.unwrap();
+    assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "succeeded");
+}

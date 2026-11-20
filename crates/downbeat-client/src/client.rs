@@ -8,8 +8,8 @@ use downbeat_api::types::{
     StartRequest, StartResponse, Version,
 };
 use downbeat_api::{
-    API_VERSION, Claims, DEVELOPMENT_AUDIENCE, IDEMPOTENCY_HEADER, PrivateKey, RequestBinding, Scope, development_key,
-    sign,
+    API_VERSION, Claims, DEVELOPMENT_AUDIENCE, IDEMPOTENCY_HEADER, JobName, PrivateKey, RequestBinding, Scope,
+    development_key, sign,
 };
 use reqwest::{Method, StatusCode, Url};
 use serde::Serialize;
@@ -188,6 +188,11 @@ impl Client {
     /// does not fit.
     pub fn start<I: Serialize>(&self, job: &str, input: &I) -> Start<'_> {
         self.as_self().start(job, input)
+    }
+
+    /// Start a job declared with `downbeat_api::job_name!`: the compiler checks the input type.
+    pub fn start_job<J: JobName>(&self, _job: J, input: &J::Input) -> Start<'_> {
+        self.as_self().start(J::NAME, input)
     }
 
     pub async fn jobs(&self) -> Result<Vec<JobView>, Error> {
