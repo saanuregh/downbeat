@@ -33,3 +33,12 @@ pub(crate) async fn readyz(Extract(state): Extract<State>) -> Result<Json<Health
 pub(crate) async fn version() -> Json<Version> {
     Json(Version { api: API_VERSION, engine: env!("CARGO_PKG_VERSION").to_owned() })
 }
+
+/// `GET /pause`: the pause of everything, if there is one.
+pub(crate) async fn pause_of_everything(
+    axum::extract::State(state): axum::extract::State<crate::api::State>,
+    axum::extract::Extension(caller): axum::extract::Extension<crate::api::auth::Caller>,
+) -> crate::api::error::Answer<Option<downbeat_api::types::PauseView>> {
+    caller.require(downbeat_api::Scope::Read)?;
+    Ok(axum::Json(crate::api::views::pause_of(&state.pool, "all", "all").await?))
+}

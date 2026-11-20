@@ -14,12 +14,15 @@ struct Migration {
     breaking: bool,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("../../migrations/0001_initial.sql"),
-    breaking: false,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration { version: 1, name: "initial", sql: include_str!("../../migrations/0001_initial.sql"), breaking: false },
+    Migration {
+        version: 2,
+        name: "global pause",
+        sql: include_str!("../../migrations/0002_global_pause.sql"),
+        breaking: false,
+    },
+];
 
 /// Arbitrary, fixed: the advisory lock that serialises migrations across processes.
 const MIGRATION_LOCK: i64 = 0x646f_776e_6265_6174; // "downbeat"

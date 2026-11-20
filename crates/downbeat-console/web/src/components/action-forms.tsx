@@ -12,8 +12,27 @@ function useOpen(): [boolean, () => void, () => void] {
   return [open, () => setOpen(true), () => setOpen(false)];
 }
 
+/** What a pause holds: one job, queue or schedule, or (with kind "everything") every run. */
+type PauseTarget = "job" | "queue" | "schedule" | "everything";
+
+/** The API path that pauses or resumes a target. */
+function pausePath(
+  kind: PauseTarget,
+  name: string,
+  verb: "pause" | "resume",
+): string {
+  return kind === "everything"
+    ? `/${verb}`
+    : `/${kind}s/${encodeURIComponent(name)}/${verb}`;
+}
+
+/** How a target is named in a dialog's title. */
+function pauseTitle(kind: PauseTarget, name: string): string {
+  return kind === "everything" ? "everything" : `${kind} ${name}`;
+}
+
 export function PauseButton(props: {
-  kind: "job" | "queue" | "schedule";
+  kind: PauseTarget;
   name: string;
   onDone: () => void;
 }) {
@@ -35,23 +54,25 @@ export function PauseButton(props: {
   const body = untilResumed
     ? { note, until_resumed: true }
     : { note, until: untilUtc };
-  const plural =
-    props.kind === "queue"
-      ? "every run on queue"
-      : `every run of ${props.kind}`;
+  const holds =
+    props.kind === "everything"
+      ? "every run of every job"
+      : props.kind === "queue"
+        ? `every run on queue ${props.name}`
+        : `every run of ${props.kind} ${props.name}`;
   return (
     <>
       <button type="button" className="button" onClick={show}>
-        Pause
+        {props.kind === "everything" ? "Pause everything" : "Pause"}
       </button>
       {open && (
         <ActionDialog
           spec={{
-            title: `Pause ${props.kind} ${props.name}`,
+            title: `Pause ${pauseTitle(props.kind, props.name)}`,
             confirm: "Pause",
             path: schedulerPath(
               scheduler.name,
-              `/${props.kind}s/${encodeURIComponent(props.name)}/pause`,
+              pausePath(props.kind, props.name, "pause"),
             ),
             body,
             invalid,
@@ -60,7 +81,7 @@ export function PauseButton(props: {
           onDone={props.onDone}
         >
           <p className="muted">
-            Holds {plural} {props.name} until it is resumed or the pause ends.
+            Holds {holds} until it is resumed or the pause ends.
           </p>
           <label htmlFor={noteId}>Why</label>
           <input
@@ -95,7 +116,7 @@ export function PauseButton(props: {
 }
 
 export function ResumeButton(props: {
-  kind: "job" | "queue" | "schedule";
+  kind: PauseTarget;
   name: string;
   onDone: () => void;
 }) {
@@ -109,11 +130,11 @@ export function ResumeButton(props: {
       {open && (
         <ActionDialog
           spec={{
-            title: `Resume ${props.kind} ${props.name}`,
+            title: `Resume ${pauseTitle(props.kind, props.name)}`,
             confirm: "Resume",
             path: schedulerPath(
               scheduler.name,
-              `/${props.kind}s/${encodeURIComponent(props.name)}/resume`,
+              pausePath(props.kind, props.name, "resume"),
             ),
           }}
           onClose={hide}

@@ -310,6 +310,15 @@ impl<'a> ActingClient<'a> {
         self.post(&format!("/v1/{kind}s/{name}/resume"), None::<&()>, None).await
     }
 
+    /// Holds every run of every job until resumed or the pause ends.
+    pub async fn pause_everything(&self, request: &PauseRequest) -> Result<Done, Error> {
+        self.post("/v1/pause", Some(request), None).await
+    }
+
+    pub async fn resume_everything(&self) -> Result<Done, Error> {
+        self.post("/v1/resume", None::<&()>, None).await
+    }
+
     pub async fn mark_succeeded(&self, run: Uuid, request: &MarkSucceededRequest) -> Result<Done, Error> {
         self.post(&format!("/v1/runs/{run}/mark-succeeded"), Some(request), None).await
     }

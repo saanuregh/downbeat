@@ -51,6 +51,9 @@ async fn pause(
             "job" => {
                 format!("Would hold every run of {name}, however it was started, {until_text}. Running ones continue.")
             }
+            "all" => format!(
+                "Would hold every run of every job {until_text}. Running ones continue; schedules still create runs, which wait."
+            ),
             _ => format!("Would hold every run on queue {name} {until_text}. Running ones continue."),
         };
         return preview(vec![effect], Vec::new());
@@ -186,3 +189,25 @@ pause_endpoints!(pause_job, resume_job, "job", known_job);
 pause_endpoints!(pause_queue, resume_queue, "queue", known_queue);
 
 pause_endpoints!(pause_schedule, resume_schedule, "schedule", known_schedule);
+
+/// `POST /pause`: hold every run of every job, for an outage or maintenance. Needs a token that
+/// covers every job.
+pub(crate) async fn pause_everything(
+    Extract(state): Extract<State>,
+    Extension(caller): Extension<Caller>,
+    Query(query): Query<PreviewQuery>,
+    Json(request): Json<PauseRequest>,
+) -> Acted {
+    caller.require_every_job()?;
+    pause(&state, &caller, "all", "all", query.preview, request).await
+}
+
+/// `POST /resume`: end the pause of everything.
+pub(crate) async fn resume_everything(
+    Extract(state): Extract<State>,
+    Extension(caller): Extension<Caller>,
+    Query(query): Query<PreviewQuery>,
+) -> Acted {
+    caller.require_every_job()?;
+    resume(&state, &caller, "all", "all", query.preview).await
+}

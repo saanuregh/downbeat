@@ -177,6 +177,8 @@ pub(crate) fn router(state: State) -> Router {
         .route("/queues", get(read::queues))
         .route("/queues/{name}/pause", post(act::pause_queue))
         .route("/queues/{name}/resume", post(act::resume_queue))
+        .route("/pause", get(read::pause_of_everything).post(act::pause_everything))
+        .route("/resume", post(act::resume_everything))
         .route("/overrides", get(read::overrides).post(act::add_override))
         .route("/overrides/{id}", delete(act::remove_override))
         .route("/backfills", get(read::backfills).post(act::start_backfill))

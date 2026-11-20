@@ -257,7 +257,7 @@ pub(crate) async fn claim(
                  WHERE c.state = 'queued' AND c.queue = $1 AND c.run_at <= now() AND c.cancel_requested_by IS NULL
                    AND c.job_name = ANY($4)
                    AND NOT EXISTS (SELECT 1 FROM downbeat.pause p
-                                    WHERE ((p.kind = 'job' AND p.name = c.job_name) OR (p.kind = 'queue' AND p.name = c.queue))
+                                    WHERE ((p.kind = 'job' AND p.name = c.job_name) OR (p.kind = 'queue' AND p.name = c.queue) OR p.kind = 'all')
                                       AND (p.until IS NULL OR p.until > now()))
                    AND (c.turn_key IS NULL OR NOT EXISTS (
                           SELECT 1 FROM downbeat.run x

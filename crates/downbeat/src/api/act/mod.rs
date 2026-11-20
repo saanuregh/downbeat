@@ -6,7 +6,10 @@ mod run;
 mod schedules;
 mod start;
 
-pub(crate) use pauses::{pause_job, pause_queue, pause_schedule, resume_job, resume_queue, resume_schedule};
+pub(crate) use pauses::{
+    pause_everything, pause_job, pause_queue, pause_schedule, resume_everything, resume_job, resume_queue,
+    resume_schedule,
+};
 pub(crate) use run::{cancel_chain, cancel_run, check_now, mark_succeeded, restart, retry};
 pub(crate) use schedules::{add_override, cancel_backfill, remove_override, start_backfill};
 pub(crate) use start::start;

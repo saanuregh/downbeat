@@ -269,3 +269,23 @@ async fn concurrent_retries_with_one_idempotency_key_create_one_run() {
     let ids: std::collections::BTreeSet<_> = results.into_iter().map(|result| result.unwrap().run_id).collect();
     assert_eq!(ids.len(), 1, "{ids:?}");
 }
+
+#[tokio::test]
+async fn pausing_everything_holds_every_job_until_resumed() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let admin = client.as_caller();
+    admin
+        .pause_everything(&PauseRequest { note: "database maintenance".into(), until: None, until_resumed: true })
+        .await
+        .unwrap();
+
+    let started = client.start("echo", &Text { text: "held".into() }).send().await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let held = client.run(started.run_id).await.unwrap();
+    assert_eq!(held.queued_because.as_deref(), Some("paused"));
+    assert!(held.reason.contains("database maintenance"), "{}", held.reason);
+
+    admin.resume_everything().await.unwrap();
+    assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "succeeded");
+}

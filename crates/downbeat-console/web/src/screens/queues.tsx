@@ -13,22 +13,38 @@ import { formatDuration, humanize } from "../format";
 import { useLoad } from "../load";
 import { Link } from "../router";
 import { useScheduler } from "../session";
-import type { QueueView } from "../types";
+import type { PauseView, QueueView } from "../types";
 
 export function QueuesScreen() {
   const { api, href, can } = useScheduler();
   const queues = useLoad<QueueView[]>(api("/queues"));
+  const everything = useLoad<PauseView | null>(api("/pause"));
+  const reload = () => {
+    queues.reload();
+    everything.reload();
+  };
 
   return (
     <>
       <PageHeader
         title="Queues"
         actions={
-          <button type="button" className="button" onClick={queues.reload}>
-            Refresh
-          </button>
+          <>
+            {can("administer") &&
+              (everything.data ? (
+                <ResumeButton kind="everything" name="all" onDone={reload} />
+              ) : (
+                <PauseButton kind="everything" name="all" onDone={reload} />
+              ))}
+            <button type="button" className="button" onClick={reload}>
+              Refresh
+            </button>
+          </>
         }
       />
+      {everything.data && (
+        <PauseNote pause={everything.data} what="Every job is" />
+      )}
       {queues.error && (
         <ErrorNote error={queues.error} onRetry={queues.reload} />
       )}

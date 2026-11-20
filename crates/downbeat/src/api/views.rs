@@ -115,7 +115,11 @@ pub(crate) async fn unfinished(
 /// Why a queued run is not running. `paused`, `waiting_turn` and `no_free_worker` are worked out
 /// now; the others were stored by whoever queued it.
 async fn queued_reason(pool: &PgPool, row: &RunRow) -> sqlx::Result<(String, String)> {
-    if let Some(pause) = pause_of(pool, "job", &row.job_name).await?.or(pause_of(pool, "queue", &row.queue).await?) {
+    let pause = match pause_of(pool, "all", "all").await? {
+        Some(everything) => Some(everything),
+        None => pause_of(pool, "job", &row.job_name).await?.or(pause_of(pool, "queue", &row.queue).await?),
+    };
+    if let Some(pause) = pause {
         let until = pause.until.map_or_else(
             || "until resumed".to_owned(),
             |until| format!("until {}", until.format("%Y-%m-%d %H:%M UTC")),
