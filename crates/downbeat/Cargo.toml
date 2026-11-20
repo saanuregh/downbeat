@@ -1,0 +1,42 @@
+[package]
+name = "downbeat"
+description = "Schedule, chain, retry and observe jobs written as typed Rust functions, with Postgres as the only dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords = ["jobs", "scheduler", "cron", "pipeline", "postgres"]
+categories = ["asynchronous", "date-and-time"]
+
+[dependencies]
+downbeat-macros.workspace = true
+downbeat-api.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+clap.workspace = true
+futures.workspace = true
+hex.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde.workspace = true

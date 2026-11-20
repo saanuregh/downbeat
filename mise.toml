@@ -1,0 +1,38 @@
+# Development tools and recurring commands. CI does not use this file: it reads the Rust version
+# from rust-toolchain.toml and pins Bun itself.
+min_version = "2026.11.0"
+
+[tools]
+bun = "1.4.5"
+
+[tasks.check]
+description = "Format check, lint and test everything"
+depends = ["fmt-check", "lint", "test"]
+
+[tasks.fmt]
+description = "Format Rust and the console's screens"
+run = ["cargo fmt --all", "cd crates/downbeat-console/web && bun fmt"]
+
+[tasks.fmt-check]
+description = "Fail if anything is not formatted"
+run = [
+  "cargo fmt --all --check",
+  "cd crates/downbeat-console/web && bun fmt --check",
+]
+
+[tasks.lint]
+description = "Clippy on every crate, warnings as errors"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.test]
+description = "Run every test; database tests use a throwaway Postgres"
+run = "scripts/test.sh"
+
+[tasks.web]
+description = "Build the console's screens"
+dir = "crates/downbeat-console/web"
+run = ["bun install --frozen-lockfile", "bun check", "bun run build"]
+
+[tasks.demo]
+description = "Run the demo product and the console locally"
+run = "scripts/demo.sh"

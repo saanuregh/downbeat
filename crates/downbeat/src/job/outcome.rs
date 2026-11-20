@@ -1,0 +1,93 @@
+//! How a job function ends: `Ok(output)`, `skip(…)`, `not_ready(…)` or an error.
+
+use std::fmt::{Debug, Display};
+
+/// The result a job function returns. `?` works on any error that can be printed.
+pub type Result<T> = std::result::Result<T, JobError>;
+
+/// Why a job function did not return an output.
+///
+/// Built by `?` from any printable error, or by [`skip`] and [`not_ready`].
+#[derive(Debug)]
+pub struct JobError(pub(crate) Stop);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Stop {
+    Skip(String),
+    NotReady(String),
+    Error(String),
+}
+
+impl<E: Display + Debug + Send + Sync + 'static> From<E> for JobError {
+    fn from(error: E) -> Self {
+        // `{:#}` prints the whole chain for error types that support it, such as anyhow's.
+        JobError(Stop::Error(format!("{error:#}")))
+    }
+}
+
+impl JobError {
+    /// An error with this message, for when there is no error value to convert.
+    pub fn msg(message: impl Into<String>) -> Self {
+        JobError(Stop::Error(message.into()))
+    }
+}
+
+/// End the run as skipped: there is nothing to do. Nothing that follows success runs.
+pub fn skip<T>(reason: impl Into<String>) -> Result<T> {
+    Err(JobError(Stop::Skip(reason.into())))
+}
+
+/// Send the run back to the queue: what it needs is not there yet. It is called again after the
+/// job's `recheck_every`, without spending an attempt.
+pub fn not_ready<T>(reason: impl Into<String>) -> Result<T> {
+    Err(JobError(Stop::NotReady(reason.into())))
+}
+
+/// What a call of a job function produced, as seen by a test.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome<T> {
+    Succeeded(T),
+    Skipped(String),
+    NotReady(String),
+    Failed(String),
+}
+
+impl<T> From<Result<T>> for Outcome<T> {
+    fn from(result: Result<T>) -> Self {
+        match result {
+            Ok(output) => Outcome::Succeeded(output),
+            Err(JobError(Stop::Skip(reason))) => Outcome::Skipped(reason),
+            Err(JobError(Stop::NotReady(reason))) => Outcome::NotReady(reason),
+            Err(JobError(Stop::Error(error))) => Outcome::Failed(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct NotStdError;
+    impl Display for NotStdError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("the product's own error")
+        }
+    }
+
+    fn fails() -> Result<()> {
+        Err(NotStdError)?;
+        Ok(())
+    }
+
+    #[test]
+    fn question_mark_works_on_any_printable_error() {
+        assert_eq!(Outcome::from(fails()), Outcome::Failed("the product's own error".into()));
+    }
+
+    #[test]
+    fn skip_and_not_ready_carry_their_reason() {
+        assert_eq!(Outcome::from(skip::<()>("nothing")), Outcome::Skipped("nothing".into()));
+        assert_eq!(Outcome::from(not_ready::<()>("later")), Outcome::NotReady("later".into()));
+    }
+}
