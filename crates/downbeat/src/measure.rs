@@ -34,3 +34,20 @@ pub async fn deliver_callbacks(pool: &PgPool, definition: Definition) -> sqlx::R
         Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
     crate::scheduler::callbacks::deliver(pool, &registry).await
 }
+
+/// Prunes one batch of a job's old chains with `between` awaited between pruning's two steps (taking
+/// the locks, then removing what may still go), so a test can change the data in that window.
+pub async fn prune_old_chains_with_a_pause<F: Future<Output = ()>>(
+    pool: &PgPool,
+    definition: Definition,
+    job: &str,
+    between: impl FnOnce() -> F,
+) -> sqlx::Result<i64> {
+    let registry =
+        Registry::build(definition, None).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))?;
+    let keep_for = registry.job(job).map_or(Duration::from_secs(0), |found| found.spec.policy.keep_runs_for);
+    let mut transaction = pool.begin().await?;
+    let locked = crate::pruning::lock_older_than(&mut transaction, job, keep_for).await?;
+    between().await;
+    crate::pruning::remove_locked(transaction, &locked).await
+}

@@ -67,7 +67,7 @@ fn locking(candidates: &str) -> String {
 /// This runs as a second statement, after the locks are held, so it sees the data afresh: a retry
 /// or a "mark as succeeded" that committed in a chain before its lock was taken is seen here, and
 /// one that comes later waits for the lock and then finds the chain gone.
-async fn remove_locked(mut transaction: Transaction<'_, Postgres>, locked: &[Uuid]) -> sqlx::Result<i64> {
+pub(crate) async fn remove_locked(mut transaction: Transaction<'_, Postgres>, locked: &[Uuid]) -> sqlx::Result<i64> {
     let remove = format!("DELETE FROM downbeat.chain c WHERE c.chain_id = ANY($1) AND {PRUNABLE}");
     let removed = sqlx::query(&remove).bind(locked).execute(&mut *transaction).await?;
     transaction.commit().await?;
@@ -76,19 +76,29 @@ async fn remove_locked(mut transaction: Transaction<'_, Postgres>, locked: &[Uui
 
 /// Removes one batch of a job's chains older than its retention; returns how many went.
 async fn prune_older_than(pool: &PgPool, job: &str, keep_for: Duration) -> sqlx::Result<i64> {
+    let mut transaction = pool.begin().await?;
+    let locked = lock_older_than(&mut transaction, job, keep_for).await?;
+    remove_locked(transaction, &locked).await
+}
+
+/// The first step of [`prune_older_than`]: locks one batch of a job's chains older than its
+/// retention that may go, and returns them.
+pub(crate) async fn lock_older_than(
+    transaction: &mut Transaction<'_, Postgres>,
+    job: &str,
+    keep_for: Duration,
+) -> sqlx::Result<Vec<Uuid>> {
     let candidates = format!(
         "SELECT c.chain_id FROM downbeat.chain c
           WHERE c.first_job = $1 AND c.started_at < now() - $2 AND {PRUNABLE}
           LIMIT $3"
     );
-    let mut transaction = pool.begin().await?;
-    let locked: Vec<Uuid> = sqlx::query_scalar(&locking(&candidates))
+    sqlx::query_scalar(&locking(&candidates))
         .bind(job)
         .bind(interval(keep_for))
         .bind(BATCH)
-        .fetch_all(&mut *transaction)
-        .await?;
-    remove_locked(transaction, &locked).await
+        .fetch_all(&mut **transaction)
+        .await
 }
 
 /// Removes one batch of a job's chains beyond the newest `keep` whose first run did not fail;

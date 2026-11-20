@@ -129,3 +129,61 @@ async fn one_delivery_pass_handles_at_most_twenty_rows() {
     .unwrap();
     assert_eq!((handled, untouched), (20, 5));
 }
+
+#[tokio::test]
+async fn a_change_committed_between_pruning_s_two_steps_keeps_the_chain() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let app = App::start(&database);
+    let mut runs = Vec::new();
+    for n in [1, 2] {
+        let run = client.start(noop, Number { n }).await.unwrap().run_id();
+        finished(&database.pool, run, SOON).await;
+        runs.push(run);
+    }
+    eventually(&database.pool, ALL_DELIVERED, SOON).await;
+    app.stop();
+    sqlx::query("UPDATE downbeat.chain SET started_at = now() - interval '10 years'")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let old: Uuid = sqlx::query_scalar("SELECT chain_id FROM downbeat.run_history WHERE run_id = $1")
+        .bind(runs[0])
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+
+    // Between taking the locks and removing, another connection commits a change that makes the
+    // old chain one that may not go: a delivery its first run still owes.
+    let owe_a_delivery = || {
+        let pool = database.pool.clone();
+        async move {
+            sqlx::query("UPDATE downbeat.run_history SET notify_after = now() WHERE run_id = $1")
+                .bind(runs[0])
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    let removed =
+        downbeat::measure::prune_old_chains_with_a_pause(&database.pool, definition(), "noop", owe_a_delivery)
+            .await
+            .unwrap();
+    assert_eq!(removed, 0, "the second step saw the change and kept the chain");
+    let exists = || async {
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM downbeat.chain WHERE chain_id = $1)")
+            .bind(old)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap()
+    };
+    assert!(exists().await);
+
+    // Without that change the same chain goes, so it was a candidate all along.
+    sqlx::query("UPDATE downbeat.run_history SET notify_after = NULL").execute(&database.pool).await.unwrap();
+    let removed = downbeat::measure::prune_old_chains_with_a_pause(&database.pool, definition(), "noop", || async {})
+        .await
+        .unwrap();
+    assert_eq!(removed, 1);
+    assert!(!exists().await);
+}
