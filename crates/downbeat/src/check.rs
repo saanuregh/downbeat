@@ -24,6 +24,9 @@ pub(crate) fn run(definition: Definition, snapshot: Option<PathBuf>, verify: Opt
     };
     let text = crate::describe::snapshot(&registry);
     print!("{text}");
+    for warning in warnings(&registry) {
+        eprintln!("warning: {warning}");
+    }
     if let Some(path) = snapshot
         && let Err(error) = std::fs::write(&path, &text)
     {
@@ -38,6 +41,22 @@ pub(crate) fn run(definition: Definition, snapshot: Option<PathBuf>, verify: Opt
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Things that are allowed but worth a second look. They do not fail `check`.
+fn warnings(registry: &Registry) -> Vec<String> {
+    registry
+        .jobs
+        .values()
+        .filter(|job| !matches!(job.spec.policy.turn, crate::job::Turn::SameWork))
+        .map(|job| {
+            format!(
+                "{}: it takes turns ({}); a run that returns not_ready keeps its turn while it waits, holding back the job's other runs",
+                job.spec.name,
+                job.spec.policy.describe().into_iter().find(|line| line.starts_with("one ")).unwrap_or_default()
+            )
+        })
+        .collect()
 }
 
 /// Calls one job's function here, in the foreground.
