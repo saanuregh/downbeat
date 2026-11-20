@@ -5,7 +5,7 @@ what starts it and on what conditions. It reads from top to bottom as the flow.
 
 ```rust
 fn market_hours(pipeline: &mut Pipeline) {
-    pipeline.job(fetch_prices).schedule(/* … */);
+    pipeline.job(fetch_prices).schedule(every(30.minutes()).input(|o| TradingDay { date: o.date() }));
     pipeline.job(build_candles).after(fetch_prices).if_changed();
     pipeline.job(export_csv).after(build_candles);
 }
@@ -65,7 +65,10 @@ when all of them have succeeded in the same chain.
 
 ```rust
 #[job]
-async fn day_report(run: Run, (prices, candles): (Prices, Candles)) -> Result<()> { /* … */ }
+async fn day_report(run: Run, (prices, candles): (Prices, Candles)) -> Result<()> {
+    run.progress(format!("{} prices, {} candles", prices.count, candles.rows));
+    Ok(())
+}
 
 pipeline.job(day_report).after((fetch_prices, build_candles));
 pipeline.job(day_digest).after((fetch_prices, build_candles).map(|(p, _)| p.day));

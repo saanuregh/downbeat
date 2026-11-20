@@ -232,3 +232,10 @@ the compiler checks the input. Starting by name stays for callers with no shared
 Measured (`docs/performance.md`): one hourly pass of 500 chains kept up with only about 12,000 runs
 a day. A pass now deletes batches until a job has nothing left to prune, for up to five minutes. An
 index on chains by first job did not make it faster, so none was added.
+
+## 39. The docs' samples are compiled
+
+`tests/guide` is a test package whose build script pulls every Rust sample from the README and
+the user guide and compiles it against a small scaffold of the names the samples assume. Rustdoc
+doctests were not used: their hidden setup lines would show on GitHub. Samples written with "…"
+are syntax templates and are skipped.

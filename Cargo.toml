@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "crates/downbeat-console", "examples/market", "tests/e2e"]
+members = ["crates/downbeat", "crates/downbeat-macros", "crates/downbeat-api", "crates/downbeat-client", "crates/downbeat-console", "examples/market", "tests/e2e", "tests/guide"]
 
 [workspace.package]
 version = "0.1.0"

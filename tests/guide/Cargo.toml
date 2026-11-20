@@ -1,0 +1,22 @@
+[package]
+name = "downbeat-guide-check"
+description = "Compiles every Rust sample in the README and the user guide, so the docs cannot drift from the API."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+downbeat.workspace = true
+downbeat-client.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+syn.workspace = true

@@ -95,6 +95,7 @@ None is required. Values are ordinary Rust expressions. `30.seconds()`, `5.minut
 ```rust
 #[job(queue = "heavy", timeout = 3.hours(), attempts = 3, backoff = 1.minutes()..=10.minutes(),
       max_memory = 8.gb())]
+async fn rebuild_history(run: Run, day: TradingDay) -> Result<()> { Ok(()) }
 ```
 
 | Policy | Meaning | Default |
@@ -142,7 +143,7 @@ pub const NIGHTLY: downbeat::Policy = downbeat::Policy {
     ..downbeat::Policy::DEFAULT
 };
 
-#[job(preset = crate::NIGHTLY, attempts = 2)]
+#[job(preset = NIGHTLY, attempts = 2)]
 async fn rebuild_index(run: Run) -> Result<()> { Ok(()) }
 ```
 

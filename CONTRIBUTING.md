@@ -63,6 +63,9 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 | Authoring | `crates/downbeat/tests/authoring.rs` | The product-facing API compiles and behaves as the guide says. |
 | Check | `crates/downbeat/tests/check.rs` | `check` names each mistake. |
 | End to end | `tests/e2e/tests/` | Behaviour through real processes: a test product (`tests/e2e/src/lib.rs`) as scheduler and workers, the API through `downbeat-client`, the console. |
+| Docs | `tests/guide` | Every Rust sample in the README and the user guide compiles; samples written with "…" are syntax templates and are skipped. A sample may use the names in `tests/guide/src/scaffold.rs`. |
+| Example | `examples/market/tests` | The test kit (`downbeat::testing`) on a real definition: schedules on any date, with no database. |
+| Measurement | `tests/e2e/tests/measure.rs` | Opt-in (`-- --ignored`): the numbers in [docs/performance.md](docs/performance.md). |
 
 Prefer an end-to-end test that drives the public API through a realistic scenario. Each test gets
 its own database (`Database::fresh()`), so tests run in parallel. Add a job to the test product
