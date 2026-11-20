@@ -7,9 +7,9 @@ use downbeat::prelude::*;
 use downbeat::{QueueTimings, Settings};
 use serde::{Deserialize, Serialize};
 
-mod condition_rules;
+pub mod condition_rules;
 mod rules;
-mod scheduling_rules;
+pub mod scheduling_rules;
 pub use rules::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
