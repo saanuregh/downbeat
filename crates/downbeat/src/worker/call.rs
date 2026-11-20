@@ -381,14 +381,24 @@ async fn read_output(
     limits: &Limits,
     lease: &mut Lease,
 ) -> CallOutcome {
-    let text = std::fs::read_to_string(output_file).unwrap_or_default();
-    if text.len() > MAX_VALUE_BYTES {
-        return CallOutcome::Ended(ChildEnding::OutputTooLarge(text.len()));
+    // A program that writes nothing has no output; anything it writes must be JSON, so UTF-8.
+    let size = std::fs::metadata(output_file).map_or(0, |metadata| metadata.len());
+    if size > MAX_VALUE_BYTES as u64 {
+        return CallOutcome::Ended(ChildEnding::OutputTooLarge(usize::try_from(size).unwrap_or(usize::MAX)));
     }
-    let written: Value = if text.trim().is_empty() {
+    let bytes = match std::fs::read(output_file) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            return CallOutcome::Ended(ChildEnding::BadInput(format!(
+                "the program's output could not be read: {error}"
+            )));
+        }
+    };
+    let written: Value = if bytes.trim_ascii().is_empty() {
         Value::Null
     } else {
-        match serde_json::from_str(&text) {
+        match serde_json::from_slice(&bytes) {
             Ok(value) => value,
             Err(error) => {
                 return CallOutcome::Ended(ChildEnding::BadInput(format!("the program's output is not JSON: {error}")));

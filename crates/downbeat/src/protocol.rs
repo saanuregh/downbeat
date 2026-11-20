@@ -28,8 +28,9 @@ pub(crate) struct RunInfo {
 #[serde(tag = "message", rename_all = "snake_case")]
 pub(crate) enum ToChild {
     /// Build the run's input and evaluate its conditions. For a linked run, `parents` holds what
-    /// each parent handed over, in the link's order; otherwise `input` is the stored input.
-    Prepare { run: RunInfo, input: Option<Value>, parents: Option<Vec<Value>> },
+    /// each parent handed over, in the link's order; otherwise `input` is the stored input. A run
+    /// started with `ignore_conditions` asks for no conditions or needs to be evaluated.
+    Prepare { run: RunInfo, input: Option<Value>, parents: Option<Vec<Value>>, ignore_conditions: bool },
     /// Call the function. For a command, answer with the program to start.
     Go { run: RunInfo, input: Value, checkpoint: Option<Value> },
     /// Check what a command's program wrote against the command's output type.

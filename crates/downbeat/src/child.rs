@@ -70,8 +70,8 @@ async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Resu
     let mut current: Option<(Uuid, CancellationToken)> = None;
     while let Some(message) = protocol::read::<_, ToChild>(&mut reader).await? {
         match message {
-            ToChild::Prepare { run, input, parents } => {
-                let result = prepare(&registry, &run, input, parents);
+            ToChild::Prepare { run, input, parents, ignore_conditions } => {
+                let result = prepare(&registry, &run, input, parents, ignore_conditions);
                 outgoing.send(FromChild::Prepared { run_id: run.run_id, result })?;
             }
             ToChild::Go { run, input, checkpoint } => {
@@ -114,6 +114,7 @@ fn prepare(
     run: &RunInfo,
     input: Option<Value>,
     parents: Option<Vec<Value>>,
+    ignore_conditions: bool,
 ) -> Result<Prepared, String> {
     let job = registry.job(&run.job).ok_or_else(|| format!("this build has no job named {}", run.job))?;
     let input = match (parents, &job.link) {
@@ -125,6 +126,9 @@ fn prepare(
     let input = (job.spec.input_ops.normalize)(input, false)?;
     let input_hash = (job.spec.input_ops.hash)(&input)?;
     let turn_value = job.spec.input_ops.turn_value.map(|value_of| value_of(&input)).transpose()?;
+    if ignore_conditions {
+        return Ok(Prepared { input, input_hash, turn_value, failed_condition: None, need_hashes: Vec::new() });
+    }
     let mut failed_condition = None;
     for condition in &job.conditions {
         if !(condition.test)(&input)? {

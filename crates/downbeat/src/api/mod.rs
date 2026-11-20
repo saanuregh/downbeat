@@ -190,6 +190,8 @@ pub(crate) fn router(state: State) -> Router {
         .route("/healthz", get(read::healthz))
         .route("/readyz", get(read::readyz))
         .route("/version", get(read::version))
+        .fallback(|| async { error::Failure::not_found("there is no such endpoint; see the HTTP API reference") })
+        .layer(axum::middleware::from_fn(error::as_json))
         .layer(axum::middleware::from_fn(auth::version_header))
         .with_state(state)
 }

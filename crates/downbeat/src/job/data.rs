@@ -216,12 +216,32 @@ pub fn without_fields(mut value: Value, fields: &[&str]) -> Value {
 ///
 /// Stored values are decoded leniently, so old and new builds can run side by side; values that
 /// arrive in a request are decoded strictly.
+/// Fields are compared at every depth, as dotted paths. A field sent as `null` is not reported:
+/// a type may leave a `None` out when it writes itself.
 pub(crate) fn unknown_fields(sent: &Value, decoded: &Value) -> Vec<String> {
+    let mut unknown = Vec::new();
+    collect_unknown(sent, decoded, "", &mut unknown);
+    unknown
+}
+
+fn collect_unknown(sent: &Value, decoded: &Value, path: &str, unknown: &mut Vec<String>) {
+    let at = |key: &str| if path.is_empty() { key.to_owned() } else { format!("{path}.{key}") };
     match (sent, decoded) {
         (Value::Object(sent), Value::Object(known)) => {
-            sent.keys().filter(|key| !known.contains_key(*key)).cloned().collect()
+            for (key, value) in sent {
+                match known.get(key) {
+                    Some(inner) => collect_unknown(value, inner, &at(key), unknown),
+                    None if value.is_null() => {}
+                    None => unknown.push(at(key)),
+                }
+            }
         }
-        _ => Vec::new(),
+        (Value::Array(sent), Value::Array(known)) => {
+            for (index, (value, inner)) in sent.iter().zip(known).enumerate() {
+                collect_unknown(value, inner, &at(&index.to_string()), unknown);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -266,6 +286,13 @@ mod tests {
             })
         );
         assert_eq!(Shape::named("()").json_schema(), json!({ "title": "()", "type": "null" }));
+    }
+
+    #[test]
+    fn finds_unknown_fields_at_any_depth_but_not_null_ones() {
+        let sent = json!({"day": 1, "note": null, "inner": {"known": 1, "typo": 2}, "list": [{"x": 1, "y": 2}]});
+        let decoded = json!({"day": 1, "inner": {"known": 1}, "list": [{"x": 1}]});
+        assert_eq!(unknown_fields(&sent, &decoded), vec!["inner.typo".to_owned(), "list.0.y".to_owned()]);
     }
 
     #[test]

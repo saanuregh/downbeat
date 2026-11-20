@@ -69,10 +69,12 @@ async fn token(
         return Err((axum::http::StatusCode::BAD_REQUEST, "PKCE verifier does not match".into()));
     }
     let email = provider.next_email.lock().unwrap().clone();
+    // The provider has not checked an address that starts with "unverified".
+    let verified = !email.starts_with("unverified");
     let now = chrono::Utc::now().timestamp();
     let claims = json!({
         "iss": provider.base, "sub": format!("subject-{email}"), "aud": "console", "iat": now, "exp": now + 300,
-        "nonce": nonce, "email": email, "email_verified": true, "name": "Test Person", "groups": ["operators"],
+        "nonce": nonce, "email": email, "email_verified": verified, "name": "Test Person", "groups": ["operators"],
     });
     let header = URL_SAFE_NO_PAD.encode(json!({ "alg": "EdDSA", "kid": "k1", "typ": "JWT" }).to_string());
     let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
@@ -251,6 +253,14 @@ async fn someone_outside_the_allowed_domains_cannot_sign_in() {
     let database = Database::fresh().await;
     let (_app, provider, _console, base) = setup(&database).await;
     *provider.next_email.lock().unwrap() = "mallory@elsewhere.org".into();
+    assert_eq!(sign_in(&base).await, Err(403));
+}
+
+#[tokio::test]
+async fn an_address_the_provider_has_not_verified_cannot_sign_in() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database).await;
+    *provider.next_email.lock().unwrap() = "unverified@example.com".into();
     assert_eq!(sign_in(&base).await, Err(403));
 }
 

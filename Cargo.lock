@@ -841,6 +841,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "downbeat",
+ "downbeat-api",
  "downbeat-client",
  "ed25519-dalek 2.2.0",
  "futures",

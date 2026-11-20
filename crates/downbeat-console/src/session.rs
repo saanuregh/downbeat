@@ -302,16 +302,6 @@ pub(crate) async fn require(Extract(state): Extract<State>, mut request: Request
 
 async fn authenticate(state: &State, headers: &HeaderMap) -> Result<Session, Failure> {
     if state.config.local {
-        // Everyone here is an administrator, so a page elsewhere must not reach it by pointing its
-        // own name at this machine: only this machine's own names are answered.
-        let port = state.config.listen.port();
-        let host = headers.get(header::HOST).and_then(|value| value.to_str().ok()).unwrap_or_default();
-        let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")];
-        if !ours.iter().any(|name| name == host) {
-            return Err(Failure::forbidden(
-                "in --local mode the console answers only to 127.0.0.1, localhost or [::1]",
-            ));
-        }
         let person = store::upsert_person(&state.pool, "local", "local@localhost", "Local", &[]).await?;
         return Ok(Session { person, csrf_token: state.local_csrf.clone() });
     }
@@ -329,6 +319,22 @@ async fn authenticate(state: &State, headers: &HeaderMap) -> Result<Session, Fai
     let (person_id, email, name, groups, csrf_token) =
         found.ok_or_else(|| Failure::unauthorized("the session has ended; sign in again"))?;
     Ok(Session { person: Person { person_id, email, name, groups }, csrf_token })
+}
+
+/// In `--local` mode everyone is an administrator, so a page elsewhere must not reach the console
+/// by pointing its own name at this machine (DNS rebinding): every route answers only to this
+/// machine's own names.
+pub(crate) async fn local_host_only(Extract(state): Extract<State>, request: Request, next: Next) -> Response {
+    if state.config.local {
+        let port = state.config.listen.port();
+        let host = request.headers().get(header::HOST).and_then(|value| value.to_str().ok()).unwrap_or_default();
+        let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")];
+        if !ours.iter().any(|name| name == host) {
+            return Failure::forbidden("in --local mode the console answers only to 127.0.0.1, localhost or [::1]")
+                .into_response();
+        }
+    }
+    next.run(request).await
 }
 
 #[cfg(test)]

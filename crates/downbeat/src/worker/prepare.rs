@@ -30,7 +30,16 @@ pub(crate) async fn prepare(
         _ => None,
     };
     let info = run_info(run);
-    if child.send(&ToChild::Prepare { run: info, input: run.input.clone(), parents }).await.is_err() {
+    if child
+        .send(&ToChild::Prepare {
+            run: info,
+            input: run.input.clone(),
+            parents,
+            ignore_conditions: run.ignore_conditions,
+        })
+        .await
+        .is_err()
+    {
         return Err(Decision::child_failed("the child process stopped while the run was being prepared"));
     }
     // Building the input and testing conditions run app code; they get the job's timeout.
@@ -50,6 +59,7 @@ pub(crate) async fn prepare(
         Interrupted::Crashed { .. } => Decision::End(Ending::failed("crash", "Failed: the process crashed while the run was being prepared.")),
         Interrupted::TimedOut => Decision::End(Ending::failed("timeout", "Failed: preparing the run (building its input and testing its conditions) took longer than the job's timeout.")),
         Interrupted::Stopped(StopReason::CancelRequested(by)) => Decision::End(Ending::new(Status::Cancelled, reasons::cancelled(&by))),
+        Interrupted::Stopped(StopReason::Unreachable) => super::unreachable(context, run),
         Interrupted::Stopped(_) => Decision::Nothing,
         Interrupted::Shutdown => Decision::child_failed("the worker shut down while the run was being prepared"),
     })?;

@@ -68,7 +68,7 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
   `Idempotency-Key` was used before by the same caller and actor for this job. `status` in the
   answer is always `queued`.
 - **Pause.** `note` must not be empty; give a future `until`, or `until_resumed: true`. Pausing
-  again replaces the earlier pause. Resuming something not paused is 409.
+  again replaces the earlier pause. Resuming something not paused, or whose pause has already ended, is 409.
 - **Cancel a run.** 409 when the run has finished. A running run is asked to stop at its next
   heartbeat; the answer says so.
 - **Retry** needs a finished run (409 otherwise, and 409 in a cancelled chain). **Restart** works
@@ -156,7 +156,8 @@ An error from downbeat is JSON `ApiError`:
 | 400 | `bad_request` | A rule about the request is broken: a pause with no note or no end, an override that does not fit its schedule, a bad cursor or filter, a backfill range that ends before it begins. |
 | 401 | `unauthorized` | No token, or one that is malformed, unsigned by a trusted caller's key, for another audience, expired, made for another request, or already used. |
 | 403 | `forbidden` | A valid token that does not cover the request: the scope, the jobs, or a caller acting for someone it may not. |
-| 404 | `not_found` | No such job, pipeline, chain, run, schedule, queue, override or backfill. |
+| 404 | `not_found` | No such job, pipeline, chain, run, schedule, queue, override, backfill or endpoint. |
+| 405 | `method_not_allowed` | The endpoint exists but not with this method. |
 | 409 | `conflict` | The action does not fit the current state, such as retrying an unfinished run. |
 | 413 | `too_large` | The body is over 256 KiB. |
 | 422 | `bad_input` | The input or output does not fit the job's type, or a dry run of a job that does not support it. |
@@ -164,5 +165,5 @@ An error from downbeat is JSON `ApiError`:
 | 503 | `database` | The scheduler could not reach its database. Try again. |
 
 A body that is not valid JSON, or that does not fit the request type, is rejected before it
-reaches downbeat's handlers. That answer is a plain-text message with status 400, 415 or 422, not
-an `ApiError` (from the web framework's JSON extractor; not covered by a test).
+reaches downbeat's handlers, with status 400, 415 or 422. That answer is an `ApiError` too, with
+code `bad_request` (400 and 415) or `bad_input` (422) and the framework's sentence as its message.

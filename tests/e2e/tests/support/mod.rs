@@ -36,6 +36,8 @@ impl Database {
 /// The test product, running as one process with the roles asked for.
 pub struct App {
     process: Child,
+    /// Where its `on_finish` writes a file for each finished run.
+    pub finished_dir: std::path::PathBuf,
 }
 
 impl App {
@@ -45,15 +47,18 @@ impl App {
     }
 
     pub fn with(database: &Database, args: &[&str], environment: &str) -> App {
+        let finished_dir = std::env::temp_dir().join(format!("finished-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&finished_dir).unwrap();
         let process = Command::new(env!("CARGO_BIN_EXE_e2e-app"))
             .args(args)
+            .env(downbeat_e2e::FINISHED_DIR, &finished_dir)
             .env("DOWNBEAT_DATABASE_URL", &database.url)
             .env("DOWNBEAT_ENVIRONMENT", environment)
             .env("RUST_LOG", "warn,downbeat=info")
             .stdin(Stdio::null())
             .spawn()
             .expect("the test app starts");
-        App { process }
+        App { process, finished_dir }
     }
 
     pub fn pid(&self) -> u32 {
@@ -78,6 +83,7 @@ impl Drop for App {
     fn drop(&mut self) {
         let _ = self.process.kill();
         let _ = self.process.wait();
+        let _ = std::fs::remove_dir_all(&self.finished_dir);
     }
 }
 

@@ -333,11 +333,7 @@ fn decide(
             Ending::new(Status::Cancelled, reasons::cancelled(&by)).with_call(Some(verdict.call("cancelled"))),
         ),
         CallOutcome::Stopped(StopReason::Lost) => Decision::Nothing,
-        CallOutcome::Stopped(StopReason::Unreachable) => {
-            tracing::error!(run_id = %run.run_id, "no heartbeat succeeded for a whole lease; the function was stopped");
-            tokio::spawn(report_unreachable(context.pool.clone(), context.id.clone()));
-            Decision::Nothing
-        }
+        CallOutcome::Stopped(StopReason::Unreachable) => unreachable(context, run),
         CallOutcome::Interrupted => Decision::Requeue(Requeue {
             delay: Duration::ZERO,
             because: "no_free_worker",
@@ -417,6 +413,7 @@ impl Verdict<'_> {
 /// lapses and the reaper takes the run back.
 async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
     let held = Held { run_id: run.run_id, fence: run.fence, worker: &context.id };
+    let mut requeued = false;
     for attempt in 1..=3 {
         let result = match &decision {
             Decision::Nothing => return,
@@ -426,12 +423,16 @@ async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
                     .map(|_| None)
             }
             Decision::Requeue(requeue) => {
-                runs::requeue(&context.pool, held, requeue).await.map(|requeued| match requeued {
+                runs::requeue(&context.pool, held, requeue).await.map(|answer| match answer {
                     // Someone asked for a cancel while the function ran: the run ends instead.
                     runs::Requeued::CancelRequested(by) => {
                         Some(Ending::new(Status::Cancelled, reasons::cancelled(&by)).with_call(requeue.call.clone()))
                     }
-                    runs::Requeued::Queued | runs::Requeued::Lost => None,
+                    runs::Requeued::Queued => {
+                        requeued = true;
+                        None
+                    }
+                    runs::Requeued::Lost => None,
                 })
             }
         };
@@ -447,7 +448,8 @@ async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
             }
         }
     }
-    if let Decision::Requeue(Requeue { interrupted: true, .. }) = decision
+    if requeued
+        && let Decision::Requeue(Requeue { interrupted: true, .. }) = decision
         && run.interruptions + 1 >= 3
         && let Ok(mut connection) = context.pool.acquire().await
     {
@@ -458,6 +460,14 @@ async fn record(context: &WorkerContext, run: &RunRow, mut decision: Decision) {
         };
         let _ = audit::event(&mut connection, &event, Some(&run.job_name), Some(run.run_id), None).await;
     }
+}
+
+/// The run was stopped because no heartbeat succeeded for a whole lease. Nothing can be written
+/// now; the reaper takes the run back, and `on_event` hears of it once the database is back.
+fn unreachable(context: &WorkerContext, run: &RunRow) -> Decision {
+    tracing::error!(run_id = %run.run_id, "no heartbeat succeeded for a whole lease; the run was stopped");
+    tokio::spawn(report_unreachable(context.pool.clone(), context.id.clone()));
+    Decision::Nothing
 }
 
 /// Tells `on_event` that this worker lost its database for a whole lease, once it can reach the

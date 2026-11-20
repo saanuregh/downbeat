@@ -1,0 +1,185 @@
+//! The control API's rules for single requests: a token is good once, every error is JSON, inputs
+//! are checked strictly and for size, previews tell the truth, and "mark as succeeded" keeps the
+//! run's own choices.
+
+mod support;
+
+use downbeat_client::types::{ApiError, MarkSucceededRequest, Preview, StartRequest, StartResponse};
+use downbeat_client::{Error, development_key};
+use downbeat_e2e::*;
+use serde_json::{Value, json};
+use support::{Database, SOON, finished, finished_job, with_api, with_api_at};
+
+/// Sends one request signed as the `--local` caller, without the client's retries.
+async fn signed(base: &str, method: &str, path: &str, body: &[u8], token: Option<String>) -> reqwest::Response {
+    let token = token.unwrap_or_else(|| token_for(method, path, body));
+    let method = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
+    reqwest::Client::new()
+        .request(method, format!("{base}{path}"))
+        .bearer_auth(token)
+        .header("content-type", "application/json")
+        .body(body.to_vec())
+        .send()
+        .await
+        .unwrap()
+}
+
+fn token_for(method: &str, path: &str, body: &[u8]) -> String {
+    let binding = downbeat_api::RequestBinding { method, path_and_query: path, body };
+    let now = chrono::Utc::now().timestamp();
+    let claims = downbeat_api::Claims::for_request(
+        "local",
+        "local",
+        downbeat_api::DEVELOPMENT_AUDIENCE,
+        downbeat_api::Scope::Administer,
+        None,
+        binding,
+        now,
+    );
+    downbeat_api::sign(&development_key(), &claims)
+}
+
+async fn json_error(response: reqwest::Response) -> (u16, ApiError) {
+    let status = response.status().as_u16();
+    let content_type = response.headers()["content-type"].to_str().unwrap().to_owned();
+    assert!(content_type.starts_with("application/json"), "{status} answered {content_type}");
+    (status, response.json().await.unwrap())
+}
+
+#[tokio::test]
+async fn a_token_for_a_change_is_good_once() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    let base = format!("http://{listen}");
+    let path = "/v1/jobs/echo/runs";
+    let body = serde_json::to_vec(&json!({ "input": { "text": "once" } })).unwrap();
+    let token = token_for("POST", path, &body);
+
+    let first = signed(&base, "POST", path, &body, Some(token.clone())).await;
+    assert_eq!(first.status(), 201);
+    let (status, replayed) = json_error(signed(&base, "POST", path, &body, Some(token)).await).await;
+    assert_eq!(status, 401, "{replayed:?}");
+}
+
+#[tokio::test]
+async fn every_error_is_json() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    let base = format!("http://{listen}");
+
+    let (status, unknown) = json_error(signed(&base, "GET", "/v1/nothing-here", b"", None).await).await;
+    assert_eq!((status, unknown.error.as_str()), (404, "not_found"));
+
+    let (status, wrong_method) = json_error(signed(&base, "DELETE", "/v1/jobs", b"", None).await).await;
+    assert_eq!((status, wrong_method.error.as_str()), (405, "method_not_allowed"));
+
+    let (status, not_json) = json_error(signed(&base, "POST", "/v1/jobs/echo/runs", b"{not json", None).await).await;
+    assert!(status == 400 || status == 422, "{status} {not_json:?}");
+    assert!(!not_json.message.is_empty());
+}
+
+#[tokio::test]
+async fn inputs_are_checked_strictly_and_for_size() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+
+    // A field sent as null is not an unknown field.
+    let with_null = client.start("echo", &json!({ "text": "x", "note": null })).send().await.unwrap();
+    assert_eq!(finished(&database.pool, with_null.run_id, SOON).await.status, "succeeded");
+
+    // An unknown field inside a nested value is found and named.
+    let nested = json!([{ "text": "a" }, { "text": "b", "typo": 1 }]);
+    let refused = client.start("both", &nested).send().await.unwrap_err();
+    match refused {
+        Error::Api { status: 422, message, .. } => assert!(message.contains("1.typo"), "{message}"),
+        other => panic!("expected 422, got {other}"),
+    }
+
+    let huge = Text { text: "x".repeat(70 * 1024) };
+    let too_large = client.start("echo", &huge).send().await.unwrap_err();
+    assert!(matches!(too_large, Error::Api { status: 422, .. }), "{too_large}");
+}
+
+#[tokio::test]
+async fn a_preview_lists_the_conditions_a_start_would_ignore() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let admin = client.as_caller();
+    let request = StartRequest { input: json!({ "n": -1 }), ignore_conditions: true, ..StartRequest::default() };
+
+    let preview: Preview = admin.post("/v1/jobs/guarded/runs?preview=true", Some(&request), None).await.unwrap();
+    assert_eq!(preview.false_conditions, vec!["only if 'positive'".to_owned()]);
+
+    let started: StartResponse = admin.post("/v1/jobs/guarded/runs", Some(&request), None).await.unwrap();
+    assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "succeeded");
+}
+
+#[tokio::test]
+async fn resuming_a_pause_that_has_ended_is_a_conflict() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    sqlx::query(
+        "INSERT INTO downbeat.pause (kind, name, until, paused_by, note)
+         VALUES ('job', 'echo', now() - interval '1 minute', 'someone', 'over')",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    let refused = client.as_caller().resume("job", "echo").await.unwrap_err();
+    assert!(matches!(refused, Error::Api { status: 409, .. }), "{refused}");
+}
+
+#[tokio::test]
+async fn marking_as_succeeded_starts_children_unless_the_run_was_started_without_them() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let admin = client.as_caller();
+    let mark = MarkSucceededRequest { output: Value::Null, note: "fixed by hand".into() };
+
+    let alone = StartRequest { without_children: true, ..StartRequest::default() };
+    let alone: StartResponse = admin.post("/v1/jobs/panics/runs", Some(&alone), None).await.unwrap();
+    assert_eq!(finished(&database.pool, alone.run_id, SOON).await.status, "failed");
+    admin.mark_succeeded(alone.run_id, &mark).await.unwrap();
+
+    let linked = client.start("panics", &()).even_if_queued().send().await.unwrap();
+    assert_eq!(finished(&database.pool, linked.run_id, SOON).await.status, "failed");
+    admin.mark_succeeded(linked.run_id, &mark).await.unwrap();
+
+    let child = finished_job(&database.pool, "after_panics", SOON).await;
+    let parents: Vec<uuid::Uuid> =
+        sqlx::query_scalar("SELECT unnest(parents) FROM downbeat.run_history WHERE run_id = $1")
+            .bind(child.run_id)
+            .fetch_all(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(parents, vec![linked.run_id]);
+    let children: i64 = sqlx::query_scalar("SELECT count(*) FROM downbeat.run_history WHERE job_name = 'after_panics'")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(children, 1, "only the run started with children gets one");
+}
+
+#[tokio::test]
+async fn on_finish_hears_of_every_finished_run() {
+    let database = Database::fresh().await;
+    let (app, client) = with_api(&database).await;
+    let succeeded = client.start("echo", &Text { text: "told".into() }).send().await.unwrap();
+    let failed = client.start("panics", &()).send().await.unwrap();
+    for (run, status) in [(succeeded.run_id, "succeeded"), (failed.run_id, "failed")] {
+        finished(&database.pool, run, SOON).await;
+        let file = app.finished_dir.join(run.to_string());
+        let deadline = tokio::time::Instant::now() + SOON;
+        while !file.exists() {
+            assert!(tokio::time::Instant::now() < deadline, "on_finish was not called for {run}");
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        assert_eq!(std::fs::read_to_string(file).unwrap(), status);
+    }
+    support::eventually(
+        &database.pool,
+        "SELECT NOT EXISTS (SELECT 1 FROM downbeat.run_history WHERE notify_after IS NOT NULL)",
+        SOON,
+    )
+    .await;
+}

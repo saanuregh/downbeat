@@ -154,6 +154,7 @@ fn router(state: State) -> Router {
         .layer(SetResponseHeaderLayer::overriding(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")))
         .layer(SetResponseHeaderLayer::overriding(header::REFERRER_POLICY, HeaderValue::from_static("same-origin")))
         .layer(tower_http::compression::CompressionLayer::new())
+        .layer(axum::middleware::from_fn_with_state(Arc::clone(&state), session::local_host_only))
         .with_state(state)
 }
 

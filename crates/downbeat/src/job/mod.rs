@@ -150,6 +150,11 @@ impl JobSpec {
 pub(crate) fn normalize<T: JobData>(value: Value, strict: bool) -> std::result::Result<Value, String> {
     let typed: T = decode(value.clone())?;
     let encoded = serde_json::to_value(&typed).map_err(|error| error.to_string())?;
+    // Every value the engine stores (input or output) is held to the same limit.
+    let size = encoded.to_string().len();
+    if size > MAX_VALUE_BYTES {
+        return Err(format!("the value is {size} bytes; the limit is {MAX_VALUE_BYTES}"));
+    }
     if strict {
         let unknown = unknown_fields(&value, &encoded);
         if !unknown.is_empty() {

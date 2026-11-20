@@ -108,11 +108,18 @@ impl Config {
             std::fs::read_to_string(path).map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?;
         let file: File = toml::from_str(&text).map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
         anyhow::ensure!(!file.schedulers.is_empty(), "list at least one [[scheduler]]");
-        let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
-            .iter()
-            .any(|start| file.public_url.starts_with(start));
+        let public_url = reqwest::Url::parse(&file.public_url)
+            .map_err(|error| anyhow::anyhow!("public_url {}: {error}", file.public_url))?;
+        let loopback = public_url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        });
         anyhow::ensure!(
-            file.public_url.starts_with("https://") || loopback,
+            public_url.scheme() == "https" || (public_url.scheme() == "http" && loopback),
             "public_url must be https: the session cookie is only sent over an encrypted connection"
         );
         anyhow::ensure!(

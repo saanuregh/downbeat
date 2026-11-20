@@ -90,6 +90,12 @@ pub async fn panics(_run: Run) -> Result<()> {
     panic!("this job panics on purpose");
 }
 
+/// Follows `panics` when it succeeds, which only "mark as succeeded" can make it do.
+#[job]
+pub async fn after_panics(_run: Run) -> Result<()> {
+    Ok(())
+}
+
 #[job]
 pub async fn on_failure(_run: Run, failure: Failure) -> Result<Text> {
     Ok(Text { text: format!("{} failed: {}", failure.job, failure.kind) })
@@ -222,6 +228,7 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(flaky);
     pipeline.job(panics);
     pipeline.job(on_failure).after_failure(panics);
+    pipeline.job(after_panics).after(panics);
     pipeline.job(aborts);
     pipeline.job(sleeps);
     pipeline.job(counts);
@@ -242,6 +249,9 @@ fn clock(pipeline: &mut Pipeline) {
     );
 }
 
+/// The environment variable naming the directory `on_finish` writes to.
+pub const FINISHED_DIR: &str = "E2E_FINISHED_DIR";
+
 /// The test product's definition, with short timings so tests run quickly.
 pub fn definition() -> Definition {
     let mut definition = Definition::new().zone("UTC").environments(["test", "schedules"]).settings(Settings {
@@ -257,6 +267,13 @@ pub fn definition() -> Definition {
             QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) },
         )]
         .into(),
+    });
+    // Each finished run is written to a file named by its id in this directory, when it is set.
+    definition.on_finish(|finished: downbeat::FinishedRun| async move {
+        match std::env::var_os(FINISHED_DIR) {
+            Some(dir) => std::fs::write(std::path::Path::new(&dir).join(finished.run_id.to_string()), finished.status),
+            None => Ok(()),
+        }
     });
     definition.pipeline("basics", basics);
     definition.pipeline("failures", failures);

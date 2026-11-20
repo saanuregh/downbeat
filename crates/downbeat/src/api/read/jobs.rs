@@ -118,22 +118,30 @@ pub(crate) async fn pipeline(
             .bind(&name)
             .fetch_all(&state.pool)
             .await?;
+    // Every chain's latest status per job, in one query; only the jobs the token covers.
+    let chain_ids: Vec<Uuid> = chains.iter().map(|chain| chain.chain_id).collect();
+    let statuses: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT DISTINCT ON (chain_id, job_name) chain_id, job_name, status FROM (
+            SELECT chain_id, job_name, state AS status, created_at AS at FROM downbeat.run WHERE chain_id = ANY($1)
+            UNION ALL
+            SELECT chain_id, job_name, status, finished_at FROM downbeat.run_history
+             WHERE chain_id = ANY($1) AND joined_run IS NULL) runs
+         ORDER BY chain_id, job_name, at DESC",
+    )
+    .bind(&chain_ids)
+    .fetch_all(&state.pool)
+    .await?;
     for ChainRow { chain_id, first_job, started_at, cancelled_at, .. } in chains {
-        let statuses: Vec<(String, String)> = sqlx::query_as(
-            "SELECT DISTINCT ON (job_name) job_name, status FROM (
-                SELECT job_name, state AS status, created_at AS at FROM downbeat.run WHERE chain_id = $1
-                UNION ALL
-                SELECT job_name, status, finished_at FROM downbeat.run_history WHERE chain_id = $1 AND joined_run IS NULL) runs
-             ORDER BY job_name, at DESC",
-        )
-        .bind(chain_id)
-        .fetch_all(&state.pool)
-        .await?;
+        let statuses = statuses
+            .iter()
+            .filter(|(id, job, _)| *id == chain_id && caller.covers(job))
+            .map(|(_, job, status)| (job.clone(), status.clone()))
+            .collect();
         view.recent_chains.push(ChainSummary {
             chain_id,
             first_job,
             started_at,
-            statuses: statuses.into_iter().collect(),
+            statuses,
             cancelled: cancelled_at.is_some(),
         });
     }

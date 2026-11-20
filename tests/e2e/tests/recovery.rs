@@ -102,3 +102,45 @@ async fn children_are_the_first_to_go_when_memory_runs_out_and_die_with_their_wo
         children.iter().filter(|child| std::path::Path::new(&format!("/proc/{child}")).exists()).collect();
     assert!(alive.is_empty(), "children outlived their worker: {alive:?}");
 }
+
+#[tokio::test]
+async fn a_worker_that_lost_its_fence_stops_and_writes_nothing_more() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+
+    let run = client.start(counts, Seconds { seconds: 12 }).await.unwrap();
+    let id = run.run_id();
+    let checkpointed =
+        format!("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{id}' AND checkpoint IS NOT NULL)");
+    eventually(&database.pool, &checkpointed, Duration::from_secs(20)).await;
+
+    // As if the reaper had given the run to someone else.
+    sqlx::query("UPDATE downbeat.run SET fence = fence + 1 WHERE run_id = $1")
+        .bind(id)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let checkpoint_of = || async {
+        sqlx::query_scalar::<_, Option<serde_json::Value>>("SELECT checkpoint FROM downbeat.run WHERE run_id = $1")
+            .bind(id)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap()
+    };
+    let after_stop = checkpoint_of().await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(checkpoint_of().await, after_stop, "the old holder kept writing");
+    let ended: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE run_id = $1)")
+        .bind(id)
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert!(!ended, "the old holder ended the run");
+
+    // The lease lapses, the reaper takes the run back, and it continues from its checkpoint.
+    let done = finished(&database.pool, id, Duration::from_secs(60)).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+    assert_eq!(done.lost_count, 1);
+}

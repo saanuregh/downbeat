@@ -253,3 +253,39 @@ the process and never reach the next run.
 its login form, and checks that the console signs the person in and forwards a request for them.
 CI does not run it (Dex ships no release binary to download); `scripts/test.sh` runs it whenever
 `dex` is on `PATH`.
+
+## 42. The specification was checked rule by rule against the code
+
+An audit read every rule in `docs/spec.md` beside the code. Where the code was wrong it was fixed
+and, for the serious rules, tested: "mark as succeeded" now respects `without_children`; inputs
+and outputs set by hand are held to 64 KiB; strict decoding finds unknown fields at any depth
+(a field sent as `null` is not unknown, because a type may leave a `None` out when it writes
+itself); a run started with `ignore_conditions` calls none of its condition code; every API error,
+including the framework's own, is JSON; a pipeline's recent chains show only covered jobs; an
+output file that is not UTF-8 is `bad_input`; resuming an ended pause is 409; `RunInterrupted`
+is recorded only once the requeue is written; each backfill gets its own savepoint;
+`keep_runs_at_most` counts chains, not rows; pruning takes the chain lock. Where the code was
+right and the wording was not, the specification was corrected.
+
+## 43. A start preview evaluates conditions in the scheduler
+
+A preview of a start with `ignore_conditions` lists the conditions that are false now. That means
+calling the job's `only_if` tests and `done_for` closures, which are product code, in the
+scheduler process instead of a child. Starting a child per preview would cost a process for a
+read, and the tests are meant to be cheap and pure. Each call is guarded, so a panic counts as
+false and costs only that call. This is the one exception to "job code never runs in the worker
+or scheduler process" (spec 10.1).
+
+## 44. Pruning takes the chain lock without waiting
+
+The end routine creates a chain's children under the chain's advisory lock. Pruning now takes the
+same lock with `pg_try_advisory_xact_lock` in its selection, so it never removes a chain while a
+run in it is ending, and never waits behind one: a chain that is busy is passed over until the
+next pass.
+
+## 45. In `--local` mode the console checks the Host header on every route
+
+The stand-in person administers everything, so a page elsewhere must not reach the console by
+pointing its own name at this machine (DNS rebinding). The check used to sit in the session
+layer, which left the sign-in routes and the screens' files unchecked; it is now a middleware on
+the whole router.

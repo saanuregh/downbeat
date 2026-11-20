@@ -39,7 +39,8 @@ Modules: `job/`, `definition.rs`, `registry.rs`, `check.rs`, `downbeat-macros`.
    object keys sorted, keys whose value is `null` left out. Two inputs are *equal* when their
    hashes are equal.
 8. Input from a request (API, `run.start`, `InAppClient`, `run-once`) must be decoded strictly:
-   a field the type does not know is refused. A stored value must be decoded leniently.
+   a field the type does not know, at any depth, is refused; a field sent as `null` is not
+   refused. A stored value must be decoded leniently.
 
 ## 2. Runs and statuses
 
@@ -107,7 +108,9 @@ Modules: `worker/mod.rs`, `worker/prepare.rs`, `worker/call.rs`, `store/runs.rs`
 
 6. Every write by the worker that holds a run must carry the run's id, its fence, the worker's
    id and `state = 'running'`. A write that changes no row means the worker no longer holds the
-   run, and the worker must record nothing more for it.
+   run, and the worker must record nothing more for it. The ending is the one exception: it
+   matches on id and fence only (see the ending routine), because every change of hands raises
+   the fence.
 7. A requeue must not happen when a cancel was requested: the run must end as `cancelled`
    instead.
 8. When writing its decision fails, a worker must try twice more, a second apart, then leave the
@@ -128,7 +131,8 @@ Modules: `job/policy.rs`, `worker/mod.rs`, `reaper.rs`.
 4. A wait (`not_ready`, a command's exit 75, an unmet need with `.or_wait()`) must go back to the
    queue after `recheck_every`, with nothing counted.
 5. A queued run whose `created_at` is more than its job's `give_up_after` ago must end as `failed`
-   (`gave_up`), whatever it is waiting for, with a reason that ends with its last queued reason.
+   (`gave_up`), whatever it is waiting for, with a reason that ends with its last stored queued
+   reason, if it has one.
 6. "Check now" must make a queued run due at once only when its stored `queued_because` is
    `not_ready`, `need_not_met` or `backing_off`.
 
@@ -182,15 +186,17 @@ Modules: `worker/prepare.rs`, `child.rs` (`prepare`), `store/history.rs`, `pipel
 
 1. Conditions must be evaluated only while the run has not begun (`starts = 0`), and must be
    skipped entirely when the run was started with `ignore_conditions`.
-2. Order: `only_if` conditions in the order written; then needs in the order written; then
+2. With `ignore_conditions`, the child must not call any `only_if` test or `done_for` closure, so
+   one that fails cannot fail the run.
+3. Order: `only_if` conditions in the order written; then needs in the order written; then
    `if_changed`. The first that stops the run decides.
-3. A false `only_if` must end the run as `skipped` (`condition_false`), naming the condition.
-4. A `done_for` need is met when the needed job has any `succeeded` history row whose input hash
+4. A false `only_if` must end the run as `skipped` (`condition_false`), naming the condition.
+5. A `done_for` need is met when the needed job has any `succeeded` history row whose input hash
    equals the hash of the input the need's closure returns. A `done_within(d)` need is met when the
    needed job has a `succeeded` row that finished less than `d` ago.
-5. An unmet need must: skip the run (`need_not_met`) by default; with `.or_wait()`, requeue it as
+6. An unmet need must: skip the run (`need_not_met`) by default; with `.or_wait()`, requeue it as
    `need_not_met` after `recheck_every`; with `.or_fail()`, fail it (`need_not_met`).
-6. `if_changed` applies only to runs started by `schedule` or `link`. It must skip the run
+7. `if_changed` applies only to runs started by `schedule` or `link`. It must skip the run
    (`input_unchanged`) when the job's latest `succeeded` row has the same input hash. With
    `one_per`, only succeeded rows with the same turn key count.
 
@@ -349,7 +355,8 @@ Modules: `worker/lease.rs`, `reaper.rs`, `definition.rs` (`Settings`).
 6. The reaper must also end: queued runs with a cancel requested (`cancelled`); queued runs with
    `starts = 0` past `expires_at` (`expired`); queued runs past `give_up_after` (`gave_up`); and
    queued runs created more than an hour ago whose job is in the build of no worker seen in the
-   last hour, when at least one worker row exists (`job_not_registered`). It must delete expired
+   last hour, when at least one row of a process in the worker role exists
+   (`job_not_registered`). It must delete expired
    used-token records.
 7. A run whose function has been called at least once must never be expired.
 
@@ -359,6 +366,9 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 
 1. Job code must never run in the worker process. Functions, `only_if` tests, link adapters and
    command functions run in a child: the product's own binary started with `DOWNBEAT_CHILD_FD`.
+   The one exception is the preview of a start with `ignore_conditions` (14.17), which evaluates
+   the job's `only_if` tests and `done_for` closures in the scheduler process to list the false
+   ones; each call there is guarded, so a panic counts as false and costs only that call.
 2. Every process the worker starts must be started from one dedicated thread, in a new process
    group, with a parent-death signal of SIGKILL and `oom_score_adj` 1000. It must exit at once if
    the worker died before the signal was set.
@@ -381,7 +391,8 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
    `kill_grace`.
 8. A command's exit status 0 means success: an empty output file is `null`, a JSON object with a
    string `skip` ends the run as skipped, a file over 64 KiB fails as `output_too_large`, and a
-   file that is not JSON or does not fit the output type fails as `bad_input`. Status 75 means not
+   file that is not JSON (including one that is not UTF-8) or does not fit the output type fails as
+   `bad_input`. Status 75 means not
    ready. Any other ending fails as `exit_code` or `signal`, with the last 16 KiB of standard error
    stored after the definition's `redact` hook.
 
@@ -428,9 +439,11 @@ Modules: `pruning.rs`.
    the policy of the chain's first job:
    - chains started more than `keep_runs_for` ago;
    - with `keep_runs_at_most = n`, chains beyond the newest `n` whose first run did not fail and
-     did not join.
+     did not join. Each chain counts once, by its first run of that job, and a chain that may not
+     be pruned (rule 3) still counts toward the `n`.
 3. A chain must not be pruned while it has an unfinished run, a history row waiting for its
-   callback, or a row that is its job's latest success.
+   callback, or a row that is its job's latest success. Pruning must take the chain's lock without
+   waiting and pass over a chain whose lock is held.
 4. Also removed: `joined` rows after two days; idempotency keys after seven days; overrides 30
    days after their date; delivered audit rows after a year; pauses that have ended; worker rows
    not seen for a day.
@@ -460,7 +473,7 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
 7. `htm` must equal the request method (case-insensitive), `htu` the path and query as received
    (including `/v1`), and `body_sha256` the base64url SHA-256 of the body, absent for an empty
    body.
-8. Failing any of 3–7 must answer 401.
+8. Failing any of 3–7 must answer 401, except a body over 256 KiB, which is 413.
 9. `sub` must equal `iss` unless the caller has `acts_for_people`; the token's `scope` must not
    exceed the caller's `max_scope`; for a caller limited to `jobs`, the token must name jobs, all
    within that list. Failing these must answer 403.
@@ -468,8 +481,10 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     in memory per scheduler process; beyond that, 429.
 11. For a method other than GET, the token's `(iss, jti)` must be recorded until `exp + 6 s`. A
     token already recorded must be answered 401.
-12. Every refused request must be logged. A `RequestRefused` event, carrying the count since the
-    last one, is recorded at most once a minute per caller and status.
+12. Every request the authentication layer refuses (rules 3–11) must be logged. A
+    `RequestRefused` event, carrying the count since the last one, is recorded at most once a
+    minute per caller and status. Refusals by an endpoint (403 for scope, 404, 409, 422) are
+    answers, not attacks, and are not counted.
 
 **Authorization.**
 
@@ -495,8 +510,9 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
 18. Every real change must write an audit row naming the actor, as `<actor> (via <caller>)` when
     they differ.
 19. A pause must have a non-empty note and either a future `until` or `until_resumed = true`.
-    A resume of something not paused is 409.
-20. Errors must be JSON `{ "error": "<code>", "message": "<sentence>" }`. Every response must carry
+    A resume of something not paused, or whose pause has already ended, is 409.
+20. Errors must be JSON `{ "error": "<code>", "message": "<sentence>" }`, including an unknown
+    path, a wrong method and a body that does not parse. Every response must carry
     the `downbeat-api-version` header.
 
 ## 15. The console's access model

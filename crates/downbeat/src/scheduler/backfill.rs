@@ -58,18 +58,26 @@ pub(crate) async fn drive(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
                 continue;
             }
         }
-        let next = start_next_date(&mut transaction, registry, &backfill).await;
+        // A savepoint per backfill: one that fails part way leaves nothing behind, and the others
+        // still go ahead in this transaction.
+        let mut savepoint = sqlx::Acquire::begin(&mut transaction).await?;
+        let next = start_next_date(&mut savepoint, registry, &backfill).await;
         match next {
             Ok(Some((chain, date))) => {
                 sqlx::query("UPDATE downbeat.backfill SET current_chain = $2, next_date = $3 WHERE backfill_id = $1")
                     .bind(backfill.backfill_id)
                     .bind(chain)
                     .bind(date.succ_opt().unwrap_or(date))
-                    .execute(&mut *transaction)
+                    .execute(&mut *savepoint)
                     .await?;
+                savepoint.commit().await?;
             }
-            Ok(None) => finish(&mut transaction, backfill.backfill_id, "done", "Every date has run.").await?,
+            Ok(None) => {
+                savepoint.commit().await?;
+                finish(&mut transaction, backfill.backfill_id, "done", "Every date has run.").await?;
+            }
             Err(error) => {
+                savepoint.rollback().await?;
                 finish(&mut transaction, backfill.backfill_id, "failed", &format!("Stopped: {error}.")).await?;
             }
         }

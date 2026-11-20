@@ -117,11 +117,13 @@ async fn resume(state: &State, caller: &Caller, kind: &str, name: &str, preview_
     }
     let by = caller.audit_name();
     let mut transaction = state.pool.begin().await?;
-    let removed = sqlx::query("DELETE FROM downbeat.pause WHERE kind = $1 AND name = $2")
-        .bind(kind)
-        .bind(name)
-        .execute(&mut *transaction)
-        .await?;
+    // A pause whose end time has passed no longer holds anything, so it cannot be resumed.
+    let removed =
+        sqlx::query("DELETE FROM downbeat.pause WHERE kind = $1 AND name = $2 AND (until IS NULL OR until > now())")
+            .bind(kind)
+            .bind(name)
+            .execute(&mut *transaction)
+            .await?;
     if removed.rows_affected() == 0 {
         return Err(Failure::conflict(format!("{kind} {name} is not paused")));
     }

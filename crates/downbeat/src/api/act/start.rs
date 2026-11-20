@@ -120,7 +120,8 @@ async fn preview_start(
     preview(effects, false_conditions)
 }
 
-/// The conditions of a job that are false right now, for a start that would ignore them.
+/// The conditions of a job that are false right now, for a start that would ignore them. These
+/// call the product's code, so each call is guarded: a panic marks that condition as false.
 async fn false_conditions(
     state: &State,
     found: &RegisteredJob,
@@ -129,16 +130,19 @@ async fn false_conditions(
 ) -> Result<Vec<String>, Failure> {
     let mut false_now = Vec::new();
     for condition in &found.conditions {
-        if !(condition.test)(input).unwrap_or(false) {
+        let what = format!("the condition '{}' of {}", condition.name, found.spec.name);
+        if !crate::guard::guarded(&what, || (condition.test)(input)).unwrap_or(false) {
             false_now.push(format!("only if '{}'", condition.name));
         }
     }
     for need in &found.needs {
         let met = match &need.test {
-            crate::pipeline::NeedTest::DoneFor(hash_of) => match hash_of(input) {
-                Ok(hash) => history::succeeded_for(&state.pool, need.job, &hash).await?,
-                Err(_) => false,
-            },
+            crate::pipeline::NeedTest::DoneFor(hash_of) => {
+                match crate::guard::guarded(&format!("the input a need on {} looks for", need.job), || hash_of(input)) {
+                    Ok(hash) => history::succeeded_for(&state.pool, need.job, &hash).await?,
+                    Err(_) => false,
+                }
+            }
             crate::pipeline::NeedTest::DoneWithin(within) => {
                 history::succeeded_within(&state.pool, need.job, *within).await?
             }

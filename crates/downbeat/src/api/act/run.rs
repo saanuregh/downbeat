@@ -225,7 +225,9 @@ pub(crate) async fn mark_succeeded(
     .fetch_optional(&mut *transaction)
     .await?;
     let updated = updated.ok_or_else(|| Failure::conflict("the run is no longer failed"))?;
-    ending::create_children(&mut transaction, &state.registry, &updated).await?;
+    if !updated.without_children {
+        ending::create_children(&mut transaction, &state.registry, &updated).await?;
+    }
     audit::record(
         &mut transaction,
         &by,

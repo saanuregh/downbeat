@@ -93,6 +93,7 @@ pub(crate) struct HistoryRow {
     pub(crate) input_hash: Option<String>,
     pub(crate) turn_key: Option<String>,
     pub(crate) dry_run: bool,
+    pub(crate) without_children: bool,
     pub(crate) starts: i32,
     pub(crate) failures: i16,
     pub(crate) lost_count: i16,

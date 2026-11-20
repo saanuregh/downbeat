@@ -162,3 +162,28 @@ pub(crate) async fn start(pool: &PgPool, registry: &Registry, request: StartJob)
     };
     Ok(StartResult { started, repeated: false })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::turn_key;
+    use crate::job::{Policy, Turn};
+
+    #[test]
+    fn turn_keys_of_different_kinds_never_overlap() {
+        let policy = |turn| Policy { turn, ..Policy::DEFAULT };
+        let hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+        let keys = [
+            turn_key("job", &policy(Turn::SameWork), hash, None),
+            turn_key("job", &policy(Turn::SameWork), "", None),
+            turn_key("job", &policy(Turn::OneAtATime), hash, None),
+            turn_key("job", &policy(Turn::OnePer("account")), hash, Some("*")),
+            turn_key("job", &policy(Turn::OnePer("account")), hash, Some(hash)),
+            turn_key("job", &policy(Turn::OnePer("account")), hash, Some("")),
+            turn_key("job", &policy(Turn::OnePer("other")), hash, Some(hash)),
+        ];
+        let distinct: std::collections::BTreeSet<_> = keys.iter().collect();
+        assert_eq!(distinct.len(), keys.len(), "{keys:#?}");
+        // Every run of a job shares its turn key's prefix, and no other job's.
+        assert!(keys.iter().all(|key| key.starts_with("job:")));
+    }
+}
