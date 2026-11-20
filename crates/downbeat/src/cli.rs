@@ -136,7 +136,7 @@ pub(crate) fn run(args: Vec<OsString>, definition: fn() -> Definition) -> ExitCo
     }
 }
 
-fn init_logging() {
+pub(crate) fn init_logging() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,sqlx=warn".into());
     let builder = tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr);
     let _ = if std::env::var("DOWNBEAT_LOG_FORMAT").is_ok_and(|format| format == "json") {

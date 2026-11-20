@@ -35,6 +35,8 @@ type Pending = Arc<Mutex<HashMap<(Uuid, u64), oneshot::Sender<Result<Option<Star
 
 /// Runs the child until the worker closes the socket.
 pub(crate) fn main(definition: fn() -> Definition, descriptor: &str) -> std::process::ExitCode {
+    // A job's log lines go to standard error, each inside a span that names its run.
+    crate::cli::init_logging();
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a tokio runtime");
     match runtime.block_on(serve(definition, descriptor)) {
         Ok(()) => std::process::ExitCode::SUCCESS,
