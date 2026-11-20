@@ -10,11 +10,7 @@ use serde::{Deserialize, Serialize};
 mod condition_rules;
 mod rules;
 mod scheduling_rules;
-#[allow(unused_imports)] // Until the module has jobs; remove then.
-pub use condition_rules::*;
 pub use rules::*;
-#[allow(unused_imports)] // Until the module has jobs; remove then.
-pub use scheduling_rules::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
 pub struct Text {
@@ -510,8 +506,8 @@ pub fn definition_without_callbacks() -> Definition {
     definition.pipeline("failures", failures);
     definition.pipeline("clock", clock);
     definition.pipeline("links", links);
-    definition.pipeline("scheduling_rules", scheduling_rules_jobs);
-    definition.pipeline("condition_rules", condition_rules_jobs);
+    definition.pipeline("scheduling_rules", scheduling_rules::scheduling_rules_jobs);
+    definition.pipeline("condition_rules", condition_rules::condition_rules_jobs);
     // Standard error kept from a failed command passes through this first.
     definition.redact(|text| text.replace("hunter2", "[redacted]"));
     definition
