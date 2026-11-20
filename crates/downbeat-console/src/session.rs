@@ -12,7 +12,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
+use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreJwsSigningAlgorithm, CoreProviderMetadata};
 use openidconnect::{
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier,
     RedirectUrl, Scope, TokenResponse,
@@ -38,6 +38,9 @@ pub(crate) struct Session {
 /// The identity provider, discovered at start.
 pub(crate) struct Provider {
     metadata: CoreProviderMetadata,
+    /// The signature algorithms the provider says it signs identity tokens with, less any that
+    /// are unsigned or use a shared secret.
+    algorithms: Vec<CoreJwsSigningAlgorithm>,
     http: openidconnect::reqwest::Client,
     client_id: String,
     client_secret: String,
@@ -55,7 +58,26 @@ impl Provider {
             .map_err(|error| anyhow::anyhow!("discovering {}: {error}", sign_in.issuer))?;
         let client_secret = std::env::var(&sign_in.client_secret_env)
             .map_err(|_| anyhow::anyhow!("{} is not set", sign_in.client_secret_env))?;
-        Ok(Provider { metadata, http, client_id: sign_in.client_id.clone(), client_secret })
+        let algorithms: Vec<CoreJwsSigningAlgorithm> = metadata
+            .id_token_signing_alg_values_supported()
+            .iter()
+            .filter(|algorithm| {
+                !matches!(
+                    algorithm,
+                    CoreJwsSigningAlgorithm::None
+                        | CoreJwsSigningAlgorithm::HmacSha256
+                        | CoreJwsSigningAlgorithm::HmacSha384
+                        | CoreJwsSigningAlgorithm::HmacSha512
+                )
+            })
+            .cloned()
+            .collect();
+        anyhow::ensure!(
+            !algorithms.is_empty(),
+            "{} signs identity tokens with no algorithm the console accepts",
+            sign_in.issuer
+        );
+        Ok(Provider { metadata, algorithms, http, client_id: sign_in.client_id.clone(), client_secret })
     }
 }
 
@@ -153,7 +175,7 @@ pub(crate) async fn callback(
         tokens.id_token().ok_or_else(|| Failure::unauthorized("the identity provider returned no identity token"))?;
     // Checks the signature, issuer, audience, expiry and nonce.
     let claims = id_token
-        .claims(&client.id_token_verifier(), &Nonce::new(nonce))
+        .claims(&client.id_token_verifier().set_allowed_algs(provider.algorithms.clone()), &Nonce::new(nonce))
         .map_err(|error| Failure::unauthorized(format!("the identity token is not valid: {error}")))?;
     let subject = claims.subject().as_str().to_owned();
     let email = claims

@@ -798,13 +798,17 @@ name = "downbeat-e2e"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "base64 0.22.1",
  "chrono",
  "downbeat",
  "downbeat-client",
+ "ed25519-dalek 2.2.0",
  "futures",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tokio",
  "uuid",
