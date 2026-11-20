@@ -64,6 +64,7 @@ struct LostRow {
     lease_owner: Option<String>,
     lost_count: i16,
     function_started_at: Option<DateTime<Utc>>,
+    cancel_requested_by: Option<String>,
 }
 
 /// Runs whose lease expired longer ago than the margin: back to the queue, or failed when the
@@ -72,7 +73,8 @@ async fn take_back_lost(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
     let margin = interval(registry.settings.reaper_margin());
     let mut transaction = pool.begin().await?;
     let rows: Vec<LostRow> = sqlx::query_as(
-        "SELECT run_id, job_name, chain_id, fence, lease_owner, lost_count, function_started_at FROM downbeat.run
+        "SELECT run_id, job_name, chain_id, fence, lease_owner, lost_count, function_started_at, cancel_requested_by
+           FROM downbeat.run
           WHERE state = 'running' AND lease_expires_at < now() - $1
           LIMIT $2 FOR UPDATE SKIP LOCKED",
     )
@@ -80,9 +82,15 @@ async fn take_back_lost(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
     .bind(BATCH)
     .fetch_all(&mut *transaction)
     .await?;
-    let mut to_fail = Vec::new();
+    let mut to_end = Vec::new();
     for row in rows {
         let worker = row.lease_owner.clone().unwrap_or_else(|| "unknown".to_owned());
+        // Someone asked for a cancel: the run is not requeued (spec 3.7), it ends as cancelled.
+        if let Some(by) = &row.cancel_requested_by {
+            let ending = Ending::new(Status::Cancelled, reasons::cancelled(by));
+            to_end.push((row, ending));
+            continue;
+        }
         match row.function_started_at {
             None => {
                 sqlx::query(
@@ -114,12 +122,14 @@ async fn take_back_lost(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> 
                 let event = Event::WorkerLost { run_id: row.run_id, job: row.job_name.clone(), worker };
                 audit::event(&mut transaction, &event, Some(&row.job_name), Some(row.run_id), None).await?;
             }
-            Some(_) => to_fail.push((row, worker)),
+            Some(_) => {
+                let ending = Ending::failed("worker_lost", reasons::worker_lost_twice(&worker));
+                to_end.push((row, ending));
+            }
         }
     }
     transaction.commit().await?;
-    for (row, worker) in to_fail {
-        let ending = Ending::failed("worker_lost", reasons::worker_lost_twice(&worker));
+    for (row, ending) in to_end {
         ending::end(pool, registry, row.run_id, row.chain_id, row.fence, ending).await?;
     }
     Ok(())

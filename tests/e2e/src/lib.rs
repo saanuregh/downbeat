@@ -7,8 +7,14 @@ use downbeat::prelude::*;
 use downbeat::{QueueTimings, Settings};
 use serde::{Deserialize, Serialize};
 
+mod condition_rules;
 mod rules;
+mod scheduling_rules;
+#[allow(unused_imports)] // Until the module has jobs; remove then.
+pub use condition_rules::*;
 pub use rules::*;
+#[allow(unused_imports)] // Until the module has jobs; remove then.
+pub use scheduling_rules::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
 pub struct Text {
@@ -480,23 +486,33 @@ pub fn definition() -> Definition {
 
 /// The same pipelines and settings, with no `on_finish` or `on_event`.
 pub fn definition_without_callbacks() -> Definition {
-    let mut definition = Definition::new().zone("UTC").environments(["test", "schedules"]).settings(Settings {
-        heartbeat: Duration::from_secs(1),
-        lease: Duration::from_secs(3),
-        kill_grace: Duration::from_secs(1),
-        drain: Duration::from_secs(1),
-        stop_within: Duration::from_secs(10),
-        poll: Duration::from_millis(200),
-        recycle_child_after: 500,
-        queues: [(
-            "quick".to_owned(),
-            QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) },
-        )]
-        .into(),
-    });
+    // `rules` is for tests of schedules that must not fire in any other test.
+    let mut definition =
+        Definition::new().zone("UTC").environments(["test", "schedules", "rules"]).settings(Settings {
+            heartbeat: Duration::from_secs(1),
+            lease: Duration::from_secs(3),
+            kill_grace: Duration::from_secs(1),
+            drain: Duration::from_secs(1),
+            stop_within: Duration::from_secs(10),
+            poll: Duration::from_millis(200),
+            // A test of child recycling sets a small number through this variable.
+            recycle_child_after: std::env::var("E2E_RECYCLE_CHILD_AFTER")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(500),
+            queues: [(
+                "quick".to_owned(),
+                QueueTimings { heartbeat: Duration::from_millis(500), lease: Duration::from_secs(2) },
+            )]
+            .into(),
+        });
     definition.pipeline("basics", basics);
     definition.pipeline("failures", failures);
     definition.pipeline("clock", clock);
     definition.pipeline("links", links);
+    definition.pipeline("scheduling_rules", scheduling_rules_jobs);
+    definition.pipeline("condition_rules", condition_rules_jobs);
+    // Standard error kept from a failed command passes through this first.
+    definition.redact(|text| text.replace("hunter2", "[redacted]"));
     definition
 }

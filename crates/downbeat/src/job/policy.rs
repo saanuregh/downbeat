@@ -70,9 +70,9 @@ impl Policy {
         self.backoff.first.saturating_mul(1 << doublings).min(self.backoff.max)
     }
 
-    /// Whether a failure of this kind gets another attempt, given the failures so far.
-    pub(crate) fn retries(&self, kind: RetryOn, failures_so_far: u16) -> bool {
-        self.retry_on.contains(kind) && failures_so_far < self.attempts
+    /// Whether a failure of this kind on attempt number `attempt` (counting from 1) gets another.
+    pub(crate) fn retries(&self, kind: RetryOn, attempt: u16) -> bool {
+        self.retry_on.contains(kind) && attempt < self.attempts
     }
 
     /// The policies that differ from the defaults, in words, for `check` and the API.

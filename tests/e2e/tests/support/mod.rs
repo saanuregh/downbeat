@@ -81,10 +81,17 @@ impl App {
     }
 
     pub fn with(database: &Database, args: &[&str], environment: &str) -> App {
+        App::with_env(database, args, environment, &[])
+    }
+
+    /// The same, with extra environment variables for the test product, such as
+    /// `E2E_RECYCLE_CHILD_AFTER`.
+    pub fn with_env(database: &Database, args: &[&str], environment: &str, env: &[(&str, &str)]) -> App {
         let finished_dir = std::env::temp_dir().join(format!("finished-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&finished_dir).unwrap();
         let process = Command::new(env!("CARGO_BIN_EXE_e2e-app"))
             .args(args)
+            .envs(env.iter().copied())
             .env(downbeat_e2e::FINISHED_DIR, &finished_dir)
             .env("DOWNBEAT_DATABASE_URL", &database.url)
             .env("DOWNBEAT_ENVIRONMENT", environment)

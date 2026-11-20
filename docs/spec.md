@@ -388,7 +388,8 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 3. A child must report ready within 60 seconds, and runs one function at a time. Messages are
    length-framed JSON over a Unix socket; each carries its run id, and a message for another run
    must be ignored. A child must not touch the engine's tables.
-4. A reused child must be replaced after `recycle_child_after` runs, after any call that ended
+4. A reused child must be replaced after `recycle_child_after` runs whose function it called (a run
+   that ends while it is prepared does not count), after any call that ended
    in a panic, crash, timeout, memory kill, stop or shutdown, and after a function that returned
    with tasks it spawned still running (the child counts the runtime's alive tasks before and after
    the call). A `fresh_process` job must get a new child for its run. It has no effect on a
@@ -550,7 +551,7 @@ Modules: `downbeat-console/src/access.rs`, `session.rs`, `proxy.rs`, `api.rs`, `
    delete it, and only when the request carries the session's CSRF token.
 3. Every `/api` request except a GET, and `POST /auth/logout`, must carry the session's CSRF
    token in `x-csrf-token`. `public_url` must be `https://`, or plain `http://` on a loopback
-   address.
+   address or `localhost`.
 4. A person's access to a scheduler for scope `s` is decided from the grants on that scheduler
    given to them or to one of their groups:
    - A first administrator, or anyone in `--local` mode, has every scope on every pipeline.
