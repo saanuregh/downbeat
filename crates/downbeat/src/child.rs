@@ -129,12 +129,15 @@ fn prepare(
     if ignore_conditions {
         return Ok(Prepared { input, input_hash, turn_value, failed_condition: None, need_hashes: Vec::new() });
     }
-    let mut failed_condition = None;
-    for condition in &job.conditions {
-        if !(condition.test)(&input)? {
-            failed_condition = Some(condition.name.clone());
-            break;
-        }
+    // The first condition that stops the run decides (spec 6.3), so nothing after it is called.
+    if let Some(condition) = first_false(&job.conditions, &input)? {
+        return Ok(Prepared {
+            input,
+            input_hash,
+            turn_value,
+            failed_condition: Some(condition),
+            need_hashes: Vec::new(),
+        });
     }
     let need_hashes = job
         .needs
@@ -144,7 +147,17 @@ fn prepare(
             NeedTest::DoneWithin(_) => Ok(None),
         })
         .collect::<Result<_, _>>()?;
-    Ok(Prepared { input, input_hash, turn_value, failed_condition, need_hashes })
+    Ok(Prepared { input, input_hash, turn_value, failed_condition: None, need_hashes })
+}
+
+/// The name of the first `only_if` condition that is false for this input, if any.
+fn first_false(conditions: &[crate::pipeline::Condition], input: &Value) -> Result<Option<String>, String> {
+    for condition in conditions {
+        if !(condition.test)(input)? {
+            return Ok(Some(condition.name.clone()));
+        }
+    }
+    Ok(None)
 }
 
 fn check_output(registry: &Registry, job: &str, output: Value) -> Result<Value, String> {

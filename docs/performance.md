@@ -21,7 +21,7 @@ carries over.
 | 2,000 queued runs on one worker with 8 slots | 0.81 s, about 2,500 runs a second |
 | One run alone, from the request to its end, on a reused child | mean 203 ms |
 | The same on a fresh child (`fresh_process`) | mean 213 ms; 95th percentile 404 ms |
-| One pruning pass over 60,000 chains past their retention | 9 s; every chain removed except the one holding the job's latest success |
+| One pruning pass over 60,000 chains past their retention | 9 s; every chain removed except the one holding the job's latest success. 8.0 s, the same result, after pruning moved to lock-then-check ([decision 47](decisions.md#47-pruning-locks-first-then-checks)) |
 
 ## What the numbers say
 

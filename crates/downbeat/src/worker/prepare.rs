@@ -3,10 +3,11 @@
 
 use serde_json::{Value, json};
 
-use super::call::{Interrupted, wait_for};
+use super::call::{AtShutdown, Interrupted, wait_for};
 use super::child::ChildHandle;
 use super::lease::{Lease, StopReason};
 use super::{Decision, WorkerContext};
+use crate::job::RetryOn;
 use crate::pipeline::{LinkKind, NeedTest, WhenUnmet};
 use crate::protocol::{FromChild, Prepared, RunInfo, ToChild};
 use crate::reasons;
@@ -50,14 +51,26 @@ pub(crate) async fn prepare(
     };
     let deadline = timeout.map(|timeout| tokio::time::Instant::now() + timeout);
     let wanted = run.run_id;
-    let prepared = wait_for(context, child, lease, deadline, |message| match message {
+    // A crash or a timeout here is a failed call like any other: `retry_on` and `attempts` apply.
+    let verdict = super::Verdict::new(context, job, run, chrono::Utc::now());
+    let prepared = wait_for(context, child, lease, deadline, AtShutdown::Stop, |message| match message {
         FromChild::Prepared { run_id, result } if run_id == wanted => Some(result),
         _ => None,
     })
     .await
     .map_err(|interrupted| match interrupted {
-        Interrupted::Crashed { .. } => Decision::End(Ending::failed("crash", "Failed: the process crashed while the run was being prepared.")),
-        Interrupted::TimedOut => Decision::End(Ending::failed("timeout", "Failed: preparing the run (building its input and testing its conditions) took longer than the job's timeout.")),
+        Interrupted::Crashed { .. } => verdict.fail_or_retry(
+            RetryOn::Crash,
+            "crash",
+            "Failed: the process crashed while the run was being prepared.".to_owned(),
+            "the process crashed while the run was being prepared".to_owned(),
+        ),
+        Interrupted::TimedOut => verdict.fail_or_retry(
+            RetryOn::Timeout,
+            "timeout",
+            "Failed: preparing the run (building its input and testing its conditions) took longer than the job's timeout.".to_owned(),
+            "preparing the run took longer than the job's timeout".to_owned(),
+        ),
         Interrupted::Stopped(StopReason::CancelRequested(by)) => Decision::End(Ending::new(Status::Cancelled, reasons::cancelled(&by))),
         Interrupted::Stopped(StopReason::Unreachable) => super::unreachable(context, run),
         Interrupted::Stopped(_) => Decision::Nothing,

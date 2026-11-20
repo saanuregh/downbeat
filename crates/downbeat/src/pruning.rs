@@ -3,7 +3,8 @@
 
 use std::time::Duration;
 
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
+use uuid::Uuid;
 
 use crate::registry::Registry;
 use crate::store::interval;
@@ -42,9 +43,7 @@ pub(crate) async fn prune(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
 }
 
 /// The chains a job started that may go: nothing in them is unfinished, nothing in them is waiting
-/// for a callback, and none holds a job's latest success. The chain's lock is taken (without
-/// waiting) as the end routine does, so a chain is never removed while a run in it is ending; each
-/// statement is its own transaction, so the lock lasts until the chain is gone.
+/// for a callback, and none holds a job's latest success.
 const PRUNABLE: &str = "
     NOT EXISTS (SELECT 1 FROM downbeat.run r WHERE r.chain_id = c.chain_id)
     AND NOT EXISTS (SELECT 1 FROM downbeat.run_history h WHERE h.chain_id = c.chain_id AND h.notify_after IS NOT NULL)
@@ -52,39 +51,65 @@ const PRUNABLE: &str = "
         SELECT 1 FROM downbeat.run_history h
          WHERE h.chain_id = c.chain_id AND h.status = 'succeeded'
            AND h.finished_at = (SELECT max(l.finished_at) FROM downbeat.run_history l
-                                 WHERE l.job_name = h.job_name AND l.status = 'succeeded'))
-    AND pg_try_advisory_xact_lock(hashtextextended(c.chain_id::text, 0))";
+                                 WHERE l.job_name = h.job_name AND l.status = 'succeeded'))";
+
+/// Wraps a query that names candidate chains so that it returns only those whose lock it took,
+/// without waiting. A chain whose lock is held is passed over until the next pass.
+fn locking(candidates: &str) -> String {
+    format!(
+        "SELECT chain_id FROM ({candidates}) candidate
+          WHERE pg_try_advisory_xact_lock(hashtextextended(chain_id::text, 0))"
+    )
+}
+
+/// Removes the locked chains that may still go, and commits; returns how many went.
+///
+/// This runs as a second statement, after the locks are held, so it sees the data afresh: a retry
+/// or a "mark as succeeded" that committed in a chain before its lock was taken is seen here, and
+/// one that comes later waits for the lock and then finds the chain gone.
+async fn remove_locked(mut transaction: Transaction<'_, Postgres>, locked: &[Uuid]) -> sqlx::Result<i64> {
+    let remove = format!("DELETE FROM downbeat.chain c WHERE c.chain_id = ANY($1) AND {PRUNABLE}");
+    let removed = sqlx::query(&remove).bind(locked).execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(i64::try_from(removed.rows_affected()).unwrap_or(i64::MAX))
+}
 
 /// Removes one batch of a job's chains older than its retention; returns how many went.
 async fn prune_older_than(pool: &PgPool, job: &str, keep_for: Duration) -> sqlx::Result<i64> {
-    let sql = format!(
-        "DELETE FROM downbeat.chain WHERE chain_id IN (
-            SELECT c.chain_id FROM downbeat.chain c
-             WHERE c.first_job = $1 AND c.started_at < now() - $2 AND {PRUNABLE}
-             LIMIT $3)"
+    let candidates = format!(
+        "SELECT c.chain_id FROM downbeat.chain c
+          WHERE c.first_job = $1 AND c.started_at < now() - $2 AND {PRUNABLE}
+          LIMIT $3"
     );
-    let done = sqlx::query(&sql).bind(job).bind(interval(keep_for)).bind(BATCH).execute(pool).await?;
-    Ok(i64::try_from(done.rows_affected()).unwrap_or(i64::MAX))
+    let mut transaction = pool.begin().await?;
+    let locked: Vec<Uuid> = sqlx::query_scalar(&locking(&candidates))
+        .bind(job)
+        .bind(interval(keep_for))
+        .bind(BATCH)
+        .fetch_all(&mut *transaction)
+        .await?;
+    remove_locked(transaction, &locked).await
 }
 
 /// Removes one batch of a job's chains beyond the newest `keep` whose first run did not fail;
 /// returns how many went. Chains are counted once each, by their first run.
 async fn prune_beyond_count(pool: &PgPool, job: &str, keep: i64) -> sqlx::Result<i64> {
-    let sql = format!(
-        "DELETE FROM downbeat.chain WHERE chain_id IN (
-            SELECT c.chain_id FROM (
-                SELECT chain_id FROM (
-                    SELECT DISTINCT ON (h.chain_id) h.chain_id, h.status, h.finished_at
-                      FROM downbeat.run_history h JOIN downbeat.chain c ON c.chain_id = h.chain_id
-                     WHERE c.first_job = $1 AND h.job_name = $1 AND h.joined_run IS NULL
-                     ORDER BY h.chain_id, h.finished_at) first_runs
-                 WHERE status <> 'failed'
-                 ORDER BY finished_at DESC
-                OFFSET $2) beyond
-              JOIN downbeat.chain c ON c.chain_id = beyond.chain_id
-             WHERE {PRUNABLE}
-             LIMIT $3)"
+    let candidates = format!(
+        "SELECT c.chain_id FROM (
+            SELECT chain_id FROM (
+                SELECT DISTINCT ON (h.chain_id) h.chain_id, h.status, h.finished_at
+                  FROM downbeat.run_history h JOIN downbeat.chain c ON c.chain_id = h.chain_id
+                 WHERE c.first_job = $1 AND h.job_name = $1 AND h.joined_run IS NULL
+                 ORDER BY h.chain_id, h.finished_at) first_runs
+             WHERE status <> 'failed'
+             ORDER BY finished_at DESC
+            OFFSET $2) beyond
+          JOIN downbeat.chain c ON c.chain_id = beyond.chain_id
+         WHERE {PRUNABLE}
+         LIMIT $3"
     );
-    let done = sqlx::query(&sql).bind(job).bind(keep).bind(BATCH).execute(pool).await?;
-    Ok(i64::try_from(done.rows_affected()).unwrap_or(i64::MAX))
+    let mut transaction = pool.begin().await?;
+    let locked: Vec<Uuid> =
+        sqlx::query_scalar(&locking(&candidates)).bind(job).bind(keep).bind(BATCH).fetch_all(&mut *transaction).await?;
+    remove_locked(transaction, &locked).await
 }

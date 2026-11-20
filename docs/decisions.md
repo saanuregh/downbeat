@@ -289,3 +289,32 @@ The stand-in person administers everything, so a page elsewhere must not reach t
 pointing its own name at this machine (DNS rebinding). The check used to sit in the session
 layer, which left the sign-in routes and the screens' files unchecked; it is now a middleware on
 the whole router.
+
+## 46. Strict decoding asks the type's own decoder (supersedes part of 42)
+
+Decision 42 found unknown fields by comparing what a caller sent with what the type writes back.
+That refused fields the type knows but leaves out when it writes, such as one with
+`skip_serializing_if`. Strict decoding now uses `serde_ignored` (MIT OR Apache-2.0, by the author
+of serde, no dependencies beyond serde) to hear every field the decoder skips, at any depth.
+Writing the same by hand would mean re-implementing serde's deserializer forwarding. A field sent
+as `null` is still accepted.
+
+## 47. Pruning locks first, then checks
+
+Pruning used to test whether a chain may go and take its lock in one statement, so the test saw
+the data as it was before the lock. A retry or a "mark as succeeded" committed in between could be
+deleted with the chain. Pruning now takes the locks in one statement and deletes, re-checking, in
+a second statement of the same transaction, which sees the data as it is once the locks are held.
+
+## 48. A crash or timeout while preparing is a failed attempt
+
+Preparing a run calls product code (input adapters and conditions), so it can crash or hang like
+a function. It now counts as a failed call and follows `retry_on` and `attempts`, as the guide
+already said, instead of failing the run at once.
+
+## 49. A command that exits cleanly during a shutdown keeps its result
+
+At shutdown a command's program gets SIGTERM and the grace period. If it exits 0 or 75 in that
+time, its result is recorded (exit 0's output is checked by the child as usual, and that check is
+allowed to finish during the shutdown). Any other exit is taken as a reaction to the signal, and
+the run goes back to the queue as interrupted.

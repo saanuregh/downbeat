@@ -19,7 +19,7 @@ use crate::starting::{self, StartError, StartJob, StartOptions};
 use crate::store::audit;
 use crate::store::cancel::{self, Cancelled};
 use crate::store::ending::{self, HistoryRow, lock_chain};
-use crate::store::runs::{self, NewRun, Place};
+use crate::store::runs::{self, NewRun, Place, StartedBy};
 
 /// `POST /runs/{id}/cancel`.
 pub(crate) async fn cancel_run(
@@ -97,7 +97,9 @@ pub(crate) async fn retry(
         due_at: None,
         expires_at: None,
         not_before: None,
-        started_by: started_by(&caller),
+        // A linked run that ended before it was prepared has no input of its own; as a link run
+        // again, it builds its input from what its parents handed over.
+        started_by: if row.input.is_none() && row.started_by == "link" { StartedBy::Link } else { started_by(&caller) },
         schedule: None,
         place: Place::Chain { chain_id: row.chain_id, parents: row.parents.clone() },
         dry_run: row.dry_run,

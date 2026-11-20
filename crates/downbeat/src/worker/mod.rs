@@ -271,7 +271,7 @@ fn decide(
     outcome: CallOutcome,
     started_at: chrono::DateTime<Utc>,
 ) -> Decision {
-    let verdict = Verdict { context, job, attempt: u32::try_from(run.failures).unwrap_or(0) + 1, started_at };
+    let verdict = Verdict::new(context, job, run, started_at);
     let policy = &job.spec.policy;
     match outcome {
         CallOutcome::Ended(ChildEnding::Output(output)) => {
@@ -346,7 +346,7 @@ fn decide(
 }
 
 /// What deciding a call's ending needs to know.
-struct Verdict<'a> {
+pub(super) struct Verdict<'a> {
     context: &'a WorkerContext,
     job: &'a RegisteredJob,
     /// This call's attempt number, counting failed calls.
@@ -354,7 +354,17 @@ struct Verdict<'a> {
     started_at: chrono::DateTime<Utc>,
 }
 
-impl Verdict<'_> {
+impl<'a> Verdict<'a> {
+    /// For a call of this run that started at `started_at`.
+    pub(super) fn new(
+        context: &'a WorkerContext,
+        job: &'a RegisteredJob,
+        run: &RunRow,
+        started_at: chrono::DateTime<Utc>,
+    ) -> Verdict<'a> {
+        Verdict { context, job, attempt: u32::try_from(run.failures).unwrap_or(0) + 1, started_at }
+    }
+
     fn call(&self, ended: &str) -> Call {
         Call {
             worker: self.context.id.clone(),
@@ -378,7 +388,13 @@ impl Verdict<'_> {
     }
 
     /// A failed call: another attempt if the job's policy allows one, otherwise the end.
-    fn fail_or_retry(&self, kind: RetryOn, because: &'static str, final_reason: String, detail: String) -> Decision {
+    pub(super) fn fail_or_retry(
+        &self,
+        kind: RetryOn,
+        because: &'static str,
+        final_reason: String,
+        detail: String,
+    ) -> Decision {
         let policy = &self.job.spec.policy;
         if !policy.retries(kind, u16::try_from(self.attempt).unwrap_or(u16::MAX)) {
             return self.fail(because, final_reason, Some(detail));

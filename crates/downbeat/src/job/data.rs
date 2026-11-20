@@ -212,37 +212,39 @@ pub fn without_fields(mut value: Value, fields: &[&str]) -> Value {
     value
 }
 
-/// Checks that a JSON object sent by a caller has no field the type does not know.
+/// Decodes a value sent by a caller into `T`, refusing any field the type does not know, at any
+/// depth, named by its dotted path such as `orders.0.typo`.
 ///
-/// Stored values are decoded leniently, so old and new builds can run side by side; values that
-/// arrive in a request are decoded strictly.
-/// Fields are compared at every depth, as dotted paths. A field sent as `null` is not reported:
-/// a type may leave a `None` out when it writes itself.
-pub(crate) fn unknown_fields(sent: &Value, decoded: &Value) -> Vec<String> {
-    let mut unknown = Vec::new();
-    collect_unknown(sent, decoded, "", &mut unknown);
-    unknown
+/// The type's own decoder decides what it knows, so a field it reads but leaves out when it writes
+/// itself is still known. A field sent as `null` is not refused. Stored values are decoded
+/// leniently instead, so old and new builds can run side by side.
+pub(crate) fn decode_strict<T: DeserializeOwned>(sent: &Value) -> Result<T, String> {
+    let mut ignored = Vec::new();
+    let typed = serde_ignored::deserialize(sent.clone(), |path| ignored.push(segments(&path)))
+        .map_err(|error| error.to_string())?;
+    let unknown: Vec<String> =
+        ignored.into_iter().filter(|path| !is_null_at(sent, path)).map(|path| path.join(".")).collect();
+    if unknown.is_empty() { Ok(typed) } else { Err(format!("unknown field(s): {}", unknown.join(", "))) }
 }
 
-fn collect_unknown(sent: &Value, decoded: &Value, path: &str, unknown: &mut Vec<String>) {
-    let at = |key: &str| if path.is_empty() { key.to_owned() } else { format!("{path}.{key}") };
-    match (sent, decoded) {
-        (Value::Object(sent), Value::Object(known)) => {
-            for (key, value) in sent {
-                match known.get(key) {
-                    Some(inner) => collect_unknown(value, inner, &at(key), unknown),
-                    None if value.is_null() => {}
-                    None => unknown.push(at(key)),
-                }
-            }
-        }
-        (Value::Array(sent), Value::Array(known)) => {
-            for (index, (value, inner)) in sent.iter().zip(known).enumerate() {
-                collect_unknown(value, inner, &at(&index.to_string()), unknown);
-            }
-        }
-        _ => {}
+/// A path as the keys and indexes a caller would write; options and newtypes add none.
+fn segments(path: &serde_ignored::Path<'_>) -> Vec<String> {
+    use serde_ignored::Path;
+    match path {
+        Path::Root => Vec::new(),
+        Path::Seq { parent, index } => [segments(parent), vec![index.to_string()]].concat(),
+        Path::Map { parent, key } => [segments(parent), vec![key.clone()]].concat(),
+        Path::Some { parent } | Path::NewtypeStruct { parent } | Path::NewtypeVariant { parent } => segments(parent),
     }
+}
+
+fn is_null_at(value: &Value, path: &[String]) -> bool {
+    let found = path.iter().try_fold(value, |value, segment| match value {
+        Value::Object(map) => map.get(segment),
+        Value::Array(items) => segment.parse::<usize>().ok().and_then(|index| items.get(index)),
+        _ => None,
+    });
+    found.is_some_and(Value::is_null)
 }
 
 #[cfg(test)]
@@ -288,17 +290,32 @@ mod tests {
         assert_eq!(Shape::named("()").json_schema(), json!({ "title": "()", "type": "null" }));
     }
 
-    #[test]
-    fn finds_unknown_fields_at_any_depth_but_not_null_ones() {
-        let sent = json!({"day": 1, "note": null, "inner": {"known": 1, "typo": 2}, "list": [{"x": 1, "y": 2}]});
-        let decoded = json!({"day": 1, "inner": {"known": 1}, "list": [{"x": 1}]});
-        assert_eq!(unknown_fields(&sent, &decoded), vec!["inner.typo".to_owned(), "list.0.y".to_owned()]);
+    #[derive(Debug, serde::Deserialize)]
+    #[allow(dead_code)]
+    struct Order {
+        day: u32,
+        note: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tags: Vec<String>,
+        lines: Vec<Line>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[allow(dead_code)]
+    struct Line {
+        sku: String,
     }
 
     #[test]
-    fn finds_fields_a_type_does_not_know() {
-        let sent = json!({"day": 1, "typo": 2});
-        let decoded = json!({"day": 1});
-        assert_eq!(unknown_fields(&sent, &decoded), vec!["typo".to_owned()]);
+    fn strict_decoding_names_unknown_fields_at_any_depth() {
+        let sent = json!({"day": 1, "typo": 2, "lines": [{"sku": "a"}, {"sku": "b", "qty": 3}]});
+        let refused = decode_strict::<Order>(&sent).unwrap_err();
+        assert_eq!(refused, "unknown field(s): lines.1.qty, typo");
+    }
+
+    #[test]
+    fn strict_decoding_accepts_known_fields_a_type_skips_and_unknown_nulls() {
+        let sent = json!({"day": 1, "tags": [], "note": null, "retired": null, "lines": []});
+        assert!(decode_strict::<Order>(&sent).is_ok());
     }
 }

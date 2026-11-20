@@ -284,3 +284,17 @@ async fn a_child_is_replaced_after_a_function_leaves_a_task_running() {
     assert_eq!(finished(&database.pool, leaving.run_id(), SOON).await.status, "succeeded");
     assert_ne!(pid(3).await, first, "the child that held a leftover task was replaced");
 }
+
+#[tokio::test]
+async fn a_crash_while_a_run_is_prepared_gets_another_attempt() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+    let marker = std::env::temp_dir().join(format!("prepared-{}", uuid::Uuid::new_v4()));
+
+    let run = client.start(crashes_while_prepared, Text { text: marker.display().to_string() }).await.unwrap();
+    let done = finished(&database.pool, run.run_id(), SOON).await;
+    let _ = std::fs::remove_file(&marker);
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+    assert_eq!(done.failures, 1, "the crash counted as a failed attempt");
+}

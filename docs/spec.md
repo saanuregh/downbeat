@@ -39,8 +39,10 @@ Modules: `job/`, `definition.rs`, `registry.rs`, `check.rs`, `downbeat-macros`.
    object keys sorted, keys whose value is `null` left out. Two inputs are *equal* when their
    hashes are equal.
 8. Input from a request (API, `run.start`, `InAppClient`, `run-once`) must be decoded strictly:
-   a field the type does not know, at any depth, is refused; a field sent as `null` is not
-   refused. A stored value must be decoded leniently.
+   a field the type's decoder does not read, at any depth, is refused and named by its dotted
+   path; a field sent as `null` is not refused. A field the type reads but leaves out when it
+   writes itself (such as one with `skip_serializing_if`) is known. A stored value must be decoded
+   leniently.
 
 ## 2. Runs and statuses
 
@@ -80,7 +82,9 @@ Modules: `worker/mod.rs`, `worker/prepare.rs`, `worker/call.rs`, `store/runs.rs`
    builds the input (for a `link` run, from its parents' history rows, through the link's
    adapter), computes the input hash and the turn key, and evaluates conditions (section 6).
    The worker stores the input, hash and turn key, fenced. Preparing is bounded by the job's
-   `timeout` policy. A run with `starts > 0` must never be prepared again.
+   `timeout` policy. A crash or a timeout while preparing is a failed call: it gets another
+   attempt when `retry_on` lists it and attempts remain (section 4). A run with `starts > 0` must
+   never be prepared again.
 3. **Function start.** The worker must record `starts = starts + 1`,
    `function_started_at = now()` and a renewed lease, fenced. On the run's first call this write
    takes the run's turn (section 5). If another run holds the turn, the write must fail, and the
@@ -247,14 +251,18 @@ is applied last. A value that does not fit must fail the child as `bad_input`.
 **Chain actions.**
 
 1. *Retry* must create a new run of the same job, with the same input, parents and `dry_run`, in
-   the same chain, under the chain lock, and must be refused (409) in a cancelled chain. It is not
-   covered by rule 1. Because children already in the chain are not created again, only children
-   that have not run follow it.
+   the same chain. A `link` run that ended before it was prepared has no input of its own, so its
+   retry is a `link` run again and builds its input from its parents. Retry works under the chain
+   lock and must be refused (409) in a cancelled chain. It is not covered by rule 1. Because
+   children already in the chain are not created again, only children that have not run follow
+   it.
 2. *Restart* must start a new chain from the job with the same input, as a deliberate request.
 3. *Mark as succeeded* must apply only to a `failed` row: under the chain lock it sets the status
    to `succeeded`, clears `failed_because`, stores the supplied output (checked strictly against
    the output type), the note and `marked_by`, sets `notify_after = now()`, writes an audit row,
-   and creates children as in step 4 of the ending routine.
+   and creates children as in step 4 of the ending routine. Delivery follows section 12, so a run
+   that finished more than a day before it is marked is not delivered to `on_finish` (12.4); the
+   audit row records the change.
 4. *Cancel a chain* must mark the chain cancelled (once; 409 after), then cancel each unfinished
    run of it as below.
 5. *Cancel a run*: a queued run must end at once as `cancelled`; a running run must get
@@ -366,9 +374,11 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 
 1. Job code must never run in the worker process. Functions, `only_if` tests, link adapters and
    command functions run in a child: the product's own binary started with `DOWNBEAT_CHILD_FD`.
-   The one exception is the preview of a start with `ignore_conditions` (14.17), which evaluates
-   the job's `only_if` tests and `done_for` closures in the scheduler process to list the false
-   ones; each call there is guarded, so a panic counts as false and costs only that call.
+   Three kinds of product code run in the scheduler process instead, each call guarded so that a
+   panic costs only that call: a schedule's `.input(…)` function and its day rule (section 8),
+   and, for the preview of a start with `ignore_conditions` (14.17), the job's `only_if` tests and
+   `done_for` closures, where a panic counts as false. When one process has both roles, that is
+   also the worker's process.
 2. Every process the worker starts must be started from one dedicated thread, in a new process
    group, with a parent-death signal of SIGKILL and `oom_score_adj` 1000. It must exit at once if
    the worker died before the signal was set.
@@ -404,7 +414,9 @@ Modules: `cli.rs` (`wait_for_signal`, `serve`), `worker/mod.rs`, `definition.rs`
    must stop.
 2. The worker must wait up to `drain` for its slots to finish. Then it must stop each running call
    (section 9, step 4). A call that ends by itself during the grace period must be recorded as it
-   ended; otherwise the run must go back to the queue at once as `no_free_worker`, with
+   ended. A command's program is asked to stop with SIGTERM, so it is recorded as ended only when
+   it exits 0 (its output is then checked as usual) or 75 within the grace period; any other exit
+   counts as stopped. Otherwise the run must go back to the queue at once as `no_free_worker`, with
    `interruptions` raised by one and nothing else counted. A run being prepared goes back to the
    queue uncounted.
 3. At a run's third interruption, and at each one after it, a `RunInterrupted` event must be
@@ -443,7 +455,8 @@ Modules: `pruning.rs`.
      be pruned (rule 3) still counts toward the `n`.
 3. A chain must not be pruned while it has an unfinished run, a history row waiting for its
    callback, or a row that is its job's latest success. Pruning must take the chain's lock without
-   waiting and pass over a chain whose lock is held.
+   waiting, pass over a chain whose lock is held, and check these conditions again after the lock
+   is held, in a statement that sees the data as it is then.
 4. Also removed: `joined` rows after two days; idempotency keys after seven days; overrides 30
    days after their date; delivered audit rows after a year; pauses that have ended; worker rows
    not seen for a day.

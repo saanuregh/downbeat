@@ -4,40 +4,11 @@
 
 mod support;
 
+use downbeat_client::Error;
 use downbeat_client::types::{ApiError, MarkSucceededRequest, Preview, StartRequest, StartResponse};
-use downbeat_client::{Error, development_key};
 use downbeat_e2e::*;
 use serde_json::{Value, json};
-use support::{Database, SOON, finished, finished_job, with_api, with_api_at};
-
-/// Sends one request signed as the `--local` caller, without the client's retries.
-async fn signed(base: &str, method: &str, path: &str, body: &[u8], token: Option<String>) -> reqwest::Response {
-    let token = token.unwrap_or_else(|| token_for(method, path, body));
-    let method = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
-    reqwest::Client::new()
-        .request(method, format!("{base}{path}"))
-        .bearer_auth(token)
-        .header("content-type", "application/json")
-        .body(body.to_vec())
-        .send()
-        .await
-        .unwrap()
-}
-
-fn token_for(method: &str, path: &str, body: &[u8]) -> String {
-    let binding = downbeat_api::RequestBinding { method, path_and_query: path, body };
-    let now = chrono::Utc::now().timestamp();
-    let claims = downbeat_api::Claims::for_request(
-        "local",
-        "local",
-        downbeat_api::DEVELOPMENT_AUDIENCE,
-        downbeat_api::Scope::Administer,
-        None,
-        binding,
-        now,
-    );
-    downbeat_api::sign(&development_key(), &claims)
-}
+use support::{Database, SOON, Signer, finished, finished_job, with_api, with_api_at};
 
 async fn json_error(response: reqwest::Response) -> (u16, ApiError) {
     let status = response.status().as_u16();
@@ -53,11 +24,12 @@ async fn a_token_for_a_change_is_good_once() {
     let base = format!("http://{listen}");
     let path = "/v1/jobs/echo/runs";
     let body = serde_json::to_vec(&json!({ "input": { "text": "once" } })).unwrap();
-    let token = token_for("POST", path, &body);
+    let local = Signer::local(&base);
+    let token = local.token("POST", path, &body);
 
-    let first = signed(&base, "POST", path, &body, Some(token.clone())).await;
+    let first = local.send_with("POST", path, &body, &token).await;
     assert_eq!(first.status(), 201);
-    let (status, replayed) = json_error(signed(&base, "POST", path, &body, Some(token)).await).await;
+    let (status, replayed) = json_error(local.send_with("POST", path, &body, &token).await).await;
     assert_eq!(status, 401, "{replayed:?}");
 }
 
@@ -67,13 +39,14 @@ async fn every_error_is_json() {
     let (_app, _client, listen) = with_api_at(&database).await;
     let base = format!("http://{listen}");
 
-    let (status, unknown) = json_error(signed(&base, "GET", "/v1/nothing-here", b"", None).await).await;
+    let (status, unknown) = json_error(Signer::local(&base).send("GET", "/v1/nothing-here", b"").await).await;
     assert_eq!((status, unknown.error.as_str()), (404, "not_found"));
 
-    let (status, wrong_method) = json_error(signed(&base, "DELETE", "/v1/jobs", b"", None).await).await;
+    let (status, wrong_method) = json_error(Signer::local(&base).send("DELETE", "/v1/jobs", b"").await).await;
     assert_eq!((status, wrong_method.error.as_str()), (405, "method_not_allowed"));
 
-    let (status, not_json) = json_error(signed(&base, "POST", "/v1/jobs/echo/runs", b"{not json", None).await).await;
+    let (status, not_json) =
+        json_error(Signer::local(&base).send("POST", "/v1/jobs/echo/runs", b"{not json").await).await;
     assert!(status == 400 || status == 422, "{status} {not_json:?}");
     assert!(!not_json.message.is_empty());
 }

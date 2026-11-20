@@ -70,7 +70,9 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 
 Prefer an end-to-end test that drives the public API through a realistic scenario. Each test gets
 its own database (`Database::fresh()`), so tests run in parallel. Add a job to the test product
-when a scenario needs one, and name it in one of its pipelines.
+when a scenario needs one, and name it in one of its pipelines. To see the API's raw HTTP answers
+(status codes, error bodies, a reused token), sign requests with `support::Signer` rather than
+`downbeat-client`, which retries.
 
 If you change `examples/market`, update its snapshot:
 

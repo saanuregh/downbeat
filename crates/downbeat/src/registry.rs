@@ -111,7 +111,14 @@ impl Registry {
             pipelines.insert(name.clone(), names);
         }
 
+        let mut compiled_names = std::collections::HashSet::new();
         for compiled in crate::job::compiled_jobs() {
+            if !compiled_names.insert(compiled) {
+                problems.add(
+                    compiled,
+                    "two jobs in this binary have this name; give one of them another with name = \"…\"",
+                );
+            }
             if !jobs.contains_key(compiled) {
                 problems.add(compiled, format!("no pipeline names this job; add pipeline.job({compiled}) to the pipeline it belongs to, or remove it"));
             }
@@ -220,10 +227,8 @@ fn register(
             names.push(name);
         }
     }
-    for need in &entry.needs {
-        if matches!(need.test, NeedTest::DoneFor(_)) && need.job == job_name {
-            problems.add(job_name, "a job cannot need itself");
-        }
+    if entry.needs.iter().any(|need| need.job == job_name) {
+        problems.add(job_name, "a job cannot need itself");
     }
     RegisteredJob {
         spec: entry.job,

@@ -45,13 +45,24 @@ impl From<Interrupted> for CallOutcome {
     }
 }
 
-/// Waits for the child message `pick` accepts, while the run's deadline, its lease and the worker's
-/// shutdown can still stop it. A child that is cut short is killed: it may be stuck in app code.
+/// Whether the worker's shutdown cuts a wait for the child short.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AtShutdown {
+    /// Stop waiting: the run goes back to the queue.
+    Stop,
+    /// Keep waiting: the work is already done, and only its result is being checked.
+    Finish,
+}
+
+/// Waits for the child message `pick` accepts, while the run's deadline, its lease and (as
+/// `at_shutdown` says) the worker's shutdown can still stop it. A child that is cut short is
+/// killed: it may be stuck in app code.
 pub(crate) async fn wait_for<T>(
     context: &WorkerContext,
     child: &mut ChildHandle,
     lease: &mut Lease,
     deadline_at: Option<Instant>,
+    at_shutdown: AtShutdown,
     mut pick: impl FnMut(FromChild) -> Option<T>,
 ) -> Result<T, Interrupted> {
     let interrupted = loop {
@@ -65,7 +76,9 @@ pub(crate) async fn wait_for<T>(
             },
             () = deadline(deadline_at) => break Interrupted::TimedOut,
             _ = lease.stop.changed() => break Interrupted::Stopped(lease.stopped().unwrap_or(StopReason::Lost)),
-            () = context.shutdown.stop_running.cancelled() => break Interrupted::Shutdown,
+            () = context.shutdown.stop_running.cancelled(), if at_shutdown == AtShutdown::Stop => {
+                break Interrupted::Shutdown;
+            }
         }
     };
     child.process.kill();
@@ -258,7 +271,7 @@ pub(crate) async fn command(
         return crashed(child).await;
     }
     let wanted = run.run_id;
-    let spec = match wait_for(context, child, lease, limits.deadline, |message| match message {
+    let spec = match wait_for(context, child, lease, limits.deadline, AtShutdown::Stop, |message| match message {
         FromChild::Program { run_id, result } if run_id == wanted => Some(result),
         _ => None,
     })
@@ -330,31 +343,7 @@ async fn run_program(
     memory.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let stop = loop {
         tokio::select! {
-            status = process.wait() => {
-                // Anything the program left running in the background goes with it, and its
-                // standard error closes, so the tail can be read without waiting forever.
-                process.kill_group();
-                let stderr_tail = match tail {
-                    Some(tail) => tokio::time::timeout(std::time::Duration::from_secs(2), tokio::task::spawn_blocking(move || tail.join()))
-                        .await
-                        .ok()
-                        .and_then(Result::ok)
-                        .and_then(Result::ok)
-                        .unwrap_or_default(),
-                    None => String::new(),
-                };
-                return match status {
-                    Ok(status) if status.success() => CallOutcome::Ended(ChildEnding::Output(Value::Null)),
-                    Ok(status) if status.code() == Some(EXIT_NOT_READY) => {
-                        CallOutcome::Ended(ChildEnding::NotReady(last_line(&stderr_tail).unwrap_or("the program said it is not ready").to_owned()))
-                    }
-                    Ok(status) => {
-                        let (code, signal) = describe_exit(status);
-                        CallOutcome::ProgramFailed { code, signal, stderr_tail }
-                    }
-                    Err(error) => CallOutcome::ProgramFailed { code: None, signal: None, stderr_tail: error.to_string() },
-                };
-            }
+            status = process.wait() => return program_ended(&process, tail, status).await,
             () = deadline(limits.deadline) => break CallOutcome::TimedOut,
             _ = lease.stop.changed() => break CallOutcome::Stopped(lease.stopped().unwrap_or(StopReason::Lost)),
             () = context.shutdown.stop_running.cancelled() => break CallOutcome::Interrupted,
@@ -365,10 +354,50 @@ async fn run_program(
         }
     };
     process.signal_group(libc::SIGTERM);
-    if tokio::time::timeout(context.registry.settings.kill_grace, process.wait()).await.is_err() {
-        process.kill();
+    match tokio::time::timeout(context.registry.settings.kill_grace, process.wait()).await {
+        // Work that finished during a shutdown is kept, as for a function (spec 11.2). A program
+        // that failed because it was asked to stop was interrupted, not failed.
+        Ok(status) if matches!(stop, CallOutcome::Interrupted) => {
+            let ended = program_ended(&process, tail, status).await;
+            if matches!(ended, CallOutcome::Ended(_)) { ended } else { stop }
+        }
+        Ok(_) => stop,
+        Err(_) => {
+            process.kill();
+            stop
+        }
     }
-    stop
+}
+
+/// How a command's program ended, from its exit status and the tail of its standard error.
+async fn program_ended(
+    process: &Process,
+    tail: Option<std::thread::JoinHandle<String>>,
+    status: std::io::Result<std::process::ExitStatus>,
+) -> CallOutcome {
+    // Anything the program left running in the background goes with it, and its standard error
+    // closes, so the tail can be read without waiting forever.
+    process.kill_group();
+    let stderr_tail = match tail {
+        Some(tail) => tokio::time::timeout(Duration::from_secs(2), tokio::task::spawn_blocking(move || tail.join()))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .and_then(Result::ok)
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    match status {
+        Ok(status) if status.success() => CallOutcome::Ended(ChildEnding::Output(Value::Null)),
+        Ok(status) if status.code() == Some(EXIT_NOT_READY) => CallOutcome::Ended(ChildEnding::NotReady(
+            last_line(&stderr_tail).unwrap_or("the program said it is not ready").to_owned(),
+        )),
+        Ok(status) => {
+            let (code, signal) = describe_exit(status);
+            CallOutcome::ProgramFailed { code, signal, stderr_tail }
+        }
+        Err(error) => CallOutcome::ProgramFailed { code: None, signal: None, stderr_tail: error.to_string() },
+    }
 }
 
 /// Reads what a program wrote to its output file, and has the child check it against the command's
@@ -413,7 +442,7 @@ async fn read_output(
         return crashed(child).await;
     }
     let wanted = run.run_id;
-    match wait_for(context, child, lease, limits.deadline, |message| match message {
+    match wait_for(context, child, lease, limits.deadline, AtShutdown::Finish, |message| match message {
         FromChild::Checked { run_id, result } if run_id == wanted => Some(result),
         _ => None,
     })

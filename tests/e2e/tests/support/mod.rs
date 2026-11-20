@@ -212,3 +212,72 @@ async fn unfinished(pool: &PgPool, run_id: Uuid) -> Option<(String, Option<Strin
         .await
         .unwrap()
 }
+
+/// A trusted caller signing its own requests, without the client's retries, so a test sees each
+/// HTTP answer as it is.
+pub struct Signer {
+    pub base: String,
+    pub caller: String,
+    pub audience: String,
+    pub key: downbeat_api::PrivateKey,
+    pub scope: downbeat_api::Scope,
+    pub jobs: Option<Vec<String>>,
+}
+
+impl Signer {
+    /// The `--local` caller, which administers everything.
+    pub fn local(base: &str) -> Signer {
+        Signer {
+            base: base.to_owned(),
+            caller: "local".into(),
+            audience: downbeat_api::DEVELOPMENT_AUDIENCE.into(),
+            key: downbeat_api::development_key(),
+            scope: downbeat_api::Scope::Administer,
+            jobs: None,
+        }
+    }
+
+    /// A fresh token for one request.
+    pub fn token(&self, method: &str, path: &str, body: &[u8]) -> String {
+        let binding = downbeat_api::RequestBinding { method, path_and_query: path, body };
+        let claims = downbeat_api::Claims::for_request(
+            &self.caller,
+            &self.caller,
+            &self.audience,
+            self.scope,
+            self.jobs.clone(),
+            binding,
+            chrono::Utc::now().timestamp(),
+        );
+        downbeat_api::sign(&self.key, &claims)
+    }
+
+    /// Sends a request with a fresh token.
+    pub async fn send(&self, method: &str, path: &str, body: &[u8]) -> reqwest::Response {
+        self.send_with(method, path, body, &self.token(method, path, body)).await
+    }
+
+    /// Sends a request with the token given, such as one used before.
+    pub async fn send_with(&self, method: &str, path: &str, body: &[u8], token: &str) -> reqwest::Response {
+        reqwest::Client::new()
+            .request(reqwest::Method::from_bytes(method.as_bytes()).unwrap(), format!("{}{path}", self.base))
+            .bearer_auth(token)
+            .header("content-type", "application/json")
+            .body(body.to_vec())
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> T {
+        let response = self.send("GET", path, b"").await;
+        assert_eq!(response.status(), 200, "GET {path}");
+        response.json().await.unwrap()
+    }
+
+    pub async fn post<T: serde::de::DeserializeOwned>(&self, path: &str, body: &serde_json::Value) -> T {
+        let response = self.send("POST", path, &serde_json::to_vec(body).unwrap()).await;
+        assert!(response.status().is_success(), "POST {path}: {}", response.status());
+        response.json().await.unwrap()
+    }
+}

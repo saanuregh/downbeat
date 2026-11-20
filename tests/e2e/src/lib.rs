@@ -204,6 +204,27 @@ pub async fn leaves_a_task(_run: Run) -> Result<()> {
     Ok(())
 }
 
+/// Its condition crashes the child the first time it is tested for an input (it leaves the file
+/// the input names), so the run is prepared twice.
+#[job(attempts = 2, backoff = 1.seconds(), retry_on = [Crash])]
+pub async fn crashes_while_prepared(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+fn not_tested_before(input: &Text) -> bool {
+    if !std::path::Path::new(&input.text).exists() {
+        let _ = std::fs::write(&input.text, "tested");
+        std::process::abort();
+    }
+    true
+}
+
+/// Waits until it is asked to stop, then exits cleanly at once.
+#[command]
+pub fn finishes_when_asked_to_stop() -> Program<()> {
+    Program::new("/bin/sh").args(["-c", "trap 'exit 0' TERM; sleep 60 & wait"])
+}
+
 #[command]
 pub fn leaves_a_process_behind() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "sleep 300 & echo started"])
@@ -237,6 +258,8 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(single);
     pipeline.job(exits);
     pipeline.job(leaves_a_process_behind);
+    pipeline.job(crashes_while_prepared).only_if("not tested before", not_tested_before);
+    pipeline.job(finishes_when_asked_to_stop);
 }
 
 fn clock(pipeline: &mut Pipeline) {

@@ -144,3 +144,22 @@ async fn a_worker_that_lost_its_fence_stops_and_writes_nothing_more() {
     assert_eq!(done.status, "succeeded", "{}", done.reason);
     assert_eq!(done.lost_count, 1);
 }
+
+#[tokio::test]
+async fn a_command_that_finishes_during_a_shutdown_is_recorded_as_finished() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let app = App::start(&database);
+
+    let run = client.start(finishes_when_asked_to_stop, ()).await.unwrap();
+    let running = format!(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = '{}' AND function_started_at IS NOT NULL)",
+        run.run_id()
+    );
+    eventually(&database.pool, &running, Duration::from_secs(20)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    app.stop();
+
+    let done = finished(&database.pool, run.run_id(), Duration::from_secs(5)).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+}

@@ -116,18 +116,13 @@ async fn preview_start(
         effects.push(format!("When it ends, it can start: {}.", children.join(", ")));
     }
     let false_conditions =
-        if options.ignore_conditions { false_conditions(state, found, input, input_hash).await? } else { Vec::new() };
+        if options.ignore_conditions { false_conditions(state, found, input).await? } else { Vec::new() };
     preview(effects, false_conditions)
 }
 
 /// The conditions of a job that are false right now, for a start that would ignore them. These
 /// call the product's code, so each call is guarded: a panic marks that condition as false.
-async fn false_conditions(
-    state: &State,
-    found: &RegisteredJob,
-    input: &Value,
-    input_hash: &str,
-) -> Result<Vec<String>, Failure> {
+async fn false_conditions(state: &State, found: &RegisteredJob, input: &Value) -> Result<Vec<String>, Failure> {
     let mut false_now = Vec::new();
     for condition in &found.conditions {
         let what = format!("the condition '{}' of {}", condition.name, found.spec.name);
@@ -151,11 +146,6 @@ async fn false_conditions(
             false_now.push(format!("needs {}", need.job));
         }
     }
-    if found.if_changed
-        && let Some((Some(hash), _)) = history::last_success(&state.pool, found.spec.name, None).await?
-        && hash == input_hash
-    {
-        false_now.push("if its input changed".to_owned());
-    }
+    // `if_changed` is not listed: it applies only to runs a schedule or a link starts.
     Ok(false_now)
 }

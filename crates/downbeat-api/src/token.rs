@@ -273,6 +273,50 @@ mod tests {
         assert!(matches!(result, Err(TokenError::Expired(_))));
     }
 
+    /// Signs claims under a header made of these fields, so a test can break one of them.
+    fn with_header(key: &PrivateKey, header: &serde_json::Value, claims: &Claims) -> String {
+        let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(header).unwrap());
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap());
+        let signing_input = format!("{header}.{payload}");
+        let signature: Signature = key.signing().sign(signing_input.as_bytes());
+        format!("{signing_input}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes()))
+    }
+
+    fn claims() -> Claims {
+        Claims::for_request("console", "asha", "prod", Scope::Operate, None, request(b""), NOW)
+    }
+
+    #[test]
+    fn a_token_with_the_wrong_type_algorithm_or_no_key_id_is_refused() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let check =
+            |header| verify(&with_header(&key, header, &claims()), |_| Some(&keys[..]), "prod", request(b""), NOW);
+
+        let good = serde_json::json!({ "alg": "EdDSA", "typ": TOKEN_TYPE, "kid": key.id() });
+        assert!(check(&good).is_ok(), "the older algorithm name is accepted");
+        let wrong_type = serde_json::json!({ "alg": "Ed25519", "typ": "JWT", "kid": key.id() });
+        assert_eq!(check(&wrong_type), Err(TokenError::WrongType));
+        let wrong_algorithm = serde_json::json!({ "alg": "HS256", "typ": TOKEN_TYPE, "kid": key.id() });
+        assert_eq!(check(&wrong_algorithm), Err(TokenError::WrongAlgorithm));
+        let no_key_id = serde_json::json!({ "alg": "Ed25519", "typ": TOKEN_TYPE });
+        assert!(check(&no_key_id).is_err());
+    }
+
+    #[test]
+    fn a_token_that_lives_too_long_or_starts_in_the_future_is_refused() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let check = |claims: &Claims| verify(&sign(&key, claims), |_| Some(&keys[..]), "prod", request(b""), NOW);
+
+        let long = Claims { exp: NOW + LIFETIME_SECONDS + 1, ..claims() };
+        assert_eq!(check(&long), Err(TokenError::TooLong));
+        let at_the_leeway = Claims { iat: NOW + LEEWAY_SECONDS, exp: NOW + LEEWAY_SECONDS + 30, ..claims() };
+        assert!(check(&at_the_leeway).is_ok());
+        let future = Claims { iat: NOW + LEEWAY_SECONDS + 1, exp: NOW + LEEWAY_SECONDS + 31, ..claims() };
+        assert!(matches!(check(&future), Err(TokenError::Expired(_))));
+    }
+
     #[test]
     fn scopes_are_ordered() {
         assert!(Scope::Read < Scope::Operate && Scope::Operate < Scope::Administer);

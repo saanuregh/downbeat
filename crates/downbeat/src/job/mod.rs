@@ -19,7 +19,7 @@ use futures::future::BoxFuture;
 use serde_json::Value;
 
 pub use data::{FieldShape, JobData, Shape, without_fields};
-pub(crate) use data::{identity_hash, unknown_fields};
+pub(crate) use data::{decode_strict, identity_hash};
 pub(crate) use outcome::Stop;
 pub use outcome::{JobError, Outcome, Result, not_ready, skip};
 pub use policy::{Backoff, Policy, RetryOn, RetryOnSet, Turn, presets};
@@ -148,18 +148,12 @@ impl JobSpec {
 /// Decode a value into `T` and encode it again, so what is stored is what the type would write.
 #[allow(clippy::needless_pass_by_value)] // Its type is the `fn(Value, bool)` stored in `InputOps`.
 pub(crate) fn normalize<T: JobData>(value: Value, strict: bool) -> std::result::Result<Value, String> {
-    let typed: T = decode(value.clone())?;
+    let typed: T = if strict { decode_strict(&value)? } else { decode(value)? };
     let encoded = serde_json::to_value(&typed).map_err(|error| error.to_string())?;
     // Every value the engine stores (input or output) is held to the same limit.
     let size = encoded.to_string().len();
     if size > MAX_VALUE_BYTES {
         return Err(format!("the value is {size} bytes; the limit is {MAX_VALUE_BYTES}"));
-    }
-    if strict {
-        let unknown = unknown_fields(&value, &encoded);
-        if !unknown.is_empty() {
-            return Err(format!("unknown field(s): {}", unknown.join(", ")));
-        }
     }
     Ok(encoded)
 }

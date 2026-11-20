@@ -37,6 +37,11 @@ async fn uses_pool(_run: Run, _pool: &Pool) -> Result<()> {
 }
 
 #[job]
+async fn waits_on_itself(_run: Run) -> Result<()> {
+    Ok(())
+}
+
+#[job]
 async fn forgotten(_run: Run) -> Result<()> {
     Ok(())
 }
@@ -52,6 +57,7 @@ fn broken(pipeline: &mut Pipeline) {
     pipeline.job(loop_a).after(loop_b);
     pipeline.job(loop_b).after(loop_a);
     pipeline.job(uses_pool);
+    pipeline.job(waits_on_itself).needs(waits_on_itself.done_within(1.hours()));
 }
 
 fn definition() -> Definition {
@@ -73,6 +79,7 @@ fn check_names_each_problem_and_its_fix() {
         "loop_a: its links form a cycle",
         "uses_pool: it takes &check::Pool but the definition does not provide one",
         "forgotten: no pipeline names this job",
+        "waits_on_itself: a job cannot need itself",
     ];
     for expected in expect {
         assert!(problems.iter().any(|problem| problem.starts_with(expected)), "missing {expected:?} in {problems:#?}");
