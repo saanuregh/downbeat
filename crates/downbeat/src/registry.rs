@@ -72,6 +72,15 @@ impl std::fmt::Display for Problem {
 impl Registry {
     /// Runs the definition's pipelines and checks the result. `environment` selects which
     /// schedules exist; `None` keeps every schedule (for `check`).
+    /// [`Registry::build`], with the problems as one readable error, as every entry point that
+    /// cannot go on without a registry reports them.
+    pub(crate) fn build_or_explain(definition: Definition, environment: Option<&str>) -> anyhow::Result<Registry> {
+        Registry::build(definition, environment).map_err(|problems| {
+            let lines: Vec<String> = problems.iter().map(|problem| format!("  {problem}")).collect();
+            anyhow::anyhow!("the definition has problems; `check` lists them:\n{}", lines.join("\n"))
+        })
+    }
+
     pub(crate) fn build(definition: Definition, environment: Option<&str>) -> Result<Registry, Vec<Problem>> {
         let mut problems = Problems::default();
         let zone = parse_zone(&definition.zone, "definition", &mut problems);

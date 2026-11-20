@@ -163,10 +163,7 @@ async fn dispatch(command: Command, definition: fn() -> Definition) -> anyhow::R
 }
 
 fn build_registry(definition: Definition, environment: Option<&str>) -> anyhow::Result<Arc<Registry>> {
-    Registry::build(definition, environment).map(Arc::new).map_err(|problems| {
-        let lines: Vec<String> = problems.iter().map(|problem| format!("  {problem}")).collect();
-        anyhow::anyhow!("the definition has problems; `check` lists them:\n{}", lines.join("\n"))
-    })
+    Registry::build_or_explain(definition, environment).map(Arc::new)
 }
 
 /// Starts the scheduler role, the worker role, or both, until SIGTERM or Ctrl-C.

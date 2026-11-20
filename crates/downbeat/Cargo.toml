@@ -43,4 +43,6 @@ workspace = true
 
 [dev-dependencies]
 serde.workspace = true
+# A paused clock, so a test of the reaper's hourly pruning takes no time.
+tokio = { workspace = true, features = ["test-util"] }
 trybuild.workspace = true

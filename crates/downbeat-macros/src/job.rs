@@ -144,7 +144,7 @@ fn inputs_and_dependencies<'a>(parameters: impl Iterator<Item = &'a FnArg>) -> s
             ty => {
                 return Err(syn::Error::new_spanned(
                     ty,
-                    "a job takes one input, by value, before its dependencies; a job with several parents takes them as one tuple",
+                    "a job or command takes one input, by value, before its dependencies; a job with several parents takes them as one tuple",
                 ));
             }
         }

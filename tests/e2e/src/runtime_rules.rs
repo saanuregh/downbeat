@@ -154,6 +154,53 @@ pub async fn starts_only_when_changed(run: Run, input: Text) -> Result<Text> {
     Ok(Text { text: started.run_id().to_string() })
 }
 
+/// Skipped unless its number is positive; `after_may_skip` follows it with `.after`.
+#[job]
+pub async fn may_skip(_run: Run, input: Number) -> Result<Number> {
+    Ok(input)
+}
+
+#[job]
+pub async fn after_may_skip(_run: Run, input: Number) -> Result<Number> {
+    Ok(input)
+}
+
+/// Hands its text to `takes_turns_slowly`.
+#[job]
+pub async fn relays(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// One at a time, after `relays`; its condition appends a line to `<text>.conditions` each time
+/// the run is prepared, and it takes three seconds.
+#[job(one_at_a_time)]
+pub async fn takes_turns_slowly(_run: Run, input: Text) -> Result<()> {
+    let _ = input;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    Ok(())
+}
+
+/// Always fails; its backoff doubles from one second.
+#[job(attempts = 3, backoff = 1.seconds()..=8.seconds())]
+pub async fn doubles_its_wait(_run: Run) -> Result<()> {
+    Err(JobError::msg("fails on purpose"))
+}
+
+/// Reports its text as progress, then takes four seconds.
+#[job]
+pub async fn reports_progress(run: Run, input: Text) -> Result<()> {
+    run.progress(input.text);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    Ok(())
+}
+
+/// `if_changed`, on a schedule every second in the `rules` environment that always gives the text
+/// `same`.
+#[job]
+pub async fn ticks_unless_unchanged(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
 pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(takes_lopsided);
     pipeline.job(starts_lopsided);
@@ -179,4 +226,14 @@ pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
         .needs(needed_second.done_for(|input: &Text| input.clone()).or_fail());
     pipeline.job(only_when_changed).if_changed();
     pipeline.job(starts_only_when_changed);
+    pipeline.job(may_skip).only_if("positive", |input: &Number| input.n > 0);
+    pipeline.job(after_may_skip).after(may_skip);
+    pipeline.job(relays);
+    pipeline.job(takes_turns_slowly).after(relays).only_if("counted", crate::counts_conditions);
+    pipeline.job(doubles_its_wait);
+    pipeline.job(reports_progress);
+    pipeline
+        .job(ticks_unless_unchanged)
+        .schedule(every(1.seconds()).in_environments(["rules"]).input(|_| Text { text: "same".into() }))
+        .if_changed();
 }

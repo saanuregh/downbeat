@@ -1,4 +1,4 @@
-error: a job takes one input, by value, before its dependencies; a job with several parents takes them as one tuple
+error: a job or command takes one input, by value, before its dependencies; a job with several parents takes them as one tuple
  --> tests/compile_fail/job_takes_two_inputs.rs:4:43
   |
 4 | async fn two_inputs(_run: Run, a: u32, b: u32) -> Result<u32> {

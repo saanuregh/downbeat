@@ -147,4 +147,49 @@ mod tests {
             "administering one pipeline is not administering the scheduler"
         );
     }
+
+    fn to_group(grant: Grant, group: &str) -> Grant {
+        Grant { to_person: None, to_group: Some(group.into()), ..grant }
+    }
+
+    #[test]
+    fn several_pipeline_grants_give_the_union_of_their_pipelines() {
+        let grants = [
+            grant("operate", Some(&["eod", "billing"])),
+            to_group(grant("administer", Some(&["billing", "reports"])), "finance"),
+            grant("read", None),
+            Grant { scheduler: "uat".into(), ..grant("operate", None) },
+        ];
+        let asha = person("asha@example.com", &["finance"]);
+        assert_eq!(
+            access(&config(), &asha, &grants, "prod", Scope::Operate),
+            Some(Access {
+                scope: Scope::Operate,
+                pipelines: Some(vec!["billing".into(), "eod".into(), "reports".into()])
+            }),
+            "a lower grant with no pipelines and a grant on another scheduler do not count"
+        );
+        assert_eq!(
+            access(&config(), &asha, &grants, "prod", Scope::Administer),
+            Some(Access { scope: Scope::Administer, pipelines: Some(vec!["billing".into(), "reports".into()]) })
+        );
+    }
+
+    #[test]
+    fn one_reaching_grant_with_no_pipelines_makes_the_access_unlimited() {
+        let grants = [
+            grant("operate", Some(&["eod"])),
+            to_group(grant("operate", None), "ops"),
+            grant("administer", Some(&["billing"])),
+        ];
+        let asha = person("asha@example.com", &["ops"]);
+        assert_eq!(
+            access(&config(), &asha, &grants, "prod", Scope::Operate),
+            Some(Access { scope: Scope::Operate, pipelines: None })
+        );
+        assert_eq!(
+            access(&config(), &asha, &grants, "prod", Scope::Read),
+            Some(Access { scope: Scope::Read, pipelines: None })
+        );
+    }
 }

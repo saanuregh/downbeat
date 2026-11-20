@@ -51,6 +51,16 @@ pub async fn keeps_three(_run: Run) -> Result<()> {
     Ok(())
 }
 
+/// Backfilled by date; its schedule fires on the 1st to the 3rd, but its day rule turns the 2nd off.
+#[job]
+pub async fn backfilled_early_day(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+    Ok(day)
+}
+
+fn off_on_the_second(date: NaiveDate, _rules: &DayRules) -> Day {
+    if chrono::Datelike::day(&date) == 2 { Day::Off("the 2nd is off".into()) } else { Day::Normal }
+}
+
 fn half_an_hour_later(_date: NaiveDate, _rules: &DayRules) -> Day {
     Day::Shifted(chrono::TimeDelta::minutes(30))
 }
@@ -82,4 +92,12 @@ pub(crate) fn chain_rules_jobs(pipeline: &mut Pipeline) {
             .named("shifted_window"),
     );
     pipeline.job(keeps_three);
+    pipeline.job(backfilled_early_day).schedule(
+        daily_at(["00:00"])
+            .on_days_of_month([1, 2, 3])
+            .by_calendar(off_on_the_second)
+            .input(Occurrence::date)
+            .in_environments(["rules"])
+            .named("early_days_but_the_second"),
+    );
 }

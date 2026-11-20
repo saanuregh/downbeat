@@ -247,4 +247,43 @@ mod tests {
         assert_eq!(occurrences.len(), 1);
         assert_eq!(occurrences[0].at.to_rfc3339(), "2026-11-01T05:30:00+00:00");
     }
+
+    // Spec 8.2: the filters apply to a shifted plan as they do to a normal one.
+    #[test]
+    fn weekday_and_day_of_month_filters_apply_to_a_shifted_plan() {
+        let shift = DayPlan::Shifted(TimeDelta::minutes(30));
+        let mut by_weekday = schedule(Times::DailyAt(vec![parse_time("09:00").unwrap()]), chrono_tz::UTC);
+        by_weekday.weekdays = Some(vec![Weekday::Mon]);
+        // 2026-11-21 is a Saturday, 2026-11-23 a Monday.
+        assert!(by_weekday.occurrences_on(date("2026-11-21"), &shift).is_empty());
+        assert_eq!(local_times(&by_weekday.occurrences_on(date("2026-11-23"), &shift)), ["11-23 09:30"]);
+
+        let window = Some((parse_time("09:00").unwrap(), parse_time("10:00").unwrap()));
+        let mut by_day = schedule(Times::Every { interval: 1.hours(), window }, chrono_tz::UTC);
+        by_day.month_days = Some(vec![20]);
+        assert!(by_day.occurrences_on(date("2026-11-21"), &shift).is_empty());
+        assert_eq!(local_times(&by_day.occurrences_on(date("2026-11-20"), &shift)), ["11-20 09:30", "11-20 10:30"]);
+    }
+
+    // Spec 8.15: the digest covers the weekdays, the days of the month and the zone.
+    #[test]
+    fn the_times_digest_changes_with_weekdays_days_of_month_and_zone() {
+        use crate::scheduler::plan::times_hash;
+        let base = schedule(Times::DailyAt(vec![parse_time("09:00").unwrap()]), chrono_tz::UTC);
+        assert_eq!(times_hash(&base), times_hash(&base.clone()));
+        let mut weekdays = base.clone();
+        weekdays.weekdays = Some(vec![Weekday::Mon]);
+        let mut month_days = base.clone();
+        month_days.month_days = Some(vec![1]);
+        let mut zone = base.clone();
+        zone.zone = chrono_tz::Asia::Kolkata;
+        let mut other_weekday = weekdays.clone();
+        other_weekday.weekdays = Some(vec![Weekday::Tue]);
+        let digests = [&base, &weekdays, &month_days, &zone, &other_weekday].map(times_hash);
+        for (i, a) in digests.iter().enumerate() {
+            for b in &digests[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
 }

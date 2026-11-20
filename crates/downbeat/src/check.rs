@@ -66,8 +66,7 @@ pub(crate) async fn run_once(
     job: &str,
     input: Option<&str>,
 ) -> anyhow::Result<ExitCode> {
-    let registry = Registry::build(definition, environment)
-        .map_err(|problems| anyhow::anyhow!("the definition has problems: {problems:?}"))?;
+    let registry = Registry::build_or_explain(definition, environment)?;
     let registry = Arc::new(registry);
     let found = registry.job(job).ok_or_else(|| anyhow::anyhow!("there is no job named {job}"))?;
     let input: Value = match input {

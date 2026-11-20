@@ -1,0 +1,5 @@
+error: a job or command takes one input, by value, before its dependencies; a job with several parents takes them as one tuple
+ --> tests/compile_fail/command_takes_two_inputs.rs:4:29
+  |
+4 | fn copies(from: String, to: String) -> Program<()> {
+  |                             ^^^^^^

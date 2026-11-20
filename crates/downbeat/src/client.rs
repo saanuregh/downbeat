@@ -32,8 +32,7 @@ impl InAppClient {
     /// Connects to the product's database, where the engine's tables are.
     pub async fn connect(definition: fn() -> Definition, database_url: &str) -> anyhow::Result<InAppClient> {
         let environment = std::env::var(crate::child::ENVIRONMENT).ok();
-        let registry = Registry::build(definition(), environment.as_deref())
-            .map_err(|problems| anyhow::anyhow!("the definition has problems: {problems:?}"))?;
+        let registry = Registry::build_or_explain(definition(), environment.as_deref())?;
         let store = Store::connect(database_url, 4).await?;
         Ok(InAppClient { pool: store.pool, registry: Arc::new(registry) })
     }

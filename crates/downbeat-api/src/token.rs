@@ -334,6 +334,61 @@ mod tests {
     }
 
     #[test]
+    fn a_token_is_accepted_up_to_five_seconds_after_it_expires() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let claims = claims();
+        let token = sign(&key, &claims);
+        let at = |now| verify(&token, |_| Some(&keys[..]), "prod", request(b""), now);
+
+        assert!(at(claims.exp + LEEWAY_SECONDS).is_ok(), "exp + 5 s is accepted");
+        assert_eq!(at(claims.exp + 6), Err(TokenError::Expired(claims.exp + 6 - claims.iat)), "exp + 6 s is refused");
+    }
+
+    #[test]
+    fn a_token_is_accepted_up_to_five_seconds_before_it_was_issued() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let claims = claims();
+        let token = sign(&key, &claims);
+        let at = |now| verify(&token, |_| Some(&keys[..]), "prod", request(b""), now);
+
+        assert!(at(claims.iat - LEEWAY_SECONDS).is_ok(), "iat - 5 s is accepted");
+        assert_eq!(at(claims.iat - 6), Err(TokenError::Expired(-6)), "iat - 6 s is refused");
+    }
+
+    /// The order of the Ed25519 group, little-endian.
+    const GROUP_ORDER: [u8; 32] = [
+        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
+    ];
+
+    #[test]
+    fn a_signature_whose_scalar_is_not_reduced_is_refused() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let token = sign(&key, &claims());
+        let (signing_input, signature) = token.rsplit_once('.').unwrap();
+        let mut bytes = URL_SAFE_NO_PAD.decode(signature).unwrap();
+        // S + L is the same point equation, so only a strict check of S < L tells them apart.
+        let mut carry = 0_u16;
+        for (byte, order) in bytes[32..].iter_mut().zip(GROUP_ORDER) {
+            let sum = u16::from(*byte) + u16::from(order) + carry;
+            *byte = sum.to_le_bytes()[0];
+            carry = sum >> 8;
+        }
+        assert_eq!(carry, 0, "S + L fits in 32 bytes, since S < L < 2^253");
+        let malleated = format!("{signing_input}.{}", URL_SAFE_NO_PAD.encode(&bytes));
+
+        assert!(verify(&token, |_| Some(&keys[..]), "prod", request(b""), NOW).is_ok());
+        let result = verify(&malleated, |_| Some(&keys[..]), "prod", request(b""), NOW);
+        assert!(
+            matches!(result, Err(TokenError::BadSignature | TokenError::Malformed)),
+            "a non-canonical signature was {result:?}"
+        );
+    }
+
+    #[test]
     fn scopes_are_ordered() {
         assert!(Scope::Read < Scope::Operate && Scope::Operate < Scope::Administer);
     }

@@ -50,8 +50,7 @@ pub(crate) fn main(definition: fn() -> Definition, descriptor: &str) -> std::pro
 async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Result<()> {
     let descriptor: i32 = descriptor.parse()?;
     let environment = std::env::var(ENVIRONMENT).ok();
-    let registry = Registry::build(definition(), environment.as_deref())
-        .map_err(|problems| anyhow::anyhow!("the definition has problems: {problems:?}"))?;
+    let registry = Registry::build_or_explain(definition(), environment.as_deref())?;
     let registry = Arc::new(registry);
 
     // SAFETY: the worker started this process with its end of a socket pair on this descriptor,

@@ -26,21 +26,32 @@ const PRUNE_EVERY: Duration = Duration::from_secs(3600);
 const BATCH: i64 = 100;
 
 pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: CancellationToken) {
-    let mut sweep = tokio::time::interval(SWEEP_EVERY);
-    let mut prune = tokio::time::interval(PRUNE_EVERY);
+    let sweep = || async {
+        if let Err(error) = sweep_once(&pool, &registry).await {
+            tracing::warn!(%error, "a sweep failed");
+        }
+    };
+    let prune = || async {
+        if let Err(error) = crate::pruning::prune(&pool, &registry).await {
+            tracing::warn!(%error, "pruning failed");
+        }
+    };
+    on_two_clocks(sweep, prune, stop).await;
+}
+
+/// Calls `sweep` every five seconds and `prune` every hour, each first at once, until stopped.
+async fn on_two_clocks<S, P>(mut sweep: impl FnMut() -> S, mut prune: impl FnMut() -> P, stop: CancellationToken)
+where
+    S: Future<Output = ()>,
+    P: Future<Output = ()>,
+{
+    let mut sweeps = tokio::time::interval(SWEEP_EVERY);
+    let mut prunes = tokio::time::interval(PRUNE_EVERY);
     loop {
         tokio::select! {
             () = stop.cancelled() => return,
-            _ = sweep.tick() => {
-                if let Err(error) = sweep_once(&pool, &registry).await {
-                    tracing::warn!(%error, "a sweep failed");
-                }
-            }
-            _ = prune.tick() => {
-                if let Err(error) = crate::pruning::prune(&pool, &registry).await {
-                    tracing::warn!(%error, "pruning failed");
-                }
-            }
+            _ = sweeps.tick() => sweep().await,
+            _ = prunes.tick() => prune().await,
         }
     }
 }
@@ -227,4 +238,33 @@ async fn unregistered(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
         ending::end(pool, registry, row.run_id, row.chain_id, row.fence, ending).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn sweeps_run_every_five_seconds_and_pruning_every_hour() {
+        let (sweeps, prunes) = (AtomicU32::new(0), AtomicU32::new(0));
+        let stop = CancellationToken::new();
+        let clocks = on_two_clocks(
+            || async {
+                sweeps.fetch_add(1, Ordering::SeqCst);
+            },
+            || async {
+                prunes.fetch_add(1, Ordering::SeqCst);
+            },
+            stop.clone(),
+        );
+        let two_hours = async {
+            tokio::time::sleep(Duration::from_hours(2) + Duration::from_millis(1)).await;
+            stop.cancel();
+        };
+        tokio::join!(clocks, two_hours);
+        assert_eq!(prunes.load(Ordering::SeqCst), 3, "at start, after one hour and after two");
+        assert_eq!(sweeps.load(Ordering::SeqCst), 2 * 3600 / 5 + 1);
+    }
 }
