@@ -201,6 +201,13 @@ pub async fn ticks_unless_unchanged(_run: Run, input: Text) -> Result<Text> {
     Ok(input)
 }
 
+/// Sleeps this many milliseconds on the `quick` queue, whose heartbeat is half a second.
+#[job(queue = "quick")]
+pub async fn naps_on_the_quick_queue(_run: Run, input: crate::Number) -> Result<()> {
+    tokio::time::sleep(std::time::Duration::from_millis(u64::try_from(input.n).unwrap_or(0))).await;
+    Ok(())
+}
+
 pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(takes_lopsided);
     pipeline.job(starts_lopsided);
@@ -236,4 +243,5 @@ pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
         .job(ticks_unless_unchanged)
         .schedule(every(1.seconds()).in_environments(["rules"]).input(|_| Text { text: "same".into() }))
         .if_changed();
+    pipeline.job(naps_on_the_quick_queue);
 }

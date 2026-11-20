@@ -136,7 +136,7 @@ Modules: `job/policy.rs`, `worker/mod.rs`, `reaper.rs`.
    queue after `recheck_every`, with nothing counted.
 5. A queued run whose `created_at` is more than its job's `give_up_after` ago must end as `failed`
    (`gave_up`), whatever it is waiting for, with a reason that ends with its last stored queued
-   reason, if it has one.
+   reason (without that reason's final full stop), if it has one.
 6. "Check now" must make a queued run due at once only when its stored `queued_because` is
    `not_ready`, `need_not_met` or `backing_off`.
 

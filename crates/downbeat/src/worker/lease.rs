@@ -94,9 +94,10 @@ async fn beat(
     // believes it holds the run for longer than the database does.
     let mut last_good_send = Instant::now();
     let mut next_beat = Instant::now() + heartbeat;
-    let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
-        tick.tick().await;
+        // Wake for the next beat, or when the lease would run out without one, whichever is first,
+        // so any `heartbeat`, including one under a second, is kept exactly.
+        tokio::time::sleep_until(next_beat.min(last_good_send + length)).await;
         if last_good_send.elapsed() >= length {
             let _ = signal.send(Some(StopReason::Unreachable));
             return;
