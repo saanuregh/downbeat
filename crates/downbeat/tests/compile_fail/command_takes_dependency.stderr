@@ -1,0 +1,5 @@
+error: a #[command] function takes only its input; the program gets what it needs from its environment
+ --> tests/compile_fail/command_takes_dependency.rs:6:24
+  |
+6 | fn lists_files(_pool: &Pool) -> Program<()> {
+  |                        ^^^^

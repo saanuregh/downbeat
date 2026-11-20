@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use tokio::time::{Instant, MissedTickBehavior, sleep_until};
+use uuid::Uuid;
 
 use super::child::ChildHandle;
 use super::lease::{Lease, StopReason};
@@ -60,6 +61,7 @@ pub(crate) enum AtShutdown {
 pub(crate) async fn wait_for<T>(
     context: &WorkerContext,
     child: &mut ChildHandle,
+    run_id: Uuid,
     lease: &mut Lease,
     deadline_at: Option<Instant>,
     at_shutdown: AtShutdown,
@@ -67,7 +69,7 @@ pub(crate) async fn wait_for<T>(
 ) -> Result<T, Interrupted> {
     let interrupted = loop {
         tokio::select! {
-            message = child.next() => match message {
+            message = child.next_for(run_id) => match message {
                 Some(message) => if let Some(found) = pick(message) { return Ok(found) },
                 None => return Err(match crashed(child).await {
                     CallOutcome::Crashed { code, signal } => Interrupted::Crashed { code, signal },
@@ -182,9 +184,9 @@ pub(crate) async fn function(
     memory.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let stop = loop {
         tokio::select! {
-            message = child.next() => match message {
+            message = child.next_for(run.run_id) => match message {
                 None => return crashed(child).await,
-                Some(FromChild::Ended { run_id, ending }) if run_id == run.run_id => return CallOutcome::Ended(ending),
+                Some(FromChild::Ended { ending, .. }) => return CallOutcome::Ended(ending),
                 Some(message) => answer(context, child, run, lease, message).await,
             },
             () = deadline(limits.deadline) => break CallOutcome::TimedOut,
@@ -201,8 +203,8 @@ pub(crate) async fn function(
     let grace = Instant::now() + context.registry.settings.kill_grace;
     loop {
         tokio::select! {
-            message = child.next() => match message {
-                Some(FromChild::Ended { run_id, ending }) if run_id == run.run_id => {
+            message = child.next_for(run.run_id) => match message {
+                Some(FromChild::Ended { ending, .. }) => {
                     // Work that finished during a shutdown is kept; a timeout or a cancel stands.
                     return if matches!(stop, CallOutcome::Interrupted) { CallOutcome::Ended(ending) } else { stop };
                 }
@@ -220,12 +222,12 @@ pub(crate) async fn function(
 /// Handles what a running function sends besides its ending.
 async fn answer(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, lease: &Lease, message: FromChild) {
     match message {
-        FromChild::LeftTasks { run_id, count } if run_id == run.run_id => {
+        FromChild::LeftTasks { run_id, count } => {
             tracing::warn!(%run_id, count, "the function left tasks running; its child process will be replaced");
             child.spoiled = true;
         }
-        FromChild::Progress { run_id, text } if run_id == run.run_id => lease.progress(text),
-        FromChild::Checkpoint { run_id, state, request } if run_id == run.run_id => match request {
+        FromChild::Progress { text, .. } => lease.progress(text),
+        FromChild::Checkpoint { run_id, state, request } => match request {
             None => lease.checkpoint(state),
             Some(request) => {
                 let result = match tokio::time::timeout(ANSWER_WITHIN, lease.checkpoint_now(state)).await {
@@ -237,7 +239,7 @@ async fn answer(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, 
                 let _ = child.send(&ToChild::Answer { run_id, request, result }).await;
             }
         },
-        FromChild::Start { run_id, request, start } if run_id == run.run_id => {
+        FromChild::Start { run_id, request, start } => {
             let result = match tokio::time::timeout(ANSWER_WITHIN, start_from_job(context, run, start)).await {
                 Ok(result) => result.map(Some),
                 Err(_) => Err("starting the job took too long".to_owned()),
@@ -271,16 +273,16 @@ pub(crate) async fn command(
     if child.send(&ToChild::Go { run: run_info(run), input: input.clone(), checkpoint: None }).await.is_err() {
         return crashed(child).await;
     }
-    let wanted = run.run_id;
-    let spec = match wait_for(context, child, lease, limits.deadline, AtShutdown::Stop, |message| match message {
-        FromChild::Program { run_id, result } if run_id == wanted => Some(result),
-        _ => None,
-    })
-    .await
-    {
-        Ok(spec) => spec,
-        Err(interrupted) => return interrupted.into(),
-    };
+    let spec =
+        match wait_for(context, child, run.run_id, lease, limits.deadline, AtShutdown::Stop, |message| match message {
+            FromChild::Program { result, .. } => Some(result),
+            _ => None,
+        })
+        .await
+        {
+            Ok(spec) => spec,
+            Err(interrupted) => return interrupted.into(),
+        };
     let spec = match spec {
         Ok(spec) => spec,
         Err(error) => return CallOutcome::Ended(ChildEnding::BadInput(error)),
@@ -446,9 +448,8 @@ async fn read_output(
     if child.send(&check).await.is_err() {
         return crashed(child).await;
     }
-    let wanted = run.run_id;
-    match wait_for(context, child, lease, limits.deadline, AtShutdown::Finish, |message| match message {
-        FromChild::Checked { run_id, result } if run_id == wanted => Some(result),
+    match wait_for(context, child, run.run_id, lease, limits.deadline, AtShutdown::Finish, |message| match message {
+        FromChild::Checked { result, .. } => Some(result),
         _ => None,
     })
     .await

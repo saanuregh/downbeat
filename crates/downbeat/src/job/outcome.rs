@@ -7,9 +7,21 @@ pub type Result<T> = std::result::Result<T, JobError>;
 
 /// Why a job function did not return an output.
 ///
-/// Built by `?` from any printable error, or by [`skip`] and [`not_ready`].
+/// Built by `?` from any printable error, or by [`skip`] and [`not_ready`]. Its text is
+/// [`JobError::message`]. It does not implement `Display` itself: then it would be one of the
+/// printable errors `?` converts, and that conversion would clash with the standard library's
+/// `From<T> for T` (`anyhow::Error` makes the same trade-off).
 #[derive(Debug)]
 pub struct JobError(pub(crate) Stop);
+
+impl JobError {
+    /// What it says, as a run's reason would put it: the error, or why the run skips or waits.
+    pub fn message(&self) -> &str {
+        match &self.0 {
+            Stop::Skip(text) | Stop::NotReady(text) | Stop::Error(text) | Stop::BadInput(text) => text,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Stop {
@@ -68,6 +80,13 @@ impl<T> From<Result<T>> for Outcome<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_job_error_says_what_it_carries() {
+        let from_question_mark: JobError = std::io::Error::other("disk full").into();
+        assert_eq!(from_question_mark.message(), "disk full");
+        assert_eq!(skip::<()>("nothing to do").unwrap_err().message(), "nothing to do");
+    }
 
     #[derive(Debug)]
     struct NotStdError;

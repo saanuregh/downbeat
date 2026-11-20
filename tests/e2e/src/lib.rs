@@ -486,9 +486,10 @@ pub fn definition() -> Definition {
 
 /// The same pipelines and settings, with no `on_finish` or `on_event`.
 pub fn definition_without_callbacks() -> Definition {
-    // `rules` is for tests of schedules that must not fire in any other test.
+    // `rules` is for tests of schedules that must not fire in any other test; `shifting` holds a
+    // schedule that fires every hour, for the one test that needs it.
     let mut definition =
-        Definition::new().zone("UTC").environments(["test", "schedules", "rules"]).settings(Settings {
+        Definition::new().zone("UTC").environments(["test", "schedules", "rules", "shifting"]).settings(Settings {
             heartbeat: Duration::from_secs(1),
             lease: Duration::from_secs(3),
             kill_grace: Duration::from_secs(1),

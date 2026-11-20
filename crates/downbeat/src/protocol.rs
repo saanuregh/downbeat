@@ -91,6 +91,24 @@ pub(crate) enum FromChild {
     },
 }
 
+impl FromChild {
+    /// The run a message is about; only the opening `Ready` is about none.
+    pub(crate) fn run_id(&self) -> Option<Uuid> {
+        match self {
+            FromChild::Ready => None,
+            FromChild::Prepared { run_id, .. }
+            | FromChild::Program { run_id, .. }
+            | FromChild::Started { run_id }
+            | FromChild::Progress { run_id, .. }
+            | FromChild::Checkpoint { run_id, .. }
+            | FromChild::Start { run_id, .. }
+            | FromChild::LeftTasks { run_id, .. }
+            | FromChild::Ended { run_id, .. }
+            | FromChild::Checked { run_id, .. } => Some(*run_id),
+        }
+    }
+}
+
 /// What preparing a run found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Prepared {
@@ -163,6 +181,24 @@ pub(crate) async fn read<R: AsyncRead + Unpin, M: for<'de> Deserialize<'de>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_message_but_the_opening_ready_names_its_run() {
+        let run_id = Uuid::now_v7();
+        assert_eq!(FromChild::Ready.run_id(), None);
+        let about_the_run = [
+            FromChild::Started { run_id },
+            FromChild::Progress { run_id, text: "half".into() },
+            FromChild::Checkpoint { run_id, state: Value::Null, request: None },
+            FromChild::LeftTasks { run_id, count: 1 },
+            FromChild::Checked { run_id, result: Ok(Value::Null) },
+            FromChild::Program { run_id, result: Err("no program".into()) },
+            FromChild::Prepared { run_id, result: Err("no input".into()) },
+        ];
+        for message in about_the_run {
+            assert_eq!(message.run_id(), Some(run_id), "{message:?}");
+        }
+    }
 
     #[tokio::test]
     async fn messages_round_trip_through_the_framing() {

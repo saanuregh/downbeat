@@ -50,11 +50,10 @@ pub(crate) async fn prepare(
         None => Some(job.spec.policy.timeout),
     };
     let deadline = timeout.map(|timeout| tokio::time::Instant::now() + timeout);
-    let wanted = run.run_id;
     // A crash or a timeout here is a failed call like any other: `retry_on` and `attempts` apply.
     let verdict = super::Verdict::new(context, job, run, chrono::Utc::now());
-    let prepared = wait_for(context, child, lease, deadline, AtShutdown::Stop, |message| match message {
-        FromChild::Prepared { run_id, result } if run_id == wanted => Some(result),
+    let prepared = wait_for(context, child, run.run_id, lease, deadline, AtShutdown::Stop, |message| match message {
+        FromChild::Prepared { result, .. } => Some(result),
         _ => None,
     })
     .await

@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use super::process::{Launch, Process, Spawner};
 use crate::child::{CHILD_FD, ENVIRONMENT};
@@ -63,5 +64,18 @@ impl ChildHandle {
     /// The next message, or `None` once the child has closed its end (it exited or crashed).
     pub(crate) async fn next(&mut self) -> Option<FromChild> {
         self.messages.recv().await
+    }
+
+    /// The next message about this run, or `None` once the child has closed its end. A message
+    /// about any other run is dropped (spec 10.3). Safe to cancel: a message is taken only when it
+    /// is returned or dropped.
+    pub(crate) async fn next_for(&mut self, run_id: Uuid) -> Option<FromChild> {
+        loop {
+            let message = self.next().await?;
+            if message.run_id() == Some(run_id) {
+                return Some(message);
+            }
+            tracing::debug!(%run_id, ?message, "a message from the child about another run was ignored");
+        }
     }
 }

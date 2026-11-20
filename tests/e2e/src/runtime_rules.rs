@@ -1,7 +1,182 @@
 //! Jobs for tests of the run lifecycle: claims, retries, joins, turns and conditions.
 
+use std::time::Duration;
+
 use downbeat::prelude::*;
+use serde::{Deserialize, Serialize};
+
+use crate::{Number, Text};
+
+/// Writes `written_only` but never reads it back, so a value it writes itself has a field its
+/// decoder does not know.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
+pub struct Lopsided {
+    pub kept: String,
+    #[serde(skip_deserializing)]
+    pub written_only: String,
+}
+
+/// Holds a `Lopsided`, so its unknown field is one level down.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
+pub struct Wrapped {
+    pub inner: Lopsided,
+}
+
+/// Which of `two_conditions`' conditions pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
+pub struct Flags {
+    pub first: bool,
+    pub second: bool,
+}
+
+#[job]
+pub async fn takes_lopsided(_run: Run, input: Wrapped) -> Result<Text> {
+    Ok(Text { text: input.inner.kept })
+}
+
+/// Starts `takes_lopsided` with an unknown field, and returns what the start answered.
+#[job]
+pub async fn starts_lopsided(run: Run) -> Result<Text> {
+    let input = Wrapped { inner: Lopsided { kept: "a".into(), written_only: "b".into() } };
+    let text = match run.start(takes_lopsided, input).await {
+        Ok(started) => format!("started {}", started.run_id()),
+        Err(error) => format!("{error:?}"),
+    };
+    Ok(Text { text })
+}
+
+/// Tries to save a checkpoint over 64 KiB, both ways, and returns what each answered.
+#[job]
+pub async fn checkpoints_too_much(run: Run) -> Result<Text> {
+    let huge = "x".repeat(70 * 1024);
+    let later = run.checkpoint(&huge).map_or_else(|error| format!("{error:?}"), |()| "saved".into());
+    let now = run.checkpoint_now(&huge).await.map_or_else(|error| format!("{error:?}"), |()| "stored".into());
+    Ok(Text { text: format!("{later}\n{now}") })
+}
+
+/// Kills its own shell with SIGKILL; may be tried twice.
+#[command(attempts = 2, backoff = 1.seconds())]
+pub fn kills_itself() -> Program<()> {
+    Program::new("/bin/sh").args(["-c", "kill -9 $$"])
+}
+
+/// Exits with 3; may be tried twice.
+#[command(attempts = 2, backoff = 1.seconds())]
+pub fn exits_with_three() -> Program<()> {
+    Program::new("/bin/sh").args(["-c", "exit 3"])
+}
+
+/// Goes past its 64 MiB limit; another attempt follows an out-of-memory failure.
+#[job(max_memory = 64.mb(), timeout = 30.seconds(), attempts = 2, backoff = 1.seconds(), retry_on = [Memory])]
+pub async fn eats_memory(_run: Run) -> Result<()> {
+    let mut hoard: Vec<Vec<u8>> = Vec::new();
+    for _ in 0..64 {
+        hoard.push(vec![1_u8; 16 << 20]);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Ok(())
+}
+
+/// Panics, though every retryable kind is listed and attempts remain.
+#[job(attempts = 3, backoff = 1.seconds(), retry_on = [Error, Timeout, Crash, Memory])]
+pub async fn panics_with_attempts(_run: Run) -> Result<()> {
+    panic!("this job panics on purpose");
+}
+
+/// Returns more than 64 KiB, though every retryable kind is listed and attempts remain.
+#[job(attempts = 3, backoff = 1.seconds(), retry_on = [Error, Timeout, Crash, Memory])]
+pub async fn too_big_with_attempts(_run: Run) -> Result<String> {
+    Ok("x".repeat(70 * 1024))
+}
+
+/// Takes a number; a test stores an input that does not decode.
+#[job(attempts = 3, backoff = 1.seconds(), retry_on = [Error, Timeout, Crash, Memory])]
+pub async fn bad_input_with_attempts(_run: Run, input: Number) -> Result<Number> {
+    Ok(input)
+}
+
+/// Always fails, and waits a minute before its second attempt.
+#[job(attempts = 2, backoff = 1.minutes())]
+pub async fn fails_then_waits_a_minute(_run: Run) -> Result<()> {
+    Err(JobError::msg("fails on purpose"))
+}
+
+/// On a queue no worker in the tests serves.
+#[job(queue = "nobody_serves")]
+pub async fn on_an_unserved_queue(_run: Run) -> Result<()> {
+    Ok(())
+}
+
+/// One at a time; not ready until the file its input names exists.
+#[job(one_at_a_time, recheck_every = 1.seconds())]
+pub async fn waits_its_turn_for_file(_run: Run, input: Text) -> Result<()> {
+    if !std::path::Path::new(&input.text).exists() {
+        return not_ready(format!("{} is not there yet", input.text));
+    }
+    Ok(())
+}
+
+/// Two `only_if` conditions, in this order: `first`, then `second`.
+#[job]
+pub async fn two_conditions(_run: Run, input: Flags) -> Result<Flags> {
+    Ok(input)
+}
+
+/// Needed first by `two_needs`.
+#[job]
+pub async fn needed_first(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// Needed second by `two_needs`.
+#[job]
+pub async fn needed_second(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// Needs `needed_first`, then `needed_second`, each done for the same input, or fails.
+#[job]
+pub async fn two_needs(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// `if_changed`, with no link.
+#[job]
+pub async fn only_when_changed(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+/// Starts `only_when_changed` with the text `same`.
+#[job]
+pub async fn starts_only_when_changed(run: Run, input: Text) -> Result<Text> {
+    let _ = input;
+    let started = run.start(only_when_changed, Text { text: "same".into() }).await?;
+    Ok(Text { text: started.run_id().to_string() })
+}
 
 pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
-    let _ = pipeline;
+    pipeline.job(takes_lopsided);
+    pipeline.job(starts_lopsided);
+    pipeline.job(checkpoints_too_much);
+    pipeline.job(kills_itself);
+    pipeline.job(exits_with_three);
+    pipeline.job(eats_memory);
+    pipeline.job(panics_with_attempts);
+    pipeline.job(too_big_with_attempts);
+    pipeline.job(bad_input_with_attempts);
+    pipeline.job(fails_then_waits_a_minute);
+    pipeline.job(on_an_unserved_queue);
+    pipeline.job(waits_its_turn_for_file);
+    pipeline
+        .job(two_conditions)
+        .only_if("first", |input: &Flags| input.first)
+        .only_if("second", |input: &Flags| input.second);
+    pipeline.job(needed_first);
+    pipeline.job(needed_second);
+    pipeline
+        .job(two_needs)
+        .needs(needed_first.done_for(|input: &Text| input.clone()).or_fail())
+        .needs(needed_second.done_for(|input: &Text| input.clone()).or_fail());
+    pipeline.job(only_when_changed).if_changed();
+    pipeline.job(starts_only_when_changed);
 }
