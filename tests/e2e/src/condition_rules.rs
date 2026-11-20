@@ -179,6 +179,12 @@ pub fn fails_with_a_secret() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "echo 'the password is hunter2' >&2; exit 4"])
 }
 
+/// Fails with standard error that makes the test product's `redact` hook panic.
+#[command]
+pub fn breaks_redact() -> Program<()> {
+    Program::new("/bin/sh").args(["-c", "echo 'this breaks redact' >&2; exit 4"])
+}
+
 pub(crate) fn condition_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(needed_for);
     pipeline.job(done_recently);
@@ -204,4 +210,5 @@ pub(crate) fn condition_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(takes_an_option);
     pipeline.job(writes_its_output);
     pipeline.job(fails_with_a_secret);
+    pipeline.job(breaks_redact);
 }

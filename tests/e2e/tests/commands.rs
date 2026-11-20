@@ -9,7 +9,7 @@ use std::time::Duration;
 use downbeat::InAppClient;
 use downbeat_client::types::StartResponse;
 use downbeat_e2e::condition_rules::*;
-use downbeat_e2e::{Number, Text, child_pid, definition, guarded};
+use downbeat_e2e::{Number, Text, child_pid, definition, echo, guarded};
 use serde_json::{Value, json};
 use support::{App, Database, SOON, Signer, finished, with_api_at};
 use uuid::Uuid;
@@ -116,6 +116,24 @@ async fn a_failed_command_keeps_its_stderr_tail_after_redact() {
     let tail = done.stderr_tail.unwrap_or_default();
     assert!(tail.contains("the password is [redacted]"), "{tail}");
     assert!(!tail.contains("hunter2"), "{tail}");
+}
+
+#[tokio::test]
+async fn a_redact_hook_that_panics_withholds_the_tail_and_costs_nothing_else() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::with(&database, &["scheduler", "worker", "--queues", "default=1"], "test");
+
+    let run = client.start(breaks_redact, ()).await.unwrap().run_id();
+    let done = finished(&database.pool, run, SOON).await;
+    assert_eq!(done.failed_because.as_deref(), Some("exit_code"), "{}", done.reason);
+    let tail = done.stderr_tail.unwrap_or_default();
+    assert!(tail.starts_with("[standard error withheld"), "{tail}");
+    assert!(!tail.contains("breaks redact"), "nothing the hook should have seen is kept: {tail}");
+
+    // The only worker slot still works.
+    let after = client.start(echo, Text { text: "still here".into() }).await.unwrap().run_id();
+    assert_eq!(finished(&database.pool, after, SOON).await.status, "succeeded");
 }
 
 #[tokio::test]

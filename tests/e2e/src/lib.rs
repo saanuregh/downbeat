@@ -521,6 +521,10 @@ pub fn definition_without_callbacks() -> Definition {
     definition.provide(|| async { Ok::<_, std::convert::Infallible>(scheduling_rules::DayRules) });
     definition.provide(|| async { Err::<scheduling_rules::BrokenCalendar, _>("the calendar did not load") });
     // Standard error kept from a failed command passes through this first.
-    definition.redact(|text| text.replace("hunter2", "[redacted]"));
+    // It panics on a marker, so a test can see that a broken hook costs nothing but the tail.
+    definition.redact(|text| {
+        assert!(!text.contains("breaks redact"), "the redact hook breaks on purpose");
+        text.replace("hunter2", "[redacted]")
+    });
     definition
 }

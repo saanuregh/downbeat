@@ -71,7 +71,7 @@ pub(crate) async fn unfinished(
         };
         ("running".to_owned(), None, reason)
     } else {
-        let (because, reason) = queued_reason(pool, &row).await?;
+        let (because, reason) = queued_reason(pool, registry, &row).await?;
         ("queued".to_owned(), Some(because), reason)
     };
     let job = registry.job(&row.job_name);
@@ -117,7 +117,7 @@ pub(crate) async fn unfinished(
 
 /// Why a queued run is not running. `paused`, `waiting_turn` and `no_free_worker` are worked out
 /// now; the others were stored by whoever queued it.
-async fn queued_reason(pool: &PgPool, row: &RunRow) -> sqlx::Result<(String, String)> {
+async fn queued_reason(pool: &PgPool, registry: &Registry, row: &RunRow) -> sqlx::Result<(String, String)> {
     let pause = match pause_of(pool, "all", "all").await? {
         Some(everything) => Some(everything),
         None => pause_of(pool, "job", &row.job_name).await?.or(pause_of(pool, "queue", &row.queue).await?),
@@ -137,7 +137,8 @@ async fn queued_reason(pool: &PgPool, row: &RunRow) -> sqlx::Result<(String, Str
                 .fetch_optional(pool)
                 .await?;
         if holder.is_some() {
-            return Ok(("waiting_turn".to_owned(), reasons::waiting_turn(holder, turn.ends_with(":*"))));
+            let rule = registry.job(&row.job_name).map_or(crate::job::Turn::SameWork, |job| job.spec.policy.turn);
+            return Ok(("waiting_turn".to_owned(), reasons::waiting_turn(holder, rule)));
         }
     }
     // Whether the run is due later is judged by the database's clock, in the same query.

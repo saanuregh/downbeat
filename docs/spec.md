@@ -380,8 +380,10 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
    panic costs only that call: a schedule's `.input(…)` function and its day rule (section 8);
    decoding, hashing and reading the `one_per` field of an input before a run is created, and
    decoding an output set by hand; and, for the preview of a start with `ignore_conditions`
-   (14.17), the job's `only_if` tests and `done_for` closures, where a panic counts as false.
-   When one process has both roles, that is also the worker's process.
+   (14.17), the job's `only_if` tests and `done_for` closures, where a panic counts as false;
+   and the `on_finish` and `on_event` callbacks (section 12). The definition's `redact` hook runs
+   in the worker, guarded too: if it panics, the standard error tail is withheld. When one process
+   has both roles, that is also the worker's process.
 2. Every process the worker starts must be started from one dedicated thread, in a new process
    group, with a parent-death signal of SIGKILL and `oom_score_adj` 1000. It must exit at once if
    the worker died before the signal was set.

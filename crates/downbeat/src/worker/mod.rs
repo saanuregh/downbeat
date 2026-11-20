@@ -258,11 +258,10 @@ async fn waiting_turn(context: &WorkerContext, run: &RunRow, job: &RegisteredJob
         .await
         .ok()
         .flatten();
-    let whole_job = !matches!(job.spec.policy.turn, crate::job::Turn::SameWork);
     Decision::Requeue(Requeue {
         delay: Duration::ZERO,
         because: "waiting_turn",
-        reason: reasons::waiting_turn(holder, whole_job),
+        reason: reasons::waiting_turn(holder, job.spec.policy.turn),
         failed: false,
         interrupted: false,
         call: None,
@@ -417,13 +416,21 @@ impl<'a> Verdict<'a> {
         })
     }
 
+    /// A command's standard error after the definition's `redact` hook. The hook is product code
+    /// running in the worker, so it is guarded; if it panics, the tail is withheld, since what it
+    /// should have hidden cannot be known.
+    fn redacted(&self, stderr_tail: &str) -> String {
+        let Some(redact) = self.context.registry.redact.as_ref() else { return stderr_tail.to_owned() };
+        crate::guard::guarded("the redact hook", || Ok(redact(stderr_tail)))
+            .unwrap_or_else(|error| format!("[standard error withheld: {error}]"))
+    }
+
     fn program_failed(&self, code: Option<i32>, signal: Option<i32>, stderr_tail: &str) -> Decision {
         let because = if signal.is_some() { "signal" } else { "exit_code" };
         let reason = reasons::command_failed(code, signal);
         match self.fail_or_retry(RetryOn::Error, because, reason.clone(), reason) {
             Decision::End(mut ending) => {
-                let redact = self.context.registry.redact.as_ref();
-                ending.stderr_tail = Some(redact.map_or_else(|| stderr_tail.to_owned(), |redact| redact(stderr_tail)));
+                ending.stderr_tail = Some(self.redacted(stderr_tail));
                 Decision::End(ending)
             }
             other => other,

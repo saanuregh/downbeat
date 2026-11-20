@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use uuid::Uuid;
 
+use crate::job::Turn;
 use crate::units::format_duration;
 
 /// The last eight hex digits of an id, as people read them. Ids are time-ordered (UUIDv7), so
@@ -44,12 +45,13 @@ pub(crate) fn not_ready(reason: &str, next: DateTime<Utc>, zone: Tz) -> String {
     format!("Not ready, next check {}: {reason}.", clock(next, zone))
 }
 
-pub(crate) fn waiting_turn(holder: Option<Uuid>, whole_job: bool) -> String {
+/// Why a run waits for another to finish, in the words of the job's turn rule.
+pub(crate) fn waiting_turn(holder: Option<Uuid>, turn: Turn) -> String {
     let holder = holder.map_or_else(|| "another run".to_owned(), |id| format!("run {}", short(id)));
-    if whole_job {
-        format!("Queued: waiting for {holder}; this job runs one at a time.")
-    } else {
-        format!("Queued: waiting for {holder}, which is doing the same work.")
+    match turn {
+        Turn::SameWork => format!("Queued: waiting for {holder}, which is doing the same work."),
+        Turn::OneAtATime => format!("Queued: waiting for {holder}; this job runs one at a time."),
+        Turn::OnePer(field) => format!("Queued: waiting for {holder}; this job runs one at a time per {field}."),
     }
 }
 
@@ -155,4 +157,17 @@ pub(crate) fn marked_succeeded(by: &str, note: &str) -> String {
 /// The first line of a message, for a sentence that must stay one line.
 fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or(text).trim_end_matches('.')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_waiting_its_turn_says_which_rule_it_waits_under() {
+        let holder = Some(Uuid::nil());
+        assert!(waiting_turn(holder, Turn::SameWork).ends_with("which is doing the same work."));
+        assert!(waiting_turn(holder, Turn::OneAtATime).ends_with("this job runs one at a time."));
+        assert!(waiting_turn(holder, Turn::OnePer("account")).ends_with("one at a time per account."));
+    }
 }

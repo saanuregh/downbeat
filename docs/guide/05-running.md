@@ -216,6 +216,7 @@ write its own schema after that.
 environment, prints every pipeline, and fails, naming the job and the fix, on:
 
 - two pipelines or two schedules with the same name, or a job named in two pipelines;
+- two jobs compiled into the binary with the same name (give one another with `name = "…"`);
 - a `#[job]` or `#[command]` compiled into the binary that no pipeline names;
 - a dependency a job or a day rule takes that the definition does not provide;
 - a link to a job no pipeline names, a parent listed twice, a cycle, or a join whose parents share
@@ -225,7 +226,8 @@ environment, prints every pipeline, and fails, naming the job and the fix, on:
 - a missing or unknown zone, an environment the definition does not list, a time that does not
   parse, an interval under one second, a day of the month outside 1 to 31, a second schedule with
   no name, `daily_at` with no times, `.between` on `daily_at`;
-- settings whose shutdown steps do not fit in `stop_within`.
+- settings whose shutdown steps do not fit in `stop_within`, or a lease (for all queues or one)
+  shorter than two heartbeats.
 
 It warns, without failing, about each job that takes turns with `one_at_a_time` or `one_per`.
 
