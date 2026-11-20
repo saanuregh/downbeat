@@ -1,0 +1,35 @@
+//! The read endpoints. Every list is bounded and paged in the database.
+
+mod calendar;
+mod jobs;
+mod operations;
+mod runs;
+
+pub(crate) use calendar::{calendar, overrides, schedules};
+pub(crate) use jobs::{chain, job, jobs, pipeline, pipelines};
+pub(crate) use operations::{audit, backfills, queues};
+pub(crate) use runs::{run, runs};
+
+use axum::Json;
+use axum::extract::State as Extract;
+use downbeat_api::API_VERSION;
+use downbeat_api::types::{Health, Version};
+
+use crate::api::State;
+use crate::api::error::Failure;
+
+/// The most items one page returns.
+const MAX_PAGE: i64 = 200;
+
+pub(crate) async fn healthz() -> Json<Health> {
+    Json(Health { ok: true, api: API_VERSION })
+}
+
+pub(crate) async fn readyz(Extract(state): Extract<State>) -> Result<Json<Health>, Failure> {
+    sqlx::query("SELECT 1").execute(&state.pool).await?;
+    Ok(Json(Health { ok: true, api: API_VERSION }))
+}
+
+pub(crate) async fn version() -> Json<Version> {
+    Json(Version { api: API_VERSION, engine: env!("CARGO_PKG_VERSION").to_owned() })
+}
