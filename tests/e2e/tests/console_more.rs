@@ -86,7 +86,7 @@ async fn a_change_refused_at_every_scope_tried_is_answered_403_and_audited() {
         .await
         .unwrap();
     assert_eq!(start.status(), 403);
-    let tried = requests.lock().unwrap().iter().filter(|seen| *seen == "POST /v1/jobs/echo/runs").count();
+    let tried = requests.lock().unwrap().iter().filter(|(line, _)| line == "POST /v1/jobs/echo/runs").count();
     assert_eq!(tried, 2, "signed for operate, then again for administer");
     let refused: Vec<Value> =
         sqlx::query_scalar("SELECT detail FROM console.audit WHERE actor = 'asha@example.com' AND action = 'refused'")

@@ -389,6 +389,28 @@ mod tests {
     }
 
     #[test]
+    fn the_body_hash_is_absent_for_an_empty_body_and_must_match_its_presence() {
+        let key = PrivateKey::generate();
+        let keys = [key.public()];
+        let check =
+            |claims: &Claims, body: &[u8]| verify(&sign(&key, claims), |_| Some(&keys[..]), "prod", request(body), NOW);
+
+        let empty = claims();
+        assert_eq!(empty.body_sha256, None);
+        let encoded = serde_json::to_value(&empty).unwrap();
+        assert!(encoded.get("body_sha256").is_none(), "no body_sha256 claim is written: {encoded}");
+        assert!(check(&empty, b"").is_ok());
+
+        let hash_of_nothing = Claims { body_sha256: Some(URL_SAFE_NO_PAD.encode(Sha256::digest(b""))), ..claims() };
+        assert_eq!(check(&hash_of_nothing, b""), Err(TokenError::WrongRequest), "a hash for an empty body");
+
+        let with_body = Claims::for_request("console", "asha", "prod", Scope::Operate, None, request(b"{}"), NOW);
+        assert!(with_body.body_sha256.is_some());
+        let no_hash = Claims { body_sha256: None, ..with_body };
+        assert_eq!(check(&no_hash, b"{}"), Err(TokenError::WrongRequest), "no hash for a body");
+    }
+
+    #[test]
     fn scopes_are_ordered() {
         assert!(Scope::Read < Scope::Operate && Scope::Operate < Scope::Administer);
     }

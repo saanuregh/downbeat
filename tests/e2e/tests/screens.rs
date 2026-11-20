@@ -6,8 +6,7 @@
 mod support;
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::process::{Command, Stdio};
 
 use downbeat_e2e::*;
 use support::{Database, SOON, finished, finished_job, with_api_at};
@@ -21,20 +20,6 @@ fn browser() -> Option<PathBuf> {
         .iter()
         .flat_map(|name| std::env::split_paths(&path).map(move |dir| dir.join(name)))
         .find(|candidate| candidate.is_file())
-}
-
-fn console_binary() -> PathBuf {
-    let test = std::env::current_exe().unwrap();
-    test.parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console")
-}
-
-struct Console(Child);
-
-impl Drop for Console {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
 }
 
 /// The page as the browser builds it, once the screens have fetched their data.
@@ -61,23 +46,8 @@ async fn every_screen_renders_its_data_without_an_error() {
     };
     let database = Database::fresh().await;
     let (_app, client, scheduler) = with_api_at(&database).await;
-    let port = support::free_port();
-    let listen = format!("127.0.0.1:{port}");
-    let _console = Console(
-        Command::new(console_binary())
-            .args(["--local", "--scheduler", &format!("http://{scheduler}"), "--listen", &listen])
-            .env("DOWNBEAT_CONSOLE_DATABASE_URL", &database.url)
-            .env("RUST_LOG", "warn")
-            .stdin(Stdio::null())
-            .spawn()
-            .expect("the console starts"),
-    );
-    let base = format!("http://{listen}");
-    let deadline = tokio::time::Instant::now() + SOON;
-    while reqwest::get(format!("{base}/api/me")).await.is_err() {
-        assert!(tokio::time::Instant::now() < deadline, "the console did not come up");
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
+    let console = support::local_console(&database, &scheduler).await;
+    let base = &console.base;
 
     // Something to show: a chain of echo and its children.
     let started = client.start("echo", &Text { text: "on screen".into() }).send().await.unwrap();

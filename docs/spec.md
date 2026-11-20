@@ -411,7 +411,8 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
    file that is not JSON (including one that is not UTF-8) or does not fit the output type fails as
    `bad_input`. Status 75 means not
    ready. Any other ending fails as `exit_code` or `signal`, with the last 16 KiB of standard error
-   stored after the definition's `redact` hook.
+   stored after the definition's `redact` hook. A program that cannot be started fails as `error`,
+   with the reason naming why.
 
 ## 11. Shutdown
 

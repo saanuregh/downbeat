@@ -110,6 +110,8 @@ pub(crate) enum CallOutcome {
     Stopped(StopReason),
     /// The worker is shutting down.
     Interrupted,
+    /// A command's program could not be started at all, and why.
+    ProgramNotStarted(String),
     /// A command's program exited with a failure status.
     ProgramFailed {
         code: Option<i32>,
@@ -326,13 +328,7 @@ async fn run_program(
     }
     let mut process = match context.spawner.spawn(Launch { command, socket: None }).await {
         Ok(process) => process,
-        Err(error) => {
-            return CallOutcome::ProgramFailed {
-                code: None,
-                signal: None,
-                stderr_tail: format!("the program could not be started: {error}"),
-            };
-        }
+        Err(error) => return CallOutcome::ProgramNotStarted(format!("{}: {error}", spec.program)),
     };
     if let Some(mut stdin) = process.child_pipes.stdin.take() {
         let input = input.to_string();

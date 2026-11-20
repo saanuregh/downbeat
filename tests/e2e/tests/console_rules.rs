@@ -91,7 +91,7 @@ async fn pipelines_are_fetched_once_and_cached_for_a_minute() {
         .unwrap();
     assert!(granted.status().is_success(), "{}", granted.status());
 
-    let fetches = || requests.lock().unwrap().iter().filter(|seen| *seen == "GET /v1/pipelines").count();
+    let fetches = || requests.lock().unwrap().iter().filter(|(line, _)| line == "GET /v1/pipelines").count();
     for attempt in 0..2 {
         if attempt == 1 {
             tokio::time::sleep(Duration::from_secs(3)).await;
@@ -101,7 +101,7 @@ async fn pipelines_are_fetched_once_and_cached_for_a_minute() {
         assert_eq!(jobs.status(), 200, "a read limited to the links pipeline");
     }
     assert_eq!(fetches(), 1, "two requests three seconds apart fetched the pipelines once");
-    let forwarded = requests.lock().unwrap().iter().filter(|seen| *seen == "GET /v1/jobs").count();
+    let forwarded = requests.lock().unwrap().iter().filter(|(line, _)| line == "GET /v1/jobs").count();
     assert_eq!(forwarded, 2, "both reads reached the scheduler");
 }
 
@@ -126,7 +126,7 @@ async fn pipelines_are_fetched_again_once_the_minute_is_over() {
         .unwrap();
     assert!(granted.status().is_success(), "{}", granted.status());
 
-    let fetches = || requests.lock().unwrap().iter().filter(|seen| *seen == "GET /v1/pipelines").count();
+    let fetches = || requests.lock().unwrap().iter().filter(|(line, _)| line == "GET /v1/pipelines").count();
     let read = || http.get(format!("{base}/api/schedulers/test/v1/jobs")).header("cookie", &asha).send();
     assert_eq!(read().await.unwrap().status(), 200);
     assert_eq!(fetches(), 1);

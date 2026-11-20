@@ -208,6 +208,52 @@ pub async fn naps_on_the_quick_queue(_run: Run, input: crate::Number) -> Result<
     Ok(())
 }
 
+/// Ends its own child process with exit status 3, while its function runs.
+#[job]
+pub async fn exits_by_itself(_run: Run) -> Result<()> {
+    std::process::exit(3);
+}
+
+/// Not ready until the file its input names exists; checked again every two seconds.
+#[job(recheck_every = 2.seconds())]
+pub async fn not_ready_for_two_seconds(_run: Run, input: Text) -> Result<()> {
+    if !std::path::Path::new(&input.text).exists() {
+        return not_ready(format!("{} is not there yet", input.text));
+    }
+    Ok(())
+}
+
+/// Exits 75 (not ready) until the file its input names exists; checked again every two seconds.
+#[command(recheck_every = 2.seconds())]
+pub fn exits_not_ready_for_two_seconds(input: Text) -> Program<()> {
+    Program::new("/bin/sh").args(["-c", r#"[ -e "$WAIT_FOR" ] && exit 0; exit 75"#]).env("WAIT_FOR", input.text)
+}
+
+/// A program that does not exist; may be tried twice.
+#[command(attempts = 2, backoff = 1.seconds())]
+pub fn program_is_missing() -> Program<()> {
+    Program::new("/nonexistent/downbeat-no-such-program")
+}
+
+/// Leaves its text as a pending checkpoint (saved by the next heartbeat), then takes four seconds.
+#[job]
+pub async fn checkpoints_then_naps(run: Run, input: Text) -> Result<()> {
+    run.checkpoint(&input.text)?;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    Ok(())
+}
+
+/// Takes 300 ms and writes `<child pid> <start ns> <end ns>` to the file its input names.
+#[job]
+pub async fn records_its_span(_run: Run, input: Text) -> Result<()> {
+    let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let start = now();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let end = now();
+    std::fs::write(&input.text, format!("{} {start} {end}", std::process::id()))?;
+    Ok(())
+}
+
 pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(takes_lopsided);
     pipeline.job(starts_lopsided);
@@ -244,4 +290,10 @@ pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
         .schedule(every(1.seconds()).in_environments(["rules"]).input(|_| Text { text: "same".into() }))
         .if_changed();
     pipeline.job(naps_on_the_quick_queue);
+    pipeline.job(exits_by_itself);
+    pipeline.job(not_ready_for_two_seconds);
+    pipeline.job(exits_not_ready_for_two_seconds);
+    pipeline.job(program_is_missing);
+    pipeline.job(checkpoints_then_naps);
+    pipeline.job(records_its_span);
 }

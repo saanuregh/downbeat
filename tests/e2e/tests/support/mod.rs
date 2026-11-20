@@ -331,3 +331,46 @@ impl Signer {
         response.json().await.unwrap()
     }
 }
+
+/// The console binary, built next to the tests' own binaries by `scripts/test.sh`.
+pub fn console_binary() -> std::path::PathBuf {
+    let test = std::env::current_exe().unwrap();
+    test.parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console")
+}
+
+/// A running console process, stopped when dropped.
+pub struct Console(pub Child);
+
+impl Drop for Console {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A console in `--local` mode in front of the scheduler at `scheduler` (`host:port`), once it
+/// answers. It stops when this is dropped.
+pub struct LocalConsole {
+    pub base: String,
+    pub port: u16,
+    _process: Console,
+}
+
+pub async fn local_console(database: &Database, scheduler: &str) -> LocalConsole {
+    let port = free_port();
+    let base = format!("http://127.0.0.1:{port}");
+    let process = Command::new(console_binary())
+        .args(["--local", "--scheduler", &format!("http://{scheduler}"), "--listen", &format!("127.0.0.1:{port}")])
+        .env("DOWNBEAT_CONSOLE_DATABASE_URL", &database.url)
+        .env("RUST_LOG", "warn")
+        .stdin(Stdio::null())
+        .spawn()
+        .expect("the console starts");
+    let console = LocalConsole { base, port, _process: Console(process) };
+    let deadline = tokio::time::Instant::now() + SOON;
+    while reqwest::get(format!("{}/api/me", console.base)).await.is_err() {
+        assert!(tokio::time::Instant::now() < deadline, "the console did not come up");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    console
+}

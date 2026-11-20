@@ -104,6 +104,10 @@ pub(crate) fn command_failed(code: Option<i32>, signal: Option<i32>) -> String {
     }
 }
 
+pub(crate) fn program_not_started(error: &str) -> String {
+    format!("Failed: the program could not be started ({error}).")
+}
+
 pub(crate) fn output_too_large(bytes: usize) -> String {
     format!("Failed: the output is {bytes} bytes; the limit is 64 KiB.")
 }

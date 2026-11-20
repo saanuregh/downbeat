@@ -1,0 +1,5 @@
+error: a job or command takes one input, by value, before its dependencies; a job with several parents takes them as one tuple
+ --> tests/compile_fail/input_after_dependency.rs:6:49
+  |
+6 | async fn input_last(_run: Run, _pool: &Pool, n: u32) -> Result<u32> {
+  |                                                 ^^^

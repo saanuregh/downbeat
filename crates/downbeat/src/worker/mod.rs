@@ -333,6 +333,10 @@ fn decide(
             let reason = reasons::out_of_memory(limit_mib);
             verdict.fail_or_retry(RetryOn::Memory, "out_of_memory", reason.clone(), reason)
         }
+        CallOutcome::ProgramNotStarted(error) => {
+            let reason = reasons::program_not_started(&error);
+            verdict.fail_or_retry(RetryOn::Error, "error", reason, error)
+        }
         CallOutcome::ProgramFailed { code, signal, stderr_tail } => verdict.program_failed(code, signal, &stderr_tail),
         CallOutcome::Stopped(StopReason::CancelRequested(by)) => Decision::End(
             Ending::new(Status::Cancelled, reasons::cancelled(&by)).with_call(Some(verdict.call("cancelled"))),

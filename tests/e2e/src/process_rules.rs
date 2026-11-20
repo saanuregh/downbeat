@@ -105,6 +105,68 @@ pub fn sleeps_a_minute() -> Program<()> {
     Program::new("/bin/sh").args(["-c", "exec sleep 60"])
 }
 
+/// An input that panics at one stage of being started, by its `stage`: `decode` when it is
+/// decoded, `identity` when it is hashed, `one_per` when its `one_per` field is read. Any other
+/// stage is harmless.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fragile {
+    #[serde(deserialize_with = "fragile_stage")]
+    pub stage: String,
+    /// Written as plain text with the whole input; only its own `Serialize`, which `one_per`
+    /// uses alone, panics.
+    #[serde(serialize_with = "plain_account")]
+    pub account: Account,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Account(pub String);
+
+impl Serialize for Account {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        assert!(self.0 != "one_per", "this one_per field panics on purpose");
+        serializer.serialize_str(&self.0)
+    }
+}
+
+fn plain_account<S: serde::Serializer>(account: &Account, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    serializer.serialize_str(&account.0)
+}
+
+fn fragile_stage<'de, D: Deserializer<'de>>(deserializer: D) -> std::result::Result<String, D::Error> {
+    let stage = String::deserialize(deserializer)?;
+    assert!(stage != "decode", "this input panics on purpose when it is decoded");
+    Ok(stage)
+}
+
+impl JobData for Fragile {
+    fn identity(&self) -> serde_json::Value {
+        assert!(self.stage != "identity", "this input panics on purpose when it is hashed");
+        serde_json::to_value(self).unwrap_or_default()
+    }
+
+    fn shape() -> downbeat::Shape {
+        downbeat::Shape { type_name: "Fragile".into(), fields: Vec::new() }
+    }
+}
+
+/// One per account, so starting it reads its input's `one_per` field.
+#[job(one_per = account)]
+pub async fn takes_fragile(_run: Run, input: Fragile) -> Result<()> {
+    let _ = input;
+    Ok(())
+}
+
+/// Needs `echo` done for its own text; the need's closure panics for the text `panic`.
+#[job]
+pub async fn has_a_fragile_need(_run: Run, input: Text) -> Result<Text> {
+    Ok(input)
+}
+
+fn fragile_need(input: &Text) -> Text {
+    assert!(input.text != "panic", "this need panics on purpose");
+    input.clone()
+}
+
 pub(crate) fn process_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(names_its_program_slowly);
     pipeline.job(touchy_output);
@@ -116,4 +178,6 @@ pub(crate) fn process_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(long_stderr);
     pipeline.job(not_ready_when_asked_to_stop);
     pipeline.job(sleeps_a_minute);
+    pipeline.job(takes_fragile);
+    pipeline.job(has_a_fragile_need).needs(crate::echo.done_for(fragile_need));
 }

@@ -4,7 +4,7 @@
 #![allow(dead_code, unreachable_pub)]
 
 use std::collections::HashMap;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::support::{self, Database, SOON};
+use crate::support::{self, Console, Database, SOON, console_binary};
 
 /// How the provider spoils the next identity token it hands out.
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +32,8 @@ pub enum Spoil {
     Expired,
     /// Signed with HMAC-SHA256 under the client secret, which the console also knows.
     SharedSecret,
+    /// No `email` claim at all.
+    NoEmail,
 }
 
 /// The fake provider's state: who signs in next, how their token is spoiled, and the sign-ins in
@@ -107,6 +109,9 @@ async fn token(
         Some(Spoil::OtherIssuer) => claims["iss"] = json!("https://other-issuer.example"),
         Some(Spoil::OtherAudience) => claims["aud"] = json!("another-client"),
         Some(Spoil::WrongNonce) => claims["nonce"] = json!("not-the-nonce-the-console-sent"),
+        Some(Spoil::NoEmail) => {
+            claims.as_object_mut().unwrap().remove("email");
+        }
         Some(Spoil::Expired) => {
             claims["iat"] = json!(now - 7200);
             claims["exp"] = json!(now - 3600);
@@ -161,30 +166,18 @@ async fn start_provider(listed: &[&str]) -> Provider {
     provider
 }
 
-pub struct Console(Child);
-
-impl Drop for Console {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn console_binary() -> std::path::PathBuf {
-    std::env::current_exe().unwrap().parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console")
-}
-
 /// Who may sign in, unless a test says otherwise.
 pub const BY_DOMAIN: &str = r#"allowed_domains = ["example.com"]"#;
 
-/// The paths of the requests the console sent to the scheduler, as `METHOD /path`.
-pub type SchedulerRequests = Arc<Mutex<Vec<String>>>;
+/// The requests the console sent to the scheduler, in order: each as `METHOD /path` and the bearer
+/// token it carried.
+pub type SchedulerTraffic = Arc<Mutex<Vec<(String, String)>>>;
 
 #[derive(Clone)]
 struct Relay {
     target: String,
     http: reqwest::Client,
-    seen: SchedulerRequests,
+    seen: SchedulerTraffic,
 }
 
 /// Passes a request on to the scheduler unchanged, noting its method and path.
@@ -192,7 +185,15 @@ async fn relay(State(relay): State<Relay>, request: axum::extract::Request) -> a
     use axum::response::IntoResponse;
     let (parts, body) = request.into_parts();
     let body = axum::body::to_bytes(body, 16 << 20).await.unwrap();
-    relay.seen.lock().unwrap().push(format!("{} {}", parts.method, parts.uri.path()));
+    let request_line = format!("{} {}", parts.method, parts.uri.path());
+    let bearer = parts
+        .headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default()
+        .to_owned();
+    relay.seen.lock().unwrap().push((request_line, bearer));
     let path = parts.uri.path_and_query().map(|path| path.as_str().to_owned()).unwrap_or_default();
     let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes()).unwrap();
     let mut forwarded = relay.http.request(method, format!("{}{path}", relay.target));
@@ -214,20 +215,19 @@ async fn relay(State(relay): State<Relay>, request: axum::extract::Request) -> a
 }
 
 /// A relay in front of the scheduler at `target`; returns its base URL and what passed through it.
-async fn start_relay(target: String) -> (String, SchedulerRequests) {
+async fn start_relay(target: String, seen: SchedulerTraffic) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let seen = SchedulerRequests::default();
-    let app =
-        Router::new().fallback(relay).with_state(Relay { target, http: reqwest::Client::new(), seen: seen.clone() });
+    let state = Relay { target, http: reqwest::Client::new(), seen };
+    let app = Router::new().fallback(relay).with_state(state);
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (base, seen)
+    base
 }
 
 /// The scheduler trusting the console's key, the fake provider, and the console configured for both,
 /// with `who_may_sign_in` as the `[sign_in]` section's rules.
 pub async fn setup(database: &Database, who_may_sign_in: &str) -> (support::App, Provider, Console, String) {
-    let (app, provider, console, base, _) = start(database, who_may_sign_in, &["EdDSA"], false).await;
+    let (app, provider, console, base, ..) = start(database, who_may_sign_in, &["EdDSA"], false).await;
     (app, provider, console, base)
 }
 
@@ -238,16 +238,16 @@ pub async fn setup_listing(
     who_may_sign_in: &str,
     listed: &[&str],
 ) -> (support::App, Provider, Console, String) {
-    let (app, provider, console, base, _) = start(database, who_may_sign_in, listed, false).await;
+    let (app, provider, console, base, ..) = start(database, who_may_sign_in, listed, false).await;
     (app, provider, console, base)
 }
 
 /// The same as `setup`, with the console reaching the scheduler through a relay that notes every
-/// request it sends.
+/// request it sends, with its token.
 pub async fn setup_counting(
     database: &Database,
     who_may_sign_in: &str,
-) -> (support::App, Provider, Console, String, SchedulerRequests) {
+) -> (support::App, Provider, Console, String, SchedulerTraffic) {
     start(database, who_may_sign_in, &["EdDSA"], true).await
 }
 
@@ -256,7 +256,7 @@ async fn start(
     who_may_sign_in: &str,
     listed: &[&str],
     counting: bool,
-) -> (support::App, Provider, Console, String, SchedulerRequests) {
+) -> (support::App, Provider, Console, String, SchedulerTraffic) {
     let key = downbeat_client::PrivateKey::generate();
     let key_file = std::env::temp_dir().join(format!("console-{}.pem", uuid::Uuid::new_v4()));
     std::fs::write(&key_file, key.to_pem()).unwrap();
@@ -265,8 +265,8 @@ async fn start(
         key.public().to_base64()
     );
     let (app, scheduler) = support::with_callers(database, &callers).await;
-    let (scheduler, seen) =
-        if counting { start_relay(scheduler).await } else { (scheduler, SchedulerRequests::default()) };
+    let seen = SchedulerTraffic::default();
+    let scheduler = if counting { start_relay(scheduler, seen.clone()).await } else { scheduler };
     let provider = start_provider(listed).await;
 
     let port = support::free_port();
