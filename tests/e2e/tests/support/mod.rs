@@ -56,6 +56,10 @@ impl App {
         App { process }
     }
 
+    pub fn pid(&self) -> u32 {
+        self.process.id()
+    }
+
     /// Sends SIGTERM and waits for the process to stop.
     pub fn stop(mut self) {
         let pid = self.process.id().to_string();
