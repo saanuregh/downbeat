@@ -275,6 +275,11 @@ async fn a_caller_limited_to_some_jobs_sees_only_chains_and_steps_of_those_jobs(
     assert_eq!(firsts, ["echo"], "a chain whose first job is not covered is left out");
     let steps: Vec<&String> = basics.recent_chains[0].statuses.keys().collect();
     assert_eq!(steps, ["echo"], "steps of jobs that are not covered are left out");
+
+    let listed = service.pipelines().await.unwrap();
+    let firsts: Vec<&str> =
+        listed.iter().flat_map(|pipeline| &pipeline.recent_chains).map(|chain| chain.first_job.as_str()).collect();
+    assert_eq!(firsts, ["echo"], "the list of pipelines follows the same rule");
 }
 
 #[tokio::test]
