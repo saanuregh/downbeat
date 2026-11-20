@@ -1,6 +1,6 @@
 //! Jobs, pipelines and chains.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use axum::Json;
 use axum::extract::{Extension, Path, State as Extract};
@@ -94,9 +94,18 @@ pub(crate) async fn pipelines(
     Extension(caller): Extension<Caller>,
 ) -> Answer<Vec<PipelineView>> {
     caller.require(Scope::Read)?;
-    let names: Vec<String> = state.registry.pipelines.keys().cloned().collect();
-    let views =
-        names.iter().map(|name| pipeline_view(&state, &caller, name)).filter(|view| !view.jobs.is_empty()).collect();
+    let mut views: Vec<PipelineView> = state
+        .registry
+        .pipelines
+        .keys()
+        .map(|name| pipeline_view(&state, &caller, name))
+        .filter(|view| !view.jobs.is_empty())
+        .collect();
+    let names: Vec<String> = views.iter().map(|view| view.name.clone()).collect();
+    let mut chains = recent_chains(&state, &caller, &names, PIPELINES_LIST_CHAINS).await?;
+    for view in &mut views {
+        view.recent_chains = chains.remove(&view.name).unwrap_or_default();
+    }
     Ok(Json(views))
 }
 
@@ -113,16 +122,38 @@ pub(crate) async fn pipeline(
     if view.jobs.is_empty() {
         return Err(Failure::forbidden("this token covers no job in that pipeline"));
     }
-    // A chain is readable only when its first job is covered (spec 14.14), so others are left out.
+    let names = [name];
+    view.recent_chains =
+        recent_chains(&state, &caller, &names, PIPELINE_CHAINS).await?.remove(&names[0]).unwrap_or_default();
+    Ok(Json(view))
+}
+
+/// Recent chains shown per pipeline in the list of pipelines, and on one pipeline's page.
+const PIPELINES_LIST_CHAINS: i64 = 5;
+const PIPELINE_CHAINS: i64 = 20;
+
+/// The newest chains of each named pipeline, newest first, with each job's latest status: two
+/// queries in all. A chain is readable only when its first job is covered (spec 14.14), so others
+/// are left out, and so are the steps of jobs the token does not cover.
+async fn recent_chains(
+    state: &State,
+    caller: &Caller,
+    pipelines: &[String],
+    per_pipeline: i64,
+) -> Result<HashMap<String, Vec<ChainSummary>>, Failure> {
     let chains: Vec<ChainRow> = sqlx::query_as(
-        "SELECT * FROM downbeat.chain WHERE pipeline = $1 AND ($2::text[] IS NULL OR first_job = ANY($2))
-          ORDER BY started_at DESC LIMIT 20",
+        "SELECT chain_id, pipeline, first_job, started_at, cancelled_at, cancelled_by FROM (
+            SELECT c.*, row_number() OVER (PARTITION BY pipeline ORDER BY started_at DESC) AS newest
+              FROM downbeat.chain c
+             WHERE pipeline = ANY($1) AND ($2::text[] IS NULL OR first_job = ANY($2))) ranked
+          WHERE newest <= $3
+          ORDER BY pipeline, started_at DESC",
     )
-    .bind(&name)
+    .bind(pipelines)
     .bind(caller.jobs.as_deref())
+    .bind(per_pipeline)
     .fetch_all(&state.pool)
     .await?;
-    // Every chain's latest status per job, in one query; only the jobs the token covers.
     let chain_ids: Vec<Uuid> = chains.iter().map(|chain| chain.chain_id).collect();
     let statuses: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT DISTINCT ON (chain_id, job_name) chain_id, job_name, status FROM (
@@ -135,13 +166,14 @@ pub(crate) async fn pipeline(
     .bind(&chain_ids)
     .fetch_all(&state.pool)
     .await?;
-    for ChainRow { chain_id, first_job, started_at, cancelled_at, .. } in chains {
+    let mut by_pipeline: HashMap<String, Vec<ChainSummary>> = HashMap::new();
+    for ChainRow { chain_id, pipeline, first_job, started_at, cancelled_at, .. } in chains {
         let statuses = statuses
             .iter()
             .filter(|(id, job, _)| *id == chain_id && caller.covers(job))
             .map(|(_, job, status)| (job.clone(), status.clone()))
             .collect();
-        view.recent_chains.push(ChainSummary {
+        by_pipeline.entry(pipeline).or_default().push(ChainSummary {
             chain_id,
             first_job,
             started_at,
@@ -149,7 +181,7 @@ pub(crate) async fn pipeline(
             cancelled: cancelled_at.is_some(),
         });
     }
-    Ok(Json(view))
+    Ok(by_pipeline)
 }
 
 /// A pipeline as the caller may see it: only the jobs its token covers.

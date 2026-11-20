@@ -36,6 +36,12 @@ export function PipelineScreen({ params }: { params: Record<string, string> }) {
   const chains = view.recent_chains.toSorted(
     (a, b) => Date.parse(b.started_at) - Date.parse(a.started_at),
   );
+  // A chain's steps in the pipeline's own order, as the graph above draws them.
+  const order = new Map(view.jobs.map((node, index) => [node.job, index]));
+  const inOrder = (byJob: Record<string, string>) =>
+    Object.entries(byJob).toSorted(
+      ([a], [b]) => (order.get(a) ?? order.size) - (order.get(b) ?? order.size),
+    );
 
   return (
     <>
@@ -74,7 +80,7 @@ export function PipelineScreen({ params }: { params: Record<string, string> }) {
                     <td>{chain.first_job}</td>
                     <td>
                       <span className="status-list">
-                        {Object.entries(chain.statuses).map(([job, status]) => (
+                        {inOrder(chain.statuses).map(([job, status]) => (
                           <span key={job} className="inline-status">
                             {job} <StatusBadge status={status} />
                           </span>

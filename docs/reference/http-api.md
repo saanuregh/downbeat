@@ -120,7 +120,7 @@ All in `downbeat_api::types`. Optional fields are `null` when absent, unless not
 | `CallView` | `worker`, `build`, `started_at`, `ended_at`, `ended` (a few words, such as `succeeded`, `error`, `not ready`, `interrupted`, `worker lost`) |
 | `RunSummary` | `run_id`, `status`, `reason`, `at` |
 | `PauseView` | `by`, `note`, `until?`, `since` |
-| `PipelineView` | `name`, `jobs: PipelineNode[]`, `recent_chains: ChainSummary[]` (the last 20 chains whose first job the token covers, each with the statuses of covered jobs only; empty in the list of pipelines) |
+| `PipelineView` | `name`, `jobs: PipelineNode[]`, `recent_chains: ChainSummary[]` (the newest chains whose first job the token covers: 20 for one pipeline, 5 each in the list; each with the statuses of covered jobs only) |
 | `PipelineNode` | `job`, `link?` (`after`, `after_failure` or `after_any`), `parents: string[]`, `schedules: string[]` |
 | `ChainSummary` | `chain_id`, `first_job`, `started_at`, `statuses: {job: status}`, `cancelled: bool` |
 | `ChainView` | `chain_id`, `pipeline`, `first_job`, `started_at`, `cancelled_at?`, `cancelled_by?`, `nodes: ChainNode[]` (every job the chain could reach, from its first job) |

@@ -261,6 +261,7 @@ a:hover {
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
       "top"
       "nav"
@@ -286,6 +287,24 @@ a:hover {
 
   .brand {
     width: auto;
+    flex-shrink: 0;
+  }
+
+  /* One line on a phone: a long scheduler name is cut short and the person's name is left out. */
+  .topbar {
+    padding: var(--space-2) var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .scheduler-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .person {
+    display: none;
   }
 
   .content {
