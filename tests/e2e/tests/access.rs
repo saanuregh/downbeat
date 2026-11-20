@@ -115,3 +115,22 @@ async fn a_caller_limited_to_some_jobs_sees_no_runs_of_other_jobs() {
     let all: Vec<QueueView> = admin.get("/v1/queues").await;
     assert_eq!(all.iter().map(|queue| queue.queued).sum::<i64>(), 2);
 }
+
+#[tokio::test]
+async fn refused_requests_are_reported_at_most_once_a_minute() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    // A token that does not verify names no caller the scheduler can trust, so none is reported.
+    let impostor = Signer { key: PrivateKey::generate(), ..Signer::local(&format!("http://{listen}")) };
+    for _ in 0..3 {
+        assert_eq!(impostor.send("GET", "/v1/jobs", b"").await.status(), 401);
+    }
+    support::eventually(
+        &database.pool,
+        "SELECT count(*) = 1 FROM downbeat.audit
+          WHERE action = 'event' AND detail->>'event' = 'request_refused'
+            AND detail->>'caller' IS NULL AND (detail->>'status')::int = 401",
+        support::SOON,
+    )
+    .await;
+}

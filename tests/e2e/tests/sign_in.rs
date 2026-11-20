@@ -115,8 +115,12 @@ fn console_binary() -> std::path::PathBuf {
     std::env::current_exe().unwrap().parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console")
 }
 
-/// The scheduler trusting the console's key, the fake provider, and the console configured for both.
-async fn setup(database: &Database) -> (support::App, Provider, Console, String) {
+/// Who may sign in, unless a test says otherwise.
+const BY_DOMAIN: &str = r#"allowed_domains = ["example.com"]"#;
+
+/// The scheduler trusting the console's key, the fake provider, and the console configured for both,
+/// with `who_may_sign_in` as the `[sign_in]` section's rules.
+async fn setup(database: &Database, who_may_sign_in: &str) -> (support::App, Provider, Console, String) {
     let key = downbeat_client::PrivateKey::generate();
     let key_file = std::env::temp_dir().join(format!("console-{}.pem", uuid::Uuid::new_v4()));
     std::fs::write(&key_file, key.to_pem()).unwrap();
@@ -138,7 +142,7 @@ first_administrators = ["boss@example.com"]
 issuer = "{issuer}"
 client_id = "console"
 client_secret_env = "TEST_CLIENT_SECRET"
-allowed_domains = ["example.com"]
+{who_may_sign_in}
 
 [[scheduler]]
 name = "test"
@@ -187,7 +191,7 @@ async fn sign_in(base: &str) -> Result<String, u16> {
 #[tokio::test]
 async fn a_person_signs_in_and_is_given_what_their_grants_allow() {
     let database = Database::fresh().await;
-    let (_app, provider, _console, base) = setup(&database).await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
     let http = reqwest::Client::new();
 
     *provider.next_email.lock().unwrap() = "boss@example.com".into();
@@ -251,7 +255,7 @@ async fn a_person_signs_in_and_is_given_what_their_grants_allow() {
 #[tokio::test]
 async fn someone_outside_the_allowed_domains_cannot_sign_in() {
     let database = Database::fresh().await;
-    let (_app, provider, _console, base) = setup(&database).await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
     *provider.next_email.lock().unwrap() = "mallory@elsewhere.org".into();
     assert_eq!(sign_in(&base).await, Err(403));
 }
@@ -259,7 +263,7 @@ async fn someone_outside_the_allowed_domains_cannot_sign_in() {
 #[tokio::test]
 async fn an_address_the_provider_has_not_verified_cannot_sign_in() {
     let database = Database::fresh().await;
-    let (_app, provider, _console, base) = setup(&database).await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
     *provider.next_email.lock().unwrap() = "unverified@example.com".into();
     assert_eq!(sign_in(&base).await, Err(403));
 }
@@ -267,7 +271,7 @@ async fn an_address_the_provider_has_not_verified_cannot_sign_in() {
 #[tokio::test]
 async fn someone_who_administers_one_pipeline_cannot_grant_the_whole_scheduler() {
     let database = Database::fresh().await;
-    let (_app, provider, _console, base) = setup(&database).await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
     let http = reqwest::Client::new();
 
     *provider.next_email.lock().unwrap() = "asha@example.com".into();
@@ -298,4 +302,44 @@ async fn someone_who_administers_one_pipeline_cannot_grant_the_whole_scheduler()
         .await
         .unwrap();
     assert_eq!(escalate.status(), 403, "administering one pipeline must not let her grant the whole scheduler");
+}
+
+#[tokio::test]
+async fn a_group_the_provider_reports_lets_people_from_any_domain_sign_in() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database, r#"allowed_groups = ["operators"]"#).await;
+    *provider.next_email.lock().unwrap() = "contractor@elsewhere.org".into();
+    assert!(sign_in(&base).await.is_ok(), "the provider puts everyone in the operators group");
+
+    let (_app, provider, _console, base) = setup(&Database::fresh().await, r#"allowed_groups = ["admins"]"#).await;
+    *provider.next_email.lock().unwrap() = "contractor@elsewhere.org".into();
+    assert_eq!(sign_in(&base).await, Err(403), "not in an allowed group");
+}
+
+#[tokio::test]
+async fn a_session_ends_when_idle_too_long_or_too_old() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
+    let http = reqwest::Client::new();
+    let me = |cookie: String| {
+        let (http, base) = (http.clone(), base.clone());
+        async move { http.get(format!("{base}/api/me")).header("cookie", cookie).send().await.unwrap().status() }
+    };
+    *provider.next_email.lock().unwrap() = "asha@example.com".into();
+
+    let idle = sign_in(&base).await.unwrap();
+    assert_eq!(me(idle.clone()).await, 200);
+    sqlx::query("UPDATE console.session SET last_used_at = now() - interval '13 hours'")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(me(idle).await, 401, "twelve hours without use ends a session");
+
+    let old = sign_in(&base).await.unwrap();
+    assert_eq!(me(old.clone()).await, 200);
+    sqlx::query("UPDATE console.session SET expires_at = now() - interval '1 minute'")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(me(old).await, 401, "a session ends at its absolute limit, however busy");
 }

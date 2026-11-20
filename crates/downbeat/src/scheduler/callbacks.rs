@@ -34,7 +34,9 @@ async fn deliver_finished(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
     .await?;
     for row in rows {
         let run_id = row.run_id;
-        let stale = row.finished_at < chrono::Utc::now() - chrono::TimeDelta::days(1);
+        // A day from when the run last changed: its end, or its marking as succeeded.
+        let changed_at = row.marked_at.map_or(row.finished_at, |marked_at| marked_at.max(row.finished_at));
+        let stale = changed_at < chrono::Utc::now() - chrono::TimeDelta::days(1);
         let delivered = if stale {
             tracing::error!(%run_id, "on_finish failed for a day; this run's notification is dropped");
             true

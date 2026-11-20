@@ -125,3 +125,53 @@ async fn a_linked_run_cancelled_before_it_ran_is_retried_with_its_parents_output
             .unwrap();
     assert_eq!(output, json!({ "text": "QUIET" }), "built from what echo handed over");
 }
+
+#[tokio::test]
+async fn an_after_any_child_follows_its_parent_however_it_ended() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    let told = |parent: uuid::Uuid| {
+        let pool = database.pool.clone();
+        async move {
+            let sql = format!(
+                "SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'tells_how_empty_ended'
+                  AND '{parent}' = ANY(parents) AND status = 'succeeded')"
+            );
+            support::eventually(&pool, &sql, SOON).await;
+            sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT output FROM downbeat.run_history WHERE job_name = 'tells_how_empty_ended' AND $1 = ANY(parents)",
+            )
+            .bind(parent)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+
+    let succeeded = client.start("empty", &Text { text: "words".into() }).send().await.unwrap();
+    assert_eq!(told(succeeded.run_id).await, json!({ "text": "succeeded with words" }));
+    let skipped = client.start("empty", &Text { text: String::new() }).send().await.unwrap();
+    assert_eq!(told(skipped.run_id).await, json!({ "text": "skipped: Skipped: there is nothing to do." }));
+}
+
+#[tokio::test]
+async fn a_cancelled_chain_starts_nothing_more() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    hold(&client, "empty").await;
+    let started = client.start("empty", &Text { text: "held".into() }).send().await.unwrap();
+    let chain = client.run(started.run_id).await.unwrap().chain_id;
+
+    let _: Done = client.as_caller().post(&format!("/v1/chains/{chain}/cancel"), None::<&()>, None).await.unwrap();
+    assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "cancelled");
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let children: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM downbeat.run WHERE chain_id = $1)
+              + (SELECT count(*) FROM downbeat.run_history WHERE chain_id = $1 AND job_name <> 'empty')",
+    )
+    .bind(chain)
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(children, 0, "even an .after_any child, which a cancelled parent would otherwise start");
+}

@@ -318,3 +318,11 @@ At shutdown a command's program gets SIGTERM and the grace period. If it exits 0
 time, its result is recorded (exit 0's output is checked by the child as usual, and that check is
 allowed to finish during the shutdown). Any other exit is taken as a reaction to the signal, and
 the run goes back to the queue as interrupted.
+
+## 50. A run marked as succeeded records when (`marked_at`)
+
+`on_finish` drops a delivery that is more than a day old, so a callback that always fails cannot
+be retried forever. That rule counted from `finished_at`, so a failure marked as succeeded two
+days later was never delivered. Changing `finished_at` would distort how long the run took, so
+migration 3 adds `marked_at` beside `marked_by`, set in the same statement, and delivery counts
+its day from the later of the two. The column is nullable, so an older engine ignores it.

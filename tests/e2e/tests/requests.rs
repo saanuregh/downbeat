@@ -156,3 +156,32 @@ async fn on_finish_hears_of_every_finished_run() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn on_finish_hears_of_a_run_marked_as_succeeded_long_after_it_failed() {
+    let database = Database::fresh().await;
+    let (app, client) = with_api(&database).await;
+    let failed = client.start("panics", &()).send().await.unwrap();
+    finished(&database.pool, failed.run_id, SOON).await;
+    let file = app.finished_dir.join(failed.run_id.to_string());
+    let read_when = |wanted: &'static str| {
+        let file = file.clone();
+        async move {
+            let deadline = tokio::time::Instant::now() + SOON;
+            while std::fs::read_to_string(&file).ok().as_deref() != Some(wanted) {
+                assert!(tokio::time::Instant::now() < deadline, "on_finish never said {wanted}");
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
+    };
+    read_when("failed").await;
+
+    sqlx::query("UPDATE downbeat.run_history SET finished_at = now() - interval '2 days' WHERE run_id = $1")
+        .bind(failed.run_id)
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    let mark = MarkSucceededRequest { output: Value::Null, note: "fixed by hand".into() };
+    client.as_caller().mark_succeeded(failed.run_id, &mark).await.unwrap();
+    read_when("succeeded").await;
+}

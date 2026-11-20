@@ -111,6 +111,7 @@ pub(crate) struct HistoryRow {
     pub(crate) started_at: Option<DateTime<Utc>>,
     pub(crate) finished_at: DateTime<Utc>,
     pub(crate) marked_by: Option<String>,
+    pub(crate) marked_at: Option<DateTime<Utc>>,
     pub(crate) note: Option<String>,
 }
 

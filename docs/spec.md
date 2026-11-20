@@ -259,10 +259,8 @@ is applied last. A value that does not fit must fail the child as `bad_input`.
 2. *Restart* must start a new chain from the job with the same input, as a deliberate request.
 3. *Mark as succeeded* must apply only to a `failed` row: under the chain lock it sets the status
    to `succeeded`, clears `failed_because`, stores the supplied output (checked strictly against
-   the output type), the note and `marked_by`, sets `notify_after = now()`, writes an audit row,
-   and creates children as in step 4 of the ending routine. Delivery follows section 12, so a run
-   that finished more than a day before it is marked is not delivered to `on_finish` (12.4); the
-   audit row records the change.
+   the output type), the note, `marked_by` and `marked_at = now()`, sets `notify_after = now()`,
+   writes an audit row, and creates children as in step 4 of the ending routine.
 4. *Cancel a chain* must mark the chain cancelled (once; 409 after), then cancel each unfinished
    run of it as below.
 5. *Cancel a run*: a queued run must end at once as `cancelled`; a running run must get
@@ -434,8 +432,9 @@ Modules: `scheduler/callbacks.rs`, `events.rs`, `store/audit.rs`.
    transaction may be open while the callback runs.
 3. When the callback returns `Ok`, `notify_after` must be set to null. When it returns an error,
    the row comes round again after five minutes.
-4. A history row finished more than a day ago, or an event recorded more than a day ago, must be
-   dropped (marked delivered) with an error log line instead of being called.
+4. A history row that finished, or was marked as succeeded, more than a day ago (the later of
+   the two), or an event recorded more than a day ago, must be dropped (marked delivered) with an
+   error log line instead of being called.
 5. When the definition has no `on_finish` (or `on_event`), every pending row of that kind must be
    marked delivered.
 6. An event row that does not decode into a known `Event` must be marked delivered and skipped.
@@ -496,7 +495,8 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     token already recorded must be answered 401.
 12. Every request the authentication layer refuses (rules 3–11) must be logged. A
     `RequestRefused` event, carrying the count since the last one, is recorded at most once a
-    minute per caller and status. Refusals by an endpoint (403 for scope, 404, 409, 422) are
+    minute per caller and status. A token that does not verify names no trusted caller, so its
+    refusals are reported with no caller. Refusals by an endpoint (403 for scope, 404, 409, 422) are
     answers, not attacks, and are not counted.
 
 **Authorization.**

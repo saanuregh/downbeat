@@ -216,7 +216,7 @@ pub(crate) async fn mark_succeeded(
     lock_chain(&mut transaction, row.chain_id).await?;
     let updated: Option<HistoryRow> = sqlx::query_as(
         "UPDATE downbeat.run_history SET status = 'succeeded', failed_because = NULL, output = $2, reason = $3, marked_by = $4,
-                note = $5, notify_after = now()
+                note = $5, marked_at = now(), notify_after = now()
           WHERE run_id = $1 AND status = 'failed' RETURNING *",
     )
     .bind(id)

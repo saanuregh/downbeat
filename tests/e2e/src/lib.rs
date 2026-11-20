@@ -29,6 +29,13 @@ pub struct Seconds {
     pub seconds: u64,
 }
 
+/// Work for one account that takes this long.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
+pub struct AccountWork {
+    pub account: String,
+    pub seconds: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
 pub struct ExitPlan {
     pub code: i32,
@@ -72,6 +79,18 @@ pub async fn empty(_run: Run, input: Text) -> Result<Text> {
         return skip("there is nothing to do");
     }
     Ok(input)
+}
+
+/// Says how `empty` ended, which it learns through an `.after_any` link.
+#[job]
+pub async fn tells_how_empty_ended(_run: Run, ended: Ended<Text>) -> Result<Text> {
+    let text = match ended {
+        Ended::Succeeded(output) => format!("succeeded with {}", output.text),
+        Ended::Skipped(reason) => format!("skipped: {reason}"),
+        Ended::Failed(failure) => format!("failed: {}", failure.reason),
+        Ended::Cancelled(reason) | Ended::Expired(reason) => format!("ended: {reason}"),
+    };
+    Ok(Text { text })
 }
 
 #[job(attempts = 3, backoff = 1.seconds())]
@@ -145,6 +164,12 @@ pub async fn hungry(_run: Run) -> Result<()> {
 
 #[job(one_at_a_time)]
 pub async fn single(_run: Run, input: Seconds) -> Result<()> {
+    tokio::time::sleep(Duration::from_secs(input.seconds)).await;
+    Ok(())
+}
+
+#[job(one_per = account)]
+pub async fn per_account(_run: Run, input: AccountWork) -> Result<()> {
     tokio::time::sleep(Duration::from_secs(input.seconds)).await;
     Ok(())
 }
@@ -238,6 +263,7 @@ fn basics(pipeline: &mut Pipeline) {
     pipeline.job(needs_echo).needs(echo.done_for(|input: &Text| input.clone()));
     pipeline.job(guarded).only_if("positive", |input: &Number| input.n > 0);
     pipeline.job(empty);
+    pipeline.job(tells_how_empty_ended).after_any(empty);
     pipeline.job(starter);
     pipeline.job(noop);
     pipeline.job(fresh_noop);
@@ -256,6 +282,7 @@ fn failures(pipeline: &mut Pipeline) {
     pipeline.job(waits_for_file);
     pipeline.job(hungry);
     pipeline.job(single);
+    pipeline.job(per_account);
     pipeline.job(exits);
     pipeline.job(leaves_a_process_behind);
     pipeline.job(crashes_while_prepared).only_if("not tested before", not_tested_before);

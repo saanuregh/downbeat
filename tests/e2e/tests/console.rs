@@ -100,3 +100,18 @@ async fn the_console_serves_its_screens_with_a_strict_content_policy() {
     assert!(page.headers()["content-security-policy"].to_str().unwrap().starts_with("default-src 'self'"));
     assert_eq!(page.headers()["x-content-type-options"], "nosniff");
 }
+
+#[tokio::test]
+async fn in_local_mode_only_this_machines_own_names_are_answered() {
+    let database = Database::fresh().await;
+    let (_app, _client, scheduler) = with_api_at(&database).await;
+    let (_console, base) = console(&database, &scheduler).await;
+    let http = reqwest::Client::new();
+
+    for path in ["/api/me", "/auth/login", "/"] {
+        let rebound = http.get(format!("{base}{path}")).header("host", "attacker.example").send().await.unwrap();
+        assert_eq!(rebound.status(), 403, "{path} answered a page that pointed its own name here");
+    }
+    let ours = http.get(format!("{base}/api/me")).send().await.unwrap();
+    assert_eq!(ours.status(), 200);
+}
