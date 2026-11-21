@@ -81,7 +81,7 @@ pub(crate) async fn serve(
     registry: Arc<Registry>,
     queues: Vec<(String, u32)>,
     shutdown: Shutdown,
-) -> anyhow::Result<()> {
+) -> sqlx::Result<()> {
     let context = Arc::new(WorkerContext {
         pool: pool.clone(),
         jobs: registry.job_names(),

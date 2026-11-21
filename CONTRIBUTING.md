@@ -103,6 +103,8 @@ The code follows these rules; review applies them.
 - **One place for each rule.** Reason sentences live in `reasons.rs`; every way a run ends goes
   through `store::ending`; every cancel through `store::cancel`; starting through `starting.rs`.
 - **Errors keep their source.** Add context; never swallow or replace an error.
+- **Typed errors in the libraries.** The library crates use `thiserror` enums and never `anyhow`;
+  only applications (the console) use `anyhow` ([decision 69](docs/decisions.md)).
 - **Dependencies.** Justify a new dependency against the standard library and what the workspace
   already uses, in the pull request. Versions are set once in the workspace `Cargo.toml`.
 - **Decisions.** When the code must choose something the design leaves open, or departs from it,

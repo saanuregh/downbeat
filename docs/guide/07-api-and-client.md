@@ -199,6 +199,11 @@ migrates the schema. The actor defaults to `app`. Options: `.priority(n)`, `.eve
 `.actor(name)`, `.idempotency_key(key)`. It connects by URL, so it works whatever `sqlx` version
 your product uses ([decision 9](../decisions.md#9-inappclient-connects-with-a-database-url)).
 
+Connecting and starting return `downbeat::Error`, so a caller can tell a definition with
+problems (`Definition`), a database it cannot reach (`Database`), a newer breaking schema
+(`NewerSchema`), a job not in the definition (`UnknownJob`), a dry run the job does not support
+(`NoDryRun`) and an input that does not fit (`Input`) apart.
+
 ## Idempotency
 
 A start with an idempotency key (the `Idempotency-Key` header, or `.idempotency_key(…)`) stores

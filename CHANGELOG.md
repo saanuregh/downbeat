@@ -57,7 +57,8 @@ The first version.
   `redact`.
 - History pruning by chain, batch after batch within a budget.
 - The `check`, `run-once` and `health` commands, and schedule snapshots for CI.
-- `InAppClient` for starting jobs from inside the product.
+- `InAppClient` for starting jobs from inside the product. It and `migrate` return a typed
+  `downbeat::Error`.
 - Linux only.
 
 ### Control API

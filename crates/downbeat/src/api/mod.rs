@@ -8,6 +8,7 @@ mod error;
 mod read;
 mod views;
 
+use crate::process_error::ProcessError;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -72,13 +73,14 @@ impl Config {
         listen: Option<SocketAddr>,
         callers: Option<&Path>,
         local: bool,
-    ) -> anyhow::Result<Option<Config>> {
+    ) -> Result<Option<Config>, ProcessError> {
         if local {
             let listen = listen.unwrap_or_else(|| LOCAL_LISTEN.parse().expect("a valid address"));
-            anyhow::ensure!(
-                listen.ip().is_loopback(),
-                "--local listens on this machine only; {listen} is not a loopback address"
-            );
+            if !listen.ip().is_loopback() {
+                return Err(ProcessError::Refused(format!(
+                    "--local listens on this machine only; {listen} is not a loopback address"
+                )));
+            }
             let caller = TrustedCaller {
                 keys: vec![development_key().public()],
                 max_scope: Scope::Administer,
@@ -93,27 +95,29 @@ impl Config {
         }
         let Some(listen) = listen else { return Ok(None) };
         let path = callers.ok_or_else(|| {
-            anyhow::anyhow!("--listen needs --callers, the file of trusted callers (or --local to try it out)")
+            ProcessError::Refused(
+                "--listen needs --callers, the file of trusted callers (or --local to try it out)".to_owned(),
+            )
         })?;
-        let text =
-            std::fs::read_to_string(path).map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|source| ProcessError::io(format!("reading {}", path.display()), source))?;
         let file: CallersFile =
-            toml::from_str(&text).map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+            toml::from_str(&text).map_err(|source| ProcessError::CallersFile { path: path.to_path_buf(), source })?;
         let mut callers = BTreeMap::new();
         for entry in file.callers {
             let keys = entry.keys.iter().map(|key| PublicKey::from_base64(key)).collect::<Result<Vec<_>, _>>()?;
-            anyhow::ensure!(!keys.is_empty(), "caller {} has no keys", entry.name);
+            if keys.is_empty() {
+                return Err(ProcessError::Refused(format!("caller {} has no keys", entry.name)));
+            }
             let caller = TrustedCaller {
                 keys,
                 max_scope: entry.max_scope,
                 jobs: entry.jobs,
                 acts_for_people: entry.acts_for_people,
             };
-            anyhow::ensure!(
-                callers.insert(entry.name.clone(), caller).is_none(),
-                "caller {} is listed twice",
-                entry.name
-            );
+            if callers.insert(entry.name.clone(), caller).is_some() {
+                return Err(ProcessError::Refused(format!("caller {} is listed twice", entry.name)));
+            }
         }
         Ok(Some(Config { listen, audience: file.audience, callers }))
     }
@@ -135,7 +139,7 @@ pub(crate) async fn serve(
     registry: Arc<Registry>,
     config: Config,
     stop: CancellationToken,
-) -> anyhow::Result<()> {
+) -> Result<(), ProcessError> {
     let listen = config.listen;
     let state = Arc::new(ApiState {
         pool,
@@ -146,9 +150,12 @@ pub(crate) async fn serve(
     });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
-        .map_err(|error| anyhow::anyhow!("listening on {listen}: {error}"))?;
+        .map_err(|source| ProcessError::io(format!("listening on {listen}"), source))?;
     tracing::info!(%listen, "control API listening");
-    axum::serve(listener, router(state)).with_graceful_shutdown(async move { stop.cancelled().await }).await?;
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(async move { stop.cancelled().await })
+        .await
+        .map_err(|source| ProcessError::io(format!("serving on {listen}"), source))?;
     Ok(())
 }
 

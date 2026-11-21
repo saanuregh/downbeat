@@ -205,8 +205,9 @@ older keeps working during a rolling deploy. An engine refuses to start against 
 a newer migration marked as breaking.
 
 To migrate as a separate deploy step, call `downbeat::migrate(&database_url).await` from a small
-program of your own. The database role needs to create a schema the first time, and read and
-write its own schema after that.
+program of your own. It returns `downbeat::Error`: `NewerSchema` when the database has a
+breaking migration this build does not know, `Database` when it cannot be reached. The database
+role needs to create a schema the first time, and read and write its own schema after that.
 
 `InAppClient::connect` also migrates when it connects.
 

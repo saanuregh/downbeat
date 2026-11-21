@@ -4,6 +4,7 @@
 //! says it is ready, and then does what the worker asks over the socket on that descriptor: prepare
 //! a run, call a function, check a command's output. It never touches the engine's tables.
 
+use crate::process_error::ProcessError;
 use std::collections::HashMap;
 use std::future::Future;
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -41,14 +42,14 @@ pub(crate) fn main(definition: fn() -> Definition, descriptor: &str) -> std::pro
     match runtime.block_on(serve(definition, descriptor)) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("downbeat child: {error:#}");
+            eprintln!("downbeat child: {error}");
             std::process::ExitCode::FAILURE
         }
     }
 }
 
-async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Result<()> {
-    let descriptor: i32 = descriptor.parse()?;
+async fn serve(definition: fn() -> Definition, descriptor: &str) -> Result<(), ProcessError> {
+    let descriptor: i32 = descriptor.parse().map_err(|_| ProcessError::Descriptor(descriptor.to_owned()))?;
     let environment = std::env::var(ENVIRONMENT).ok();
     let registry = Registry::build_or_explain(definition(), environment.as_deref())?;
     let registry = Arc::new(registry);
@@ -58,20 +59,23 @@ async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Resu
     #[allow(unsafe_code)]
     let owned = unsafe { OwnedFd::from_raw_fd(descriptor) };
     let socket = std::os::unix::net::UnixStream::from(owned);
-    socket.set_nonblocking(true)?;
-    let (mut reader, writer) = UnixStream::from_std(socket)?.into_split();
+    let socket_error = |source| ProcessError::io("the socket to the worker", source);
+    socket.set_nonblocking(true).map_err(socket_error)?;
+    let (mut reader, writer) = UnixStream::from_std(socket).map_err(socket_error)?.into_split();
 
     let (outgoing, receiver) = mpsc::unbounded_channel::<FromChild>();
     tokio::spawn(write_messages(writer, receiver));
-    outgoing.send(FromChild::Ready)?;
+    outgoing.send(FromChild::Ready).map_err(|_| ProcessError::WorkerGone)?;
 
     let pending: Pending = Arc::default();
     let mut current: Option<(Uuid, CancellationToken)> = None;
-    while let Some(message) = protocol::read::<_, ToChild>(&mut reader).await? {
+    while let Some(message) = protocol::read::<_, ToChild>(&mut reader).await.map_err(socket_error)? {
         match message {
             ToChild::Prepare { run, input, parents, ignore_conditions } => {
                 let result = prepare(&registry, &run, input, parents, ignore_conditions);
-                outgoing.send(FromChild::Prepared { run_id: run.run_id, result })?;
+                outgoing
+                    .send(FromChild::Prepared { run_id: run.run_id, result })
+                    .map_err(|_| ProcessError::WorkerGone)?;
             }
             ToChild::Go { run, input, checkpoint } => {
                 let cancelled = CancellationToken::new();
@@ -80,7 +84,7 @@ async fn serve(definition: fn() -> Definition, descriptor: &str) -> anyhow::Resu
             }
             ToChild::CheckOutput { run_id, job, output } => {
                 let result = check_output(&registry, &job, output);
-                outgoing.send(FromChild::Checked { run_id, result })?;
+                outgoing.send(FromChild::Checked { run_id, result }).map_err(|_| ProcessError::WorkerGone)?;
             }
             ToChild::Cancel { run_id } => {
                 if let Some((current_id, token)) = &current

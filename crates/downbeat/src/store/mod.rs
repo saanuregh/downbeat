@@ -20,7 +20,7 @@ pub(crate) struct Store {
 
 impl Store {
     /// Connects, and brings the schema up to date.
-    pub(crate) async fn connect(url: &str, connections: u32) -> anyhow::Result<Store> {
+    pub(crate) async fn connect(url: &str, connections: u32) -> Result<Store, crate::Error> {
         let options: PgConnectOptions = url.parse()?;
         let pool = PgPoolOptions::new()
             .max_connections(connections)

@@ -1,5 +1,6 @@
 //! `check` and `run-once`: the two commands that work without the engine's tables.
 
+use crate::process_error::ProcessError;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -65,16 +66,16 @@ pub(crate) async fn run_once(
     environment: Option<&str>,
     job: &str,
     input: Option<&str>,
-) -> anyhow::Result<ExitCode> {
+) -> Result<ExitCode, ProcessError> {
     let registry = Registry::build_or_explain(definition, environment)?;
     let registry = Arc::new(registry);
-    let found = registry.job(job).ok_or_else(|| anyhow::anyhow!("there is no job named {job}"))?;
+    let found = registry.job(job).ok_or_else(|| crate::Error::UnknownJob(job.to_owned()))?;
     let input: Value = match input {
         Some(text) => serde_json::from_str(text)?,
         None => Value::Null,
     };
     let input = (found.spec.input_ops.normalize)(input, true)
-        .map_err(|error| anyhow::anyhow!("the input does not fit {job}: {error}"))?;
+        .map_err(|error| crate::Error::Input(format!("the input does not fit {job}: {error}")))?;
     match &found.spec.body {
         Body::Function(body) => {
             let outcome: Outcome<Value> = body(Run::for_test(), input, Arc::clone(&registry.dependencies)).await.into();
@@ -82,14 +83,15 @@ pub(crate) async fn run_once(
             Ok(if matches!(outcome, Outcome::Failed(_)) { ExitCode::FAILURE } else { ExitCode::SUCCESS })
         }
         Body::Command { program, .. } => {
-            let spec = program(input.clone()).map_err(|error| anyhow::anyhow!(error))?;
+            let spec = program(input.clone()).map_err(crate::Error::Input)?;
             println!("starting {} {:?}", spec.program, spec.args);
             let mut command = std::process::Command::new(&spec.program);
             command.args(&spec.args).envs(&spec.env);
             if let Some(dir) = &spec.dir {
                 command.current_dir(dir);
             }
-            let status = command.status()?;
+            let status =
+                command.status().map_err(|source| ProcessError::io(format!("starting {}", spec.program), source))?;
             Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
         }
     }

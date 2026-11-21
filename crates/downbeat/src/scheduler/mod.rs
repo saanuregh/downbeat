@@ -19,7 +19,7 @@ use crate::registry::Registry;
 /// How often schedules are registered again, which keeps them from being treated as gone.
 const REGISTER_EVERY: Duration = Duration::from_secs(60);
 
-pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: CancellationToken) -> anyhow::Result<()> {
+pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: CancellationToken) -> sqlx::Result<()> {
     fire::register(&pool, &registry).await?;
     let id = format!("scheduler-{}", crate::worker::worker_id());
     tracing::info!(schedules = registry.schedules.len(), environment = ?registry.environment, "scheduler started");
@@ -30,35 +30,35 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
-            async move { fire::register(&pool, &registry).await.map_err(anyhow::Error::from) }
+            async move { fire::register(&pool, &registry).await }
         }
     }));
     tasks.spawn(every(tick, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
-            async move { fire::fire_due(&pool, &registry).await.map_err(anyhow::Error::from) }
+            async move { fire::fire_due(&pool, &registry).await }
         }
     }));
     tasks.spawn(every(tick, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
-            async move { callbacks::deliver(&pool, &registry).await.map_err(anyhow::Error::from) }
+            async move { callbacks::deliver(&pool, &registry).await }
         }
     }));
     tasks.spawn(every(tick * 2, stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
-            async move { backfill::drive(&pool, &registry).await.map_err(anyhow::Error::from) }
+            async move { backfill::drive(&pool, &registry).await }
         }
     }));
     tasks.spawn(every(Duration::from_secs(30), stop.clone(), {
         let (pool, registry) = (pool.clone(), Arc::clone(&registry));
         move || {
             let (pool, registry) = (pool.clone(), Arc::clone(&registry));
-            async move { watch::check(&pool, &registry).await.map_err(anyhow::Error::from) }
+            async move { watch::check(&pool, &registry).await }
         }
     }));
     tasks.spawn(every(registry.settings.heartbeat, stop.clone(), {
@@ -74,7 +74,6 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
                 .execute(&pool)
                 .await
                 .map(|_| ())
-                .map_err(anyhow::Error::from)
             }
         }
     }));
@@ -89,7 +88,7 @@ pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: Cancellat
 async fn every<F, Fut>(period: Duration, stop: CancellationToken, mut task: F)
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<()>>,
+    Fut: Future<Output = sqlx::Result<()>>,
 {
     let mut tick = tokio::time::interval(period);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);

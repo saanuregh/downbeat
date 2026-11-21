@@ -14,7 +14,6 @@ sha2.workspace = true
 downbeat.workspace = true
 downbeat-api.workspace = true
 reqwest = { workspace = true, features = ["cookies", "form"] }
-anyhow.workspace = true
 chrono.workspace = true
 futures.workspace = true
 serde.workspace = true

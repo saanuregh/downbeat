@@ -493,3 +493,13 @@ adds their runs to `downbeat.day_totals` (a count per status and the longest suc
 day). That adds no write to a run's ending. Medians and 90th percentiles cannot be added up, so
 they come from the runs still in the history. Totals are kept by calendar day in the definition's
 zone at pruning time; if the zone changes, older totals stay on the old zone's days.
+
+## 69. The library has typed errors; only applications use anyhow
+
+The `downbeat` crate does not depend on `anyhow`. What a product calls (`migrate`,
+`InAppClient`) returns `downbeat::Error`, an enum a caller can match on. The code behind
+`downbeat::run` (the roles, `run-once`, child processes, the callers file) uses the crate-private
+`ProcessError`, which wraps `downbeat::Error` with I/O, command-line and child-protocol failures
+and is only printed before the process exits, so none of that detail becomes public API. The
+console is an application and keeps `anyhow`, as do the guide's samples, where it stands for the
+product's own error type.

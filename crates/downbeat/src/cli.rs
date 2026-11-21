@@ -1,5 +1,6 @@
 //! The product binary's command line: start roles, check the definition, run one job, health.
 
+use crate::process_error::ProcessError;
 use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -130,8 +131,8 @@ pub(crate) fn run(args: Vec<OsString>, definition: fn() -> Definition) -> ExitCo
     match runtime.block_on(dispatch(cli.command, definition)) {
         Ok(code) => code,
         Err(error) => {
-            tracing::error!(error = %format!("{error:#}"), "stopped");
-            eprintln!("error: {error:#}");
+            tracing::error!(%error, "stopped");
+            eprintln!("error: {error}");
             ExitCode::FAILURE
         }
     }
@@ -147,7 +148,7 @@ pub(crate) fn init_logging() {
     };
 }
 
-async fn dispatch(command: Command, definition: fn() -> Definition) -> anyhow::Result<ExitCode> {
+async fn dispatch(command: Command, definition: fn() -> Definition) -> Result<ExitCode, ProcessError> {
     match command {
         Command::Check { snapshot, verify_snapshot } => Ok(crate::check::run(definition(), snapshot, verify_snapshot)),
         Command::RunOnce { job, input, environment } => {
@@ -162,8 +163,8 @@ async fn dispatch(command: Command, definition: fn() -> Definition) -> anyhow::R
     }
 }
 
-fn build_registry(definition: Definition, environment: Option<&str>) -> anyhow::Result<Arc<Registry>> {
-    Registry::build_or_explain(definition, environment).map(Arc::new)
+fn build_registry(definition: Definition, environment: Option<&str>) -> Result<Arc<Registry>, crate::Error> {
+    Ok(Arc::new(Registry::build_or_explain(definition, environment)?))
 }
 
 /// Starts the scheduler role, the worker role, or both, until SIGTERM or Ctrl-C.
@@ -172,7 +173,7 @@ async fn serve(
     common: &Common,
     queues: Option<Vec<(String, u32)>>,
     api: Option<ApiArgs>,
-) -> anyhow::Result<ExitCode> {
+) -> Result<ExitCode, ProcessError> {
     let registry = build_registry(definition(), common.environment.as_deref())?;
     let slots: u32 = queues.iter().flatten().map(|(_, slots)| *slots).sum();
     let store = Store::connect(&common.database_url, 4 + slots * 2).await?;
@@ -181,26 +182,28 @@ async fn serve(
     tokio::spawn(wait_for_signal(shutdown.clone(), stop_scheduler.clone()));
 
     let mut roles = tokio::task::JoinSet::new();
-    roles.spawn(reaper(store.pool.clone(), Arc::clone(&registry), stop_scheduler.clone()));
+    let (pool, stop) = (store.pool.clone(), stop_scheduler.clone());
+    let reaper_registry = Arc::clone(&registry);
+    roles.spawn(async move {
+        crate::reaper::serve(pool, reaper_registry, stop).await;
+        Ok::<(), ProcessError>(())
+    });
     if let Some(api) = api {
         let config = crate::api::Config::load(api.listen, api.callers.as_deref(), api.local)?;
         if let Some(config) = config {
             roles.spawn(crate::api::serve(store.pool.clone(), Arc::clone(&registry), config, stop_scheduler.clone()));
         }
-        roles.spawn(crate::scheduler::serve(store.pool.clone(), Arc::clone(&registry), stop_scheduler.clone()));
+        let scheduler = crate::scheduler::serve(store.pool.clone(), Arc::clone(&registry), stop_scheduler.clone());
+        roles.spawn(async move { Ok(scheduler.await?) });
     }
     if let Some(queues) = queues {
-        roles.spawn(crate::worker::serve(store.pool.clone(), Arc::clone(&registry), queues, shutdown.clone()));
+        let worker = crate::worker::serve(store.pool.clone(), Arc::clone(&registry), queues, shutdown.clone());
+        roles.spawn(async move { Ok(worker.await?) });
     }
     while let Some(ended) = roles.join_next().await {
         ended??;
     }
     Ok(ExitCode::SUCCESS)
-}
-
-async fn reaper(pool: sqlx::PgPool, registry: Arc<Registry>, stop: CancellationToken) -> anyhow::Result<()> {
-    crate::reaper::serve(pool, registry, stop).await;
-    Ok(())
 }
 
 /// SIGTERM or Ctrl-C: the worker stops claiming and finishes as `drain` allows, while the scheduler
@@ -218,7 +221,7 @@ async fn wait_for_signal(shutdown: Shutdown, stop_scheduler: CancellationToken) 
     stop_scheduler.cancel();
 }
 
-async fn health(common: &Common, definition: Definition) -> anyhow::Result<ExitCode> {
+async fn health(common: &Common, definition: Definition) -> Result<ExitCode, ProcessError> {
     let registry = build_registry(definition, common.environment.as_deref())?;
     let options: sqlx::postgres::PgConnectOptions = common.database_url.parse()?;
     let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_with(options).await?;

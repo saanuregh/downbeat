@@ -62,14 +62,14 @@ const NO_DATABASE: &str = "postgres://nobody@127.0.0.1:1/nothing";
 #[tokio::test]
 async fn in_app_client_refuses_a_definition_with_problems() {
     let error = downbeat::InAppClient::connect(broken, NO_DATABASE).await.unwrap_err();
-    let message = format!("{error:#}");
+    let downbeat::Error::Definition { problems } = &error else { panic!("not a definition error: {error}") };
+    assert!(problems.iter().any(|problem| problem.contains("left_out")), "the problem names the job: {problems:?}");
+    let message = error.to_string();
     assert!(message.contains("the definition has problems"), "{message}");
-    assert!(message.contains("left_out"), "the problem names the job: {message}");
 }
 
 #[tokio::test]
 async fn in_app_client_gets_past_a_sound_definition() {
     let error = downbeat::InAppClient::connect(sound, NO_DATABASE).await.unwrap_err();
-    let message = format!("{error:#}");
-    assert!(!message.contains("the definition has problems"), "{message}");
+    assert!(matches!(error, downbeat::Error::Database(_)), "{error}");
 }

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 
+use crate::Error;
 use crate::definition::Definition;
 use crate::job::{Job, Started};
 use crate::registry::Registry;
@@ -30,7 +31,7 @@ impl fmt::Debug for InAppClient {
 
 impl InAppClient {
     /// Connects to the product's database, where the engine's tables are.
-    pub async fn connect(definition: fn() -> Definition, database_url: &str) -> anyhow::Result<InAppClient> {
+    pub async fn connect(definition: fn() -> Definition, database_url: &str) -> Result<InAppClient, Error> {
         let environment = std::env::var(crate::child::ENVIRONMENT).ok();
         let registry = Registry::build_or_explain(definition(), environment.as_deref())?;
         let store = Store::connect(database_url, 4).await?;
@@ -95,20 +96,16 @@ impl InAppStart<'_> {
 }
 
 impl<'a> IntoFuture for InAppStart<'a> {
-    type Output = anyhow::Result<Started>;
-    type IntoFuture = Pin<Box<dyn Future<Output = anyhow::Result<Started>> + Send + 'a>>;
+    type Output = Result<Started, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Result<Started, Error>> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let job = self
-                .client
-                .registry
-                .job(self.job)
-                .ok_or_else(|| anyhow::anyhow!("there is no job named {}", self.job))?;
+            let job = self.client.registry.job(self.job).ok_or_else(|| Error::UnknownJob(self.job.to_owned()))?;
             let ops = &job.spec.input_ops;
-            let input = (ops.normalize)(self.input.map_err(anyhow::Error::msg)?, true).map_err(anyhow::Error::msg)?;
-            let input_hash = (ops.hash)(&input).map_err(anyhow::Error::msg)?;
-            let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose().map_err(anyhow::Error::msg)?;
+            let input = (ops.normalize)(self.input.map_err(Error::Input)?, true).map_err(Error::Input)?;
+            let input_hash = (ops.hash)(&input).map_err(Error::Input)?;
+            let turn_value = ops.turn_value.map(|value_of| value_of(&input)).transpose().map_err(Error::Input)?;
             let actor = self.actor.unwrap_or_else(|| "app".to_owned());
             let request = StartJob {
                 job: self.job.to_owned(),

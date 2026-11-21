@@ -75,6 +75,8 @@ message broker.
 | `events.rs` | `FinishedRun`, `Event`, `EventDelivery`. |
 | `starting.rs` | Starting a job on request (API, `run.start`, `InAppClient`): idempotency, rule 1, audit. |
 | `client.rs` | `InAppClient`. |
+| `error.rs` | `Error`, what `migrate` and `InAppClient` fail with. |
+| `process_error.rs` | `ProcessError` (crate-private), why a role, a command or a child stopped; printed before the process exits. |
 | `protocol.rs` | The messages between a worker and its child, and their framing. |
 | `child.rs` | The child process: prepare, call, check a command's output. |
 | `worker/mod.rs` | The worker role: slots, claiming, driving a run, deciding how a call ended, recording it, shutdown. |

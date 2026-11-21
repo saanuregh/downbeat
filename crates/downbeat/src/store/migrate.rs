@@ -39,7 +39,7 @@ const MIGRATIONS: &[Migration] = &[
 /// Arbitrary, fixed: the advisory lock that serialises migrations across processes.
 const MIGRATION_LOCK: i64 = 0x646f_776e_6265_6174; // "downbeat"
 
-pub(crate) async fn migrate(pool: &PgPool) -> anyhow::Result<()> {
+pub(crate) async fn migrate(pool: &PgPool) -> Result<(), crate::Error> {
     let mut connection = pool.acquire().await?;
     sqlx::query("SELECT pg_advisory_lock($1)").bind(MIGRATION_LOCK).execute(&mut *connection).await?;
     let result = apply(&mut connection).await;
@@ -47,7 +47,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> anyhow::Result<()> {
     result
 }
 
-async fn apply(connection: &mut sqlx::PgConnection) -> anyhow::Result<()> {
+async fn apply(connection: &mut sqlx::PgConnection) -> Result<(), crate::Error> {
     sqlx::query("CREATE SCHEMA IF NOT EXISTS downbeat").execute(&mut *connection).await?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS downbeat.migration (
@@ -64,9 +64,7 @@ async fn apply(connection: &mut sqlx::PgConnection) -> anyhow::Result<()> {
         sqlx::query_as("SELECT version, breaking FROM downbeat.migration").fetch_all(&mut *connection).await?;
     let known_newest = MIGRATIONS.last().map_or(0, |migration| migration.version);
     if let Some((version, _)) = applied.iter().find(|(version, breaking)| *version > known_newest && *breaking) {
-        anyhow::bail!(
-            "the database's downbeat schema is at version {version}, which this engine (schema {known_newest}) cannot use; deploy a newer build"
-        );
+        return Err(crate::Error::NewerSchema { found: *version, known: known_newest });
     }
 
     for migration in
