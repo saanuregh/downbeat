@@ -851,7 +851,6 @@ dependencies = [
  "chrono",
  "clap",
  "downbeat-api",
- "downbeat-client",
  "futures",
  "openidconnect",
  "rand 0.10.4",
