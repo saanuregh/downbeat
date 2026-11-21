@@ -42,7 +42,7 @@ async fn queued_because(client: &downbeat_client::Client, run: Uuid) -> String {
     client.run(run).await.unwrap().queued_because.unwrap_or_default()
 }
 
-async fn sql(database: &Database, statement: &str, run: Uuid) {
+async fn sql(database: &Database, statement: &'static str, run: Uuid) {
     sqlx::query(statement).bind(run).execute(&database.pool).await.unwrap();
 }
 

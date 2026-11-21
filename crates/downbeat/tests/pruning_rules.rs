@@ -28,14 +28,14 @@ async fn fresh_database() -> PgPool {
         .fetch_one(&admin)
         .await
         .unwrap();
-    sqlx::query(&format!("CREATE DATABASE {name}")).execute(&admin).await.expect("a test database");
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}"))).execute(&admin).await.expect("a test database");
     admin.close().await;
     let url = base.replacen("/postgres", &format!("/{name}"), 1);
     downbeat::migrate(&url).await.expect("the engine's tables are created");
     PgPool::connect(&url).await.expect("the test database is reachable")
 }
 
-async fn count(pool: &PgPool, sql: &str) -> i64 {
+async fn count(pool: &PgPool, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
 

@@ -130,7 +130,7 @@ impl Builder {
             .https_only(!local)
             .user_agent(concat!("downbeat-client/", env!("CARGO_PKG_VERSION")));
         if let Some(ca) = self.ca {
-            http = http.tls_built_in_root_certs(false).add_root_certificate(ca);
+            http = http.tls_certs_only([ca]);
         }
         let client = Client { http: http.build()?, base, caller, audience, key, scope: self.scope, jobs: self.jobs };
         let version: Version = client.unsigned_get("/version").await?;

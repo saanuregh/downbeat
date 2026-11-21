@@ -54,11 +54,11 @@ async fn a_job_that_runs_one_at_a_time_never_overlaps() {
 /// Whether two finished runs of `job` that match the SQL condition `which` (on `x` and `y`) ran
 /// at the same time.
 async fn overlapped(database: &Database, job: &str, which: &str) -> bool {
-    sqlx::query_scalar(&format!(
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT EXISTS (SELECT 1 FROM downbeat.run_history x, downbeat.run_history y
           WHERE x.job_name = $1 AND y.job_name = $1 AND x.run_id < y.run_id AND ({which})
             AND x.started_at < y.finished_at AND y.started_at < x.finished_at)"
-    ))
+    )))
     .bind(job)
     .fetch_one(&database.pool)
     .await

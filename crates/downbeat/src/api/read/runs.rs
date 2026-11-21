@@ -175,7 +175,7 @@ fn jobs_filter(state: &State, caller: &Caller, query: &RunsQuery) -> Result<Opti
 }
 
 fn common_filters(
-    sql: &mut QueryBuilder<'_, Postgres>,
+    sql: &mut QueryBuilder<Postgres>,
     query: &RunsQuery,
     jobs: Option<&Vec<String>>,
     input: Option<&(String, String)>,

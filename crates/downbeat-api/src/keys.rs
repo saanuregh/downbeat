@@ -25,7 +25,7 @@ pub enum KeyError {
 impl PrivateKey {
     /// A new random key.
     pub fn generate() -> PrivateKey {
-        PrivateKey(SigningKey::generate(&mut rand::rngs::OsRng))
+        PrivateKey(SigningKey::generate(&mut rand::rand_core::UnwrapErr(rand::rngs::SysRng)))
     }
 
     /// Reads a key written as PKCS#8 PEM, as `openssl genpkey -algorithm ed25519` writes it.

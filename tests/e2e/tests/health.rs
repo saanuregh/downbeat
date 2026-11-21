@@ -48,7 +48,10 @@ async fn ready_only_while_the_database_answers() {
     let name: String = sqlx::query_scalar("SELECT current_database()").fetch_one(&database.pool).await.unwrap();
     let admin = PgPool::connect(&std::env::var("DOWNBEAT_TEST_DATABASE_URL").unwrap()).await.unwrap();
     // `ALLOW_CONNECTIONS false` holds back superusers too, unlike a connection limit.
-    sqlx::query(&format!("ALTER DATABASE {name} ALLOW_CONNECTIONS false")).execute(&admin).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("ALTER DATABASE {name} ALLOW_CONNECTIONS false")))
+        .execute(&admin)
+        .await
+        .unwrap();
     sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1")
         .bind(&name)
         .execute(&admin)
@@ -57,7 +60,10 @@ async fn ready_only_while_the_database_answers() {
     let down = reqwest::Client::new().get(&ready).timeout(Duration::from_secs(30)).send().await.unwrap();
     let status = down.status();
     let body: Value = down.json().await.unwrap();
-    sqlx::query(&format!("ALTER DATABASE {name} ALLOW_CONNECTIONS true")).execute(&admin).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("ALTER DATABASE {name} ALLOW_CONNECTIONS true")))
+        .execute(&admin)
+        .await
+        .unwrap();
     admin.close().await;
     assert_eq!(status, 503, "{body}");
     assert_eq!(body["error"], "database", "{body}");

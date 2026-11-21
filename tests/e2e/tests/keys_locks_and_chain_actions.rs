@@ -18,7 +18,7 @@ use support::{App, Database, SOON, finished, with_api};
 use uuid::Uuid;
 
 fn sha256(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    hex::encode(Sha256::digest(text.as_bytes()))
 }
 
 async fn keys(database: &Database, run: Uuid) -> (Option<String>, Option<String>) {

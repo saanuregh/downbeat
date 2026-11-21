@@ -454,3 +454,23 @@ Its three findings were fixed so that both linters agree:
 When 1.4.6 ships: pin it in `mise.toml` and CI, replace the `lint` script and the oxlint
 dependency with `bun lint --max-warnings=0`, and update CONTRIBUTING.
 
+## 66. Every Rust dependency at its newest version
+
+All direct dependencies are at their newest versions: base64 0.23, ed25519-dalek 3, rand 0.10,
+reqwest 0.13, sha2 0.11, sqlx 0.9, syn 3, toml 1 and tower-http 0.7. The lock file holds the newest
+compatible versions of the rest. What changed:
+
+- **sqlx 0.9:** a query must be a `&'static str`, or SQL built at run time wrapped in
+  `AssertSqlSafe`. The engine's three pruning queries are built from a constant and are wrapped.
+  Test helpers that take only fixed SQL now require `&'static str`. Both migration runners are
+  hand-written, so sqlx's `migrate` feature is no longer enabled. sqlx's migrator cannot keep the
+  engine's rule that an older engine runs on a newer schema unless that newer migration is
+  breaking, and one way of migrating is simpler than two, so the console keeps its own runner too.
+- **reqwest 0.13:** TLS now checks certificates against the operating system's store, not a
+  bundled copy of Mozilla's roots, and uses the aws-lc crypto library. A client given its own
+  certificate authority trusts only that authority (`tls_certs_only`).
+- **rand 0.10:** API keys come from the operating system's generator (`SysRng`), as before. Session
+  ids and token ids come from the thread-local generator, as before.
+- **sha2 0.11:** digests no longer format as hex with `{:x}`; one test uses `hex::encode`.
+- **Still held back by other crates:** openidconnect 4.1, its newest release, still uses reqwest
+  0.12, so the console builds both reqwest versions. axum pins matchit 0.8.4.

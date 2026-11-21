@@ -103,7 +103,7 @@ impl Claims {
         now: i64,
     ) -> Claims {
         let mut jti = [0_u8; 16];
-        rand::Rng::fill(&mut rand::thread_rng(), &mut jti);
+        rand::fill(&mut jti);
         Claims {
             iss: caller.to_owned(),
             sub: actor.to_owned(),

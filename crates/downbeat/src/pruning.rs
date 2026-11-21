@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::registry::Registry;
@@ -69,7 +69,7 @@ fn locking(candidates: &str) -> String {
 /// one that comes later waits for the lock and then finds the chain gone.
 pub(crate) async fn remove_locked(mut transaction: Transaction<'_, Postgres>, locked: &[Uuid]) -> sqlx::Result<i64> {
     let remove = format!("DELETE FROM downbeat.chain c WHERE c.chain_id = ANY($1) AND {PRUNABLE}");
-    let removed = sqlx::query(&remove).bind(locked).execute(&mut *transaction).await?;
+    let removed = sqlx::query(AssertSqlSafe(remove)).bind(locked).execute(&mut *transaction).await?;
     transaction.commit().await?;
     Ok(i64::try_from(removed.rows_affected()).unwrap_or(i64::MAX))
 }
@@ -93,7 +93,7 @@ pub(crate) async fn lock_older_than(
           WHERE c.first_job = $1 AND c.started_at < now() - $2 AND {PRUNABLE}
           LIMIT $3"
     );
-    sqlx::query_scalar(&locking(&candidates))
+    sqlx::query_scalar(AssertSqlSafe(locking(&candidates)))
         .bind(job)
         .bind(interval(keep_for))
         .bind(BATCH)
@@ -119,7 +119,11 @@ async fn prune_beyond_count(pool: &PgPool, job: &str, keep: i64) -> sqlx::Result
          LIMIT $3"
     );
     let mut transaction = pool.begin().await?;
-    let locked: Vec<Uuid> =
-        sqlx::query_scalar(&locking(&candidates)).bind(job).bind(keep).bind(BATCH).fetch_all(&mut *transaction).await?;
+    let locked: Vec<Uuid> = sqlx::query_scalar(AssertSqlSafe(locking(&candidates)))
+        .bind(job)
+        .bind(keep)
+        .bind(BATCH)
+        .fetch_all(&mut *transaction)
+        .await?;
     remove_locked(transaction, &locked).await
 }

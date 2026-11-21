@@ -13,7 +13,7 @@ use downbeat_e2e::*;
 use support::{App, Database, SOON, eventually, finished};
 use uuid::Uuid;
 
-async fn execute(database: &Database, statement: &str) {
+async fn execute(database: &Database, statement: &'static str) {
     sqlx::query(statement).execute(&database.pool).await.unwrap();
 }
 

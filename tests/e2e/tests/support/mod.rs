@@ -43,7 +43,10 @@ impl Database {
             .expect("DOWNBEAT_TEST_DATABASE_URL is not set; run the tests with mise-tasks/test-rust");
         let admin = PgPool::connect(&base).await.expect("the test cluster is reachable");
         let name = format!("test_{}", Uuid::new_v4().simple());
-        sqlx::query(&format!("CREATE DATABASE {name}")).execute(&admin).await.expect("a test database");
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+            .execute(&admin)
+            .await
+            .expect("a test database");
         admin.close().await;
         let url = base.replacen("/postgres", &format!("/{name}"), 1);
         downbeat::migrate(&url).await.expect("the engine's tables are created");
@@ -246,7 +249,7 @@ pub async fn finished_job(pool: &PgPool, job: &str, within: Duration) -> Finishe
 pub async fn eventually(pool: &PgPool, sql: &str, within: Duration) {
     let deadline = tokio::time::Instant::now() + within;
     loop {
-        let holds: bool = sqlx::query_scalar(sql).fetch_one(pool).await.unwrap();
+        let holds: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).fetch_one(pool).await.unwrap();
         if holds {
             return;
         }

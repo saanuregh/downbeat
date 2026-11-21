@@ -38,7 +38,7 @@ async fn migrate(connection: &mut sqlx::PgConnection) -> anyhow::Result<()> {
     }
     for (version, sql) in MIGRATIONS.iter().filter(|(version, _)| !applied.contains(version)) {
         let mut transaction = sqlx::Connection::begin(&mut *connection).await?;
-        sqlx::raw_sql(sql).execute(&mut *transaction).await?;
+        sqlx::raw_sql(*sql).execute(&mut *transaction).await?;
         sqlx::query("INSERT INTO console.migration (version) VALUES ($1)")
             .bind(version)
             .execute(&mut *transaction)

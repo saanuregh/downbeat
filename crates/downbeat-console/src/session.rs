@@ -17,7 +17,6 @@ use openidconnect::{
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier,
     RedirectUrl, Scope, TokenResponse,
 };
-use rand::RngCore;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -83,7 +82,7 @@ impl Provider {
 
 fn random_token() -> String {
     let mut bytes = [0_u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

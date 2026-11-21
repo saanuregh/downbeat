@@ -89,9 +89,9 @@ async fn events(pool: &PgPool, schedule: &str, event: &str) -> Vec<Value> {
 
 /// A column of the schedule's state, in seconds after the database's now; `None` when null.
 async fn seconds_from_now(pool: &PgPool, schedule: &str, column: &str) -> Option<f64> {
-    sqlx::query_scalar(&format!(
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT extract(epoch FROM {column} - now())::float8 FROM downbeat.schedule_state WHERE schedule = $1"
-    ))
+    )))
     .bind(schedule)
     .fetch_one(pool)
     .await

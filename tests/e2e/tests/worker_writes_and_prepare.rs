@@ -14,7 +14,7 @@ use serde_json::json;
 use support::{App, Database, SOON, eventually, finished, with_api, with_api_at};
 use uuid::Uuid;
 
-async fn execute(database: &Database, statement: &str) {
+async fn execute(database: &Database, statement: &'static str) {
     sqlx::query(statement).execute(&database.pool).await.unwrap();
 }
 
@@ -189,7 +189,7 @@ async fn a_worker_write_fails_when_the_lease_owner_or_the_state_changed() {
     let jobs = vec!["echo".to_owned()];
     let (run, fence) = downbeat::measure::claim(&database.pool, "default", &jobs).await.unwrap().unwrap();
     let set = async |assignment: &str| {
-        sqlx::query(&format!("UPDATE downbeat.run SET {assignment} WHERE run_id = $1"))
+        sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE downbeat.run SET {assignment} WHERE run_id = $1")))
             .bind(run)
             .execute(&database.pool)
             .await

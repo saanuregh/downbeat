@@ -17,7 +17,7 @@ async fn queued_echo(client: &InAppClient, text: &str) -> Uuid {
     client.start(echo, Text { text: text.into() }).await.unwrap().run_id()
 }
 
-async fn set(pool: &PgPool, sql: &str, run_id: Uuid) {
+async fn set(pool: &PgPool, sql: &'static str, run_id: Uuid) {
     sqlx::query(sql).bind(run_id).execute(pool).await.unwrap();
 }
 

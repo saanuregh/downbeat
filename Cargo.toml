@@ -18,7 +18,7 @@ downbeat-client = { path = "crates/downbeat-client", version = "0.1.0" }
 
 anyhow = "1"
 axum = { version = "0.8", features = ["macros"] }
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
@@ -27,24 +27,24 @@ hex = "0.4"
 inventory = "0.3"
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
-ed25519-dalek = { version = "2", features = ["pem", "rand_core"] }
+ed25519-dalek = { version = "3", features = ["pem", "rand_core"] }
 libc = "0.2"
 proc-macro2 = "1"
 quote = "1"
-rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_ignored = "0.1.10"
-sha2 = "0.10"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
-syn = { version = "2", features = ["full", "extra-traits"] }
+sha2 = "0.11"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "macros"] }
+syn = { version = "3", features = ["full", "extra-traits"] }
 thiserror = "2"
-toml = "0.8"
+toml = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "limit", "compression-full", "set-header"] }
+tower-http = { version = "0.7", features = ["trace", "limit", "compression-full", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 trybuild = "1"
