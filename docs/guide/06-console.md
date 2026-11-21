@@ -177,12 +177,12 @@ confirmed. When the console connects to several schedulers, one is in view at a 
 | Screen | Answers |
 | --- | --- |
 | Overview | Is anything failing, stuck, slow, overdue or held right now? |
-| Report | How each job did over the last 7, 14 or 30 days: runs and failures per day, failure rate, typical and longest time, and yesterday's failed runs. |
+| Report | How each job did over the last 7, 14 or 30 days: runs and failures per day (a day's failures link to that day's failed runs), failure rate, typical and longest time, and yesterday's failed runs. |
 | Calendar | What runs on a date, after day rules, overrides and pauses. Dated overrides are added here. |
 | Pipelines and Pipeline | Each pipeline's jobs and links, coloured by its recent chains. |
 | Chain | One chain job by job, with reasons, "retry this step", and cancel. |
 | Jobs and Job | What exists; for one job, what starts it, its policies, its runs; start, pause, backfill. |
-| Runs | One list of runs, filtered by status, reason, job, pipeline, queue, time or an input field. |
+| Runs | One list of runs, filtered by status, reason, job, pipeline, queue, a time window (From and To, in your zone) or an input field. |
 | Run | The reason first, then timing, every call, progress, input, output, error and logs; cancel, check now, retry, restart, mark as succeeded. |
 | Queues | Queued and running per queue, why the queued ones wait, the workers serving each; pause. |
 | Audit | Who did what to jobs (from the scheduler), and sign-ins and grant changes (from the console). |

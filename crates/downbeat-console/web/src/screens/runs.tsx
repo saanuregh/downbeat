@@ -4,10 +4,10 @@ import { useId, useState, type FormEvent } from "react";
 import { queryString } from "../api";
 import { RunTable } from "../components/run-table";
 import { Empty, ErrorNote, Loading, PageHeader } from "../components/ui";
-import { humanize } from "../format";
+import { humanize, utcToWallTime, wallTimeToUtc } from "../format";
 import { useLoad } from "../load";
 import { Link, navigate, useLocation } from "../router";
-import { useScheduler } from "../session";
+import { useScheduler, useZone } from "../session";
 import type { Page, RunView } from "../types";
 
 const statuses = [
@@ -33,6 +33,11 @@ const queuedCodes = [
   "backing_off",
   "scheduled_later",
 ];
+/** A time window, as instants in the URL and the API: created (unfinished) or finished runs. */
+const timeFilters = [
+  ["from", "From"],
+  ["to", "To"],
+] as const;
 const textFilters = [
   ["job", "Job"],
   ["pipeline", "Pipeline"],
@@ -49,6 +54,7 @@ function filtersFrom(query: URLSearchParams): Filters {
     "status",
     ...reasonKinds,
     ...textFilters.map(([key]) => key),
+    ...timeFilters.map(([key]) => key),
   ]) {
     const value = query.get(name);
     if (value) filters[name] = value;
@@ -119,18 +125,32 @@ function FilterForm({
   const [text, setText] = useState<Filters>(() =>
     Object.fromEntries(textFilters.map(([key]) => [key, applied[key] ?? ""])),
   );
+  const zone = useZone();
+  const [times, setTimes] = useState<Filters>(() =>
+    Object.fromEntries(
+      timeFilters.map(([key]) => [
+        key,
+        applied[key] ? utcToWallTime(applied[key], zone) : "",
+      ]),
+    ),
+  );
   const ids = {
     status: useId(),
     kind: useId(),
     code: useId(),
     codes: useId(),
     text: useId(),
+    time: useId(),
   };
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const filters: Filters = { ...text, status };
     if (reasonCode.trim()) filters[reasonKind] = reasonCode.trim();
+    for (const [key] of timeFilters) {
+      const instant = times[key] ? wallTimeToUtc(times[key], zone) : null;
+      if (instant) filters[key] = instant;
+    }
     const cleaned = Object.fromEntries(
       Object.entries(filters)
         .map(([key, value]) => [key, value.trim()] as const)
@@ -194,6 +214,21 @@ function FilterForm({
             placeholder={key === "input" ? "day=2026-11-08" : undefined}
             onChange={(event) =>
               setText((current) => ({ ...current, [key]: event.target.value }))
+            }
+          />
+        </div>
+      ))}
+      {timeFilters.map(([key, label]) => (
+        <div className="filter" key={key}>
+          <label htmlFor={`${ids.time}-${key}`}>
+            {label} ({zone})
+          </label>
+          <input
+            id={`${ids.time}-${key}`}
+            type="datetime-local"
+            value={times[key] ?? ""}
+            onChange={(event) =>
+              setTimes((current) => ({ ...current, [key]: event.target.value }))
             }
           />
         </div>

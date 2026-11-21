@@ -241,6 +241,17 @@ export function wallTimeToUtc(local: string, zone: string): string | null {
   return new Date(guess).toISOString();
 }
 
+/**
+ * The wall time of an instant in the zone, as a datetime-local input shows it ("2026-11-20T14:05");
+ * empty when the text is not a time. The reverse of `wallTimeToUtc`.
+ */
+export function utcToWallTime(iso: string, zone: string): string {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return "";
+  const p = zonedParts(instant, zone);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
 /** An actor as the scheduler writes it, "asha (via console)", in words: "asha via console". */
 export function formatActor(actor: string): string {
   return actor.replace(/ \(via (.+)\)$/, " via $1");

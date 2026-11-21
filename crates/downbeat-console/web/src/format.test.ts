@@ -14,6 +14,7 @@ import {
   shortId,
   statusTone,
   timingAgainstExpected,
+  utcToWallTime,
   wallTimeToUtc,
 } from "./format";
 
@@ -93,6 +94,18 @@ describe("times in a zone", () => {
       "2026-12-01T09:00:00.000Z",
     );
     expect(wallTimeToUtc("not a time", "UTC")).toBeNull();
+  });
+});
+
+describe("utcToWallTime", () => {
+  test("shows the instant as a wall time in the zone, the reverse of wallTimeToUtc", () => {
+    expect(utcToWallTime("2026-11-20T08:35:00.000Z", "Asia/Kolkata")).toBe(
+      "2026-11-20T14:05",
+    );
+    expect(utcToWallTime("2026-07-01T08:00:00Z", "Europe/London")).toBe(
+      "2026-07-01T09:00",
+    );
+    expect(utcToWallTime("not a time", "UTC")).toBe("");
   });
 });
 

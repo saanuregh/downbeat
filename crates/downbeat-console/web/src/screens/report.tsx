@@ -1,5 +1,5 @@
 // How each job did over the last days (failures, failure rate, timing), then yesterday's failures.
-import { ApiError } from "../api";
+import { ApiError, queryString } from "../api";
 import {
   Empty,
   ErrorNote,
@@ -9,7 +9,7 @@ import {
   Tag,
   Time,
 } from "../components/ui";
-import { formatDuration, shortId } from "../format";
+import { addDays, formatDuration, shortId, wallTimeToUtc } from "../format";
 import { useLoad } from "../load";
 import { Link, useLocation } from "../router";
 import { useScheduler } from "../session";
@@ -93,7 +93,12 @@ function ReportBody({ report }: { report: Report }) {
               </thead>
               <tbody>
                 {report.jobs.map((job) => (
-                  <JobRow key={job.job} job={job} yesterday={yesterday} />
+                  <JobRow
+                    key={job.job}
+                    job={job}
+                    yesterday={yesterday}
+                    zone={report.zone}
+                  />
                 ))}
               </tbody>
             </table>
@@ -157,7 +162,15 @@ function ReportBody({ report }: { report: Report }) {
   );
 }
 
-function JobRow({ job, yesterday }: { job: JobReport; yesterday: number }) {
+function JobRow({
+  job,
+  yesterday,
+  zone,
+}: {
+  job: JobReport;
+  yesterday: number;
+  zone: string;
+}) {
   const { href } = useScheduler();
   const failed = job.days.reduce((sum, day) => sum + day.failed, 0);
   const decided = job.days.reduce(
@@ -165,9 +178,15 @@ function JobRow({ job, yesterday }: { job: JobReport; yesterday: number }) {
     0,
   );
   const timing = job.days[yesterday];
-  const failedRuns = href(
-    `/runs?job=${encodeURIComponent(job.job)}&status=failed`,
-  );
+  /** That day's failed runs, the day being the scheduler's, as the report counts it. */
+  const failedRuns = (date: string) =>
+    href("/runs") +
+    queryString({
+      job: job.job,
+      status: "failed",
+      from: wallTimeToUtc(`${date}T00:00`, zone),
+      to: wallTimeToUtc(`${addDays(date, 1)}T00:00`, zone),
+    });
   return (
     <tr>
       <td>
@@ -201,7 +220,7 @@ function JobRow({ job, yesterday }: { job: JobReport; yesterday: number }) {
       </td>
       {newestFirst(job.days).map((day) => (
         <td key={day.date} className="report-day" title={describe(day)}>
-          <DayCell day={day} failedRuns={failedRuns} />
+          <DayCell day={day} failedRuns={failedRuns(day.date)} />
         </td>
       ))}
     </tr>

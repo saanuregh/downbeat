@@ -54,7 +54,7 @@ async fn every_screen_renders_its_data_without_an_error() {
     let run = finished(&database.pool, started.run_id, SOON).await;
     finished_job(&database.pool, "both", SOON).await;
 
-    let screens: [(String, &[&str]); 13] = [
+    let screens: [(String, &[&str]); 14] = [
         ("/s/local".into(), &["Overview", "Failing", "Paused"]),
         (
             "/s/local/report".into(),
@@ -66,6 +66,8 @@ async fn every_screen_renders_its_data_without_an_error() {
         ("/s/local/jobs".into(), &["Jobs", "echo", "Succeeded."]),
         ("/s/local/jobs/echo".into(), &["What starts it", "Recent runs", "Input"]),
         ("/s/local/runs".into(), &["Runs", "Succeeded.", "echo"]),
+        // A time window in the URL fills the From and To fields and filters the list.
+        ("/s/local/runs?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z".into(), &["Runs", "From (", "Succeeded."]),
         (format!("/s/local/runs/{}", run.run_id), &["echo", "Input", "Output", "on screen"]),
         (format!("/s/local/chains/{}", run.chain_id), &["Job by job", "shout", "both"]),
         // The test product has a queue no worker serves; the screen says so, as a warning.
