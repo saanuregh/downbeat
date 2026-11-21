@@ -3,51 +3,16 @@
 //! Every half hour during market hours it fetches the day's prices; whenever they changed it builds
 //! candles; after the close it writes a report, once the candles for that day are in. A command job
 //! stands in for code not yet ported to Rust. Run it with `mise run demo` and open the console.
-//! `tests/market.rs` shows how a product tests its jobs and schedules.
+//! `tests/market.rs` shows how a product tests its jobs and schedules. This file holds everything
+//! that uses downbeat; `exchange.rs` holds the product code it schedules.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+mod exchange;
+
+use std::sync::atomic::AtomicU32;
 
 use downbeat::prelude::*;
-use serde::{Deserialize, Serialize};
-
-/// A trading day.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JobData)]
-pub struct TradingDay {
-    pub date: NaiveDate,
-}
-
-/// What a fetch found: how many prices, and a hash that changes when they do.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
-pub struct Prices {
-    pub day: TradingDay,
-    pub count: u32,
-    pub digest: String,
-    #[job_data(not_compared)]
-    pub fetched_at: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JobData)]
-pub struct Candles {
-    pub day: TradingDay,
-    pub rows: u32,
-}
-
-/// The exchange: here, a stand-in that publishes a little more each time it is asked.
-#[derive(Debug)]
-pub struct Exchange {
-    pub asked: AtomicU32,
-}
-
-impl Exchange {
-    fn prices_for(&self, _day: TradingDay) -> u32 {
-        let asked = self.asked.fetch_add(1, Ordering::SeqCst);
-        (asked / 2) * 50
-    }
-}
-
-/// The exchange's holidays: a calendar the app loads once.
-#[derive(Debug)]
-pub struct Holidays(pub Vec<NaiveDate>);
+use exchange::chrono_now;
+pub use exchange::{Candles, Exchange, Holidays, Prices, TradingDay};
 
 #[job(attempts = 3, backoff = 10.seconds()..=2.minutes(), keep_runs_at_most = 50)]
 pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Result<Prices> {
@@ -94,10 +59,6 @@ fn export_csv(candles: Candles) -> Program<()> {
 async fn housekeeping(run: Run) -> Result<()> {
     run.progress("removing old files");
     Ok(())
-}
-
-fn chrono_now() -> String {
-    format!("{:?}", std::time::SystemTime::now())
 }
 
 pub fn trading_days(date: NaiveDate, holidays: &Holidays) -> Day {
