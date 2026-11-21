@@ -1,5 +1,5 @@
 error: a job function cannot be generic
  --> tests/compile_fail/job_is_generic.rs:4:17
   |
-4 | async fn generic<T>(_run: Run) -> Result<()> {
+4 | async fn generic<T>(_run: Run) -> JobResult<()> {
   |                 ^^^

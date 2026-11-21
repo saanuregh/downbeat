@@ -6,7 +6,7 @@ use downbeat::prelude::*;
 use downbeat::{QueueTimings, Settings};
 
 #[job]
-async fn plain(_run: Run) -> Result<()> {
+async fn plain(_run: Run) -> JobResult<()> {
     Ok(())
 }
 

@@ -6,43 +6,43 @@ struct Calendar;
 struct Pool;
 
 #[job]
-async fn first(_run: Run) -> Result<u32> {
+async fn first(_run: Run) -> JobResult<u32> {
     Ok(1)
 }
 
 #[job]
-async fn second(_run: Run) -> Result<u32> {
+async fn second(_run: Run) -> JobResult<u32> {
     Ok(2)
 }
 
 #[job]
-async fn needs_both(_run: Run, (a, b): (u32, u32)) -> Result<()> {
+async fn needs_both(_run: Run, (a, b): (u32, u32)) -> JobResult<()> {
     let _ = (a, b);
     Ok(())
 }
 
 #[job]
-async fn loop_a(_run: Run, n: u32) -> Result<u32> {
+async fn loop_a(_run: Run, n: u32) -> JobResult<u32> {
     Ok(n)
 }
 
 #[job]
-async fn loop_b(_run: Run, n: u32) -> Result<u32> {
+async fn loop_b(_run: Run, n: u32) -> JobResult<u32> {
     Ok(n)
 }
 
 #[job]
-async fn uses_pool(_run: Run, _pool: &Pool) -> Result<()> {
+async fn uses_pool(_run: Run, _pool: &Pool) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-async fn waits_on_itself(_run: Run) -> Result<()> {
+async fn waits_on_itself(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-async fn forgotten(_run: Run) -> Result<()> {
+async fn forgotten(_run: Run) -> JobResult<()> {
     Ok(())
 }
 

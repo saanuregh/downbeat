@@ -9,26 +9,26 @@ use crate::{Number, Text};
 
 /// Starts a line of children with policies of their own, for tests of what a child takes.
 #[job]
-pub async fn starts_line(_run: Run, input: Text) -> Result<Text> {
+pub async fn starts_line(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// On its own queue (served by no worker in the tests) and priority, after `starts_line`.
 #[job(queue = "quick", priority = 5)]
-pub async fn on_its_own_queue(_run: Run, input: Text) -> Result<Text> {
+pub async fn on_its_own_queue(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// Linked through a `.map` adapter that counts the parent's letters.
 #[job]
-pub async fn counts_letters(_run: Run, input: Number) -> Result<Number> {
+pub async fn counts_letters(_run: Run, input: Number) -> JobResult<Number> {
     Ok(input)
 }
 
 /// Its condition appends one line to `<input>.conditions` each time it is tested; its function
 /// takes three seconds. A test can see whether the run was prepared more than once.
 #[job]
-pub async fn prepared_once(_run: Run, input: Text) -> Result<()> {
+pub async fn prepared_once(_run: Run, input: Text) -> JobResult<()> {
     let _ = input;
     tokio::time::sleep(Duration::from_secs(3)).await;
     Ok(())
@@ -46,7 +46,7 @@ pub(crate) fn counts_conditions(input: &Text) -> bool {
 /// Its condition writes the child process's id to the file the input names; the first time, it
 /// then outlasts the one-second timeout, so the next attempt runs in another child.
 #[job(timeout = 1.seconds(), attempts = 2, retry_on = [Timeout])]
-pub async fn records_its_child(_run: Run, input: Text) -> Result<()> {
+pub async fn records_its_child(_run: Run, input: Text) -> JobResult<()> {
     let _ = input;
     Ok(())
 }
@@ -65,7 +65,7 @@ pub(crate) fn records_child_pid(input: &Text) -> bool {
 
 /// Fails for a negative number; a `frequent` job, which keeps at most twenty chains.
 #[job(preset = frequent)]
-pub async fn frequent_flop(_run: Run, input: Number) -> Result<Number> {
+pub async fn frequent_flop(_run: Run, input: Number) -> JobResult<Number> {
     if input.n < 0 {
         return Err(JobError::msg("a negative number fails on purpose"));
     }
@@ -74,7 +74,7 @@ pub async fn frequent_flop(_run: Run, input: Number) -> Result<Number> {
 
 /// Sleeps this many milliseconds, ignoring a request to stop.
 #[job]
-pub async fn naps(_run: Run, input: Number) -> Result<()> {
+pub async fn naps(_run: Run, input: Number) -> JobResult<()> {
     tokio::time::sleep(Duration::from_millis(u64::try_from(input.n).unwrap_or(0))).await;
     Ok(())
 }
@@ -91,6 +91,6 @@ pub struct Warehouse;
 
 /// Takes the warehouse, so its call fails while the dependency cannot be built.
 #[job]
-pub async fn needs_the_warehouse(_run: Run, _warehouse: &Warehouse) -> Result<()> {
+pub async fn needs_the_warehouse(_run: Run, _warehouse: &Warehouse) -> JobResult<()> {
     Ok(())
 }

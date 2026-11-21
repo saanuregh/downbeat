@@ -3,7 +3,7 @@
 use std::fmt::{Debug, Display};
 
 /// The result a job function returns. `?` works on any error that can be printed.
-pub type Result<T> = std::result::Result<T, JobError>;
+pub type JobResult<T> = std::result::Result<T, JobError>;
 
 /// Why a job function did not return an output.
 ///
@@ -47,13 +47,13 @@ impl JobError {
 }
 
 /// End the run as skipped: there is nothing to do. Nothing that follows success runs.
-pub fn skip<T>(reason: impl Into<String>) -> Result<T> {
+pub fn skip<T>(reason: impl Into<String>) -> JobResult<T> {
     Err(JobError(Stop::Skip(reason.into())))
 }
 
 /// Send the run back to the queue: what it needs is not there yet. It is called again after the
 /// job's `recheck_every`, without spending an attempt.
-pub fn not_ready<T>(reason: impl Into<String>) -> Result<T> {
+pub fn not_ready<T>(reason: impl Into<String>) -> JobResult<T> {
     Err(JobError(Stop::NotReady(reason.into())))
 }
 
@@ -66,8 +66,8 @@ pub enum Outcome<T> {
     Failed(String),
 }
 
-impl<T> From<Result<T>> for Outcome<T> {
-    fn from(result: Result<T>) -> Self {
+impl<T> From<JobResult<T>> for Outcome<T> {
+    fn from(result: JobResult<T>) -> Self {
         match result {
             Ok(output) => Outcome::Succeeded(output),
             Err(JobError(Stop::Skip(reason))) => Outcome::Skipped(reason),
@@ -96,7 +96,7 @@ mod tests {
         }
     }
 
-    fn fails() -> Result<()> {
+    fn fails() -> JobResult<()> {
         Err(NotStdError)?;
         Ok(())
     }

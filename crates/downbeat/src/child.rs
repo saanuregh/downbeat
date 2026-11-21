@@ -294,7 +294,7 @@ impl RunLink for ChildLink {
         let _ = self.outgoing.send(FromChild::Checkpoint { run_id: self.run_id, state, request: None });
     }
 
-    fn checkpoint_now(&self, state: Value) -> Pin<Box<dyn Future<Output = crate::job::Result<()>> + Send + '_>> {
+    fn checkpoint_now(&self, state: Value) -> Pin<Box<dyn Future<Output = crate::job::JobResult<()>> + Send + '_>> {
         let answer = self.ask(|request| FromChild::Checkpoint { run_id: self.run_id, state, request: Some(request) });
         Box::pin(async move {
             match answer.await {
@@ -305,7 +305,10 @@ impl RunLink for ChildLink {
         })
     }
 
-    fn start(&self, request: StartRequest) -> Pin<Box<dyn Future<Output = crate::job::Result<Started>> + Send + '_>> {
+    fn start(
+        &self,
+        request: StartRequest,
+    ) -> Pin<Box<dyn Future<Output = crate::job::JobResult<Started>> + Send + '_>> {
         Box::pin(async move {
             let job = self
                 .registry

@@ -34,19 +34,19 @@ fn reads_broken_calendar(_date: NaiveDate, _calendar: &BrokenCalendar) -> Day {
 
 /// Started by most schedules here.
 #[job]
-pub async fn on_the_clock(_run: Run) -> Result<()> {
+pub async fn on_the_clock(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 /// Takes the date of its occurrence; its schedule's input panics.
 #[job]
-pub async fn takes_a_day(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn takes_a_day(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Ok(day)
 }
 
 /// Always fails, so a backfill of it stops at its first date.
 #[job]
-pub async fn fails_on_its_day(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn fails_on_its_day(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Err(JobError::msg(format!("{day} fails on purpose")))
 }
 

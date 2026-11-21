@@ -1,5 +1,5 @@
 error: dependencies are shared: take them as `&T`
  --> tests/compile_fail/dependency_is_mut.rs:6:38
   |
-6 | async fn takes_mut(_run: Run, _pool: &mut Pool) -> Result<()> {
+6 | async fn takes_mut(_run: Run, _pool: &mut Pool) -> JobResult<()> {
   |                                      ^^^^^^^^^

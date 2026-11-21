@@ -22,7 +22,7 @@ Modules: `job/`, `definition.rs`, `registry.rs`, `check.rs`, `downbeat-macros`.
 1. A job's name is its function's name, or the `name` given in its attribute. Names must be unique
    across the definition.
 2. A job function must be `async`, non-generic, take `Run` first, then at most one input by value,
-   then any number of dependencies by shared reference, and return `Result<T>` with `T: JobData`.
+   then any number of dependencies by shared reference, and return `JobResult<T>` with `T: JobData`.
    A command function must not be `async`, must take at most its input, and must return
    `Program<T>`. The macros reject anything else at compile time.
 3. Every job compiled into the binary must be named in exactly one pipeline. Building the registry

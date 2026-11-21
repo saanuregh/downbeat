@@ -7,27 +7,27 @@ use std::time::Duration;
 use downbeat::prelude::*;
 
 #[job]
-async fn plain(_run: Run) -> Result<u32> {
+async fn plain(_run: Run) -> JobResult<u32> {
     Ok(1)
 }
 
 #[job]
-async fn other(_run: Run) -> Result<u32> {
+async fn other(_run: Run) -> JobResult<u32> {
     Ok(2)
 }
 
 #[job]
-async fn takes_number(_run: Run, n: u32) -> Result<u32> {
+async fn takes_number(_run: Run, n: u32) -> JobResult<u32> {
     Ok(n)
 }
 
 #[job]
-async fn takes_pair(_run: Run, (a, b): (u32, u32)) -> Result<u32> {
+async fn takes_pair(_run: Run, (a, b): (u32, u32)) -> JobResult<u32> {
     Ok(a + b)
 }
 
 #[job]
-async fn never_named(_run: Run) -> Result<u32> {
+async fn never_named(_run: Run) -> JobResult<u32> {
     Ok(3)
 }
 

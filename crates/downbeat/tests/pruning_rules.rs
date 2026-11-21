@@ -5,7 +5,7 @@ use downbeat::prelude::*;
 use sqlx::PgPool;
 
 #[job]
-async fn echo(_run: Run) -> Result<()> {
+async fn echo(_run: Run) -> JobResult<()> {
     Ok(())
 }
 

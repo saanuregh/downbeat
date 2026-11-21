@@ -15,7 +15,7 @@ use exchange::chrono_now;
 pub use exchange::{Candles, Exchange, Holidays, Prices, TradingDay};
 
 #[job(attempts = 3, backoff = 10.seconds()..=2.minutes(), keep_runs_at_most = 50)]
-pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Result<Prices> {
+pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> JobResult<Prices> {
     run.progress("asking the exchange");
     let count = exchange.prices_for(day);
     if count == 0 {
@@ -25,7 +25,7 @@ pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Res
 }
 
 #[job(preset = heavy, timeout = 30.minutes(), max_memory = 512.mb())]
-async fn build_candles(run: Run, prices: Prices) -> Result<Candles> {
+async fn build_candles(run: Run, prices: Prices) -> JobResult<Candles> {
     let mut built: u32 = run.last_checkpoint().unwrap_or(0);
     while built < prices.count {
         built = (built + 10).min(prices.count);
@@ -40,7 +40,7 @@ async fn build_candles(run: Run, prices: Prices) -> Result<Candles> {
 }
 
 #[job(expect_success_every = 26.hours(), supports_dry_run)]
-async fn daily_report(run: Run, day: TradingDay) -> Result<String> {
+async fn daily_report(run: Run, day: TradingDay) -> JobResult<String> {
     if run.is_dry_run() {
         return Ok(format!("would write the report for {}", day.date));
     }
@@ -56,7 +56,7 @@ fn export_csv(candles: Candles) -> Program<()> {
 }
 
 #[job(one_at_a_time)]
-async fn housekeeping(run: Run) -> Result<()> {
+async fn housekeeping(run: Run) -> JobResult<()> {
     run.progress("removing old files");
     Ok(())
 }

@@ -103,7 +103,7 @@ fn function_signature(function: &ItemFn) -> syn::Result<Signature> {
         }
     }
     let (input, dependencies) = inputs_and_dependencies(parameters)?;
-    let output = result_output(&function.sig.output, "Result")?;
+    let output = result_output(&function.sig.output, "JobResult")?;
     Ok(Signature { input, dependencies, output })
 }
 
@@ -230,7 +230,7 @@ fn function_parts(
                 run: ::downbeat::Run,
                 __input: ::downbeat::__private::Value,
                 __dependencies: ::downbeat::__private::Arc<::downbeat::Dependencies>,
-            ) -> ::downbeat::__private::BoxFuture<'static, ::downbeat::Result<::downbeat::__private::Value>> {
+            ) -> ::downbeat::__private::BoxFuture<'static, ::downbeat::JobResult<::downbeat::__private::Value>> {
                 ::std::boxed::Box::pin(async move {
                     #decode
                     #(let #dependency_names = __dependencies.get::<#dependency_types>().await?;)*

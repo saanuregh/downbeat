@@ -1,5 +1,5 @@
 error: the function must return `Program<Output>`
  --> tests/compile_fail/command_returns_wrong_type.rs:4:21
   |
-4 | fn lists_files() -> Result<()> {
-  |                     ^^^^^^^^^^
+4 | fn lists_files() -> JobResult<()> {
+  |                     ^^^^^^^^^^^^^

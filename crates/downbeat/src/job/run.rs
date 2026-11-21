@@ -11,7 +11,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::{Job, JobData, JobError, Result};
+use super::{Job, JobData, JobError, JobResult};
 
 /// The run a job function is doing.
 ///
@@ -43,8 +43,8 @@ impl fmt::Debug for Run {
 pub(crate) trait RunLink: Send + Sync {
     fn progress(&self, text: String);
     fn checkpoint(&self, state: Value);
-    fn checkpoint_now(&self, state: Value) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
-    fn start(&self, request: StartRequest) -> Pin<Box<dyn Future<Output = Result<Started>> + Send + '_>>;
+    fn checkpoint_now(&self, state: Value) -> Pin<Box<dyn Future<Output = JobResult<()>> + Send + '_>>;
+    fn start(&self, request: StartRequest) -> Pin<Box<dyn Future<Output = JobResult<Started>> + Send + '_>>;
 
     /// What a test run started; empty for a real run.
     fn recorded_starts(&self) -> Vec<(String, Value)> {
@@ -105,13 +105,13 @@ impl Run {
 
     /// State a later call of this run reads with [`Run::last_checkpoint`] to continue where this one
     /// stopped. Saved with the next heartbeat.
-    pub fn checkpoint<S: Serialize>(&self, state: &S) -> Result<()> {
+    pub fn checkpoint<S: Serialize>(&self, state: &S) -> JobResult<()> {
         self.link.checkpoint(encode_small(state, "checkpoint")?);
         Ok(())
     }
 
     /// The same as [`Run::checkpoint`], stored before this returns.
-    pub async fn checkpoint_now<S: Serialize>(&self, state: &S) -> Result<()> {
+    pub async fn checkpoint_now<S: Serialize>(&self, state: &S) -> JobResult<()> {
         self.link.checkpoint_now(encode_small(state, "checkpoint")?).await
     }
 
@@ -217,7 +217,7 @@ impl Run {
 #[must_use = "a start request does nothing until it is awaited"]
 pub struct Start<'a> {
     run: &'a Run,
-    request: Result<StartRequest>,
+    request: JobResult<StartRequest>,
 }
 
 impl fmt::Debug for Start<'_> {
@@ -245,15 +245,15 @@ impl Start<'_> {
 }
 
 impl<'a> IntoFuture for Start<'a> {
-    type Output = Result<Started>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Result<Started>> + Send + 'a>>;
+    type Output = JobResult<Started>;
+    type IntoFuture = Pin<Box<dyn Future<Output = JobResult<Started>> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.run.link.start(self.request?).await })
     }
 }
 
-pub(crate) fn encode_small<T: Serialize + ?Sized>(value: &T, what: &str) -> Result<Value> {
+pub(crate) fn encode_small<T: Serialize + ?Sized>(value: &T, what: &str) -> JobResult<Value> {
     let value = serde_json::to_value(value)
         .map_err(|error| JobError::msg(format!("the {what} could not be encoded: {error}")))?;
     let size = value.to_string().len();
@@ -284,12 +284,12 @@ impl RunLink for TestLink {
         self.reports.lock().expect("test recorder").push(format!("checkpoint: {state}"));
     }
 
-    fn checkpoint_now(&self, state: Value) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+    fn checkpoint_now(&self, state: Value) -> Pin<Box<dyn Future<Output = JobResult<()>> + Send + '_>> {
         self.checkpoint(state);
         Box::pin(async { Ok(()) })
     }
 
-    fn start(&self, request: StartRequest) -> Pin<Box<dyn Future<Output = Result<Started>> + Send + '_>> {
+    fn start(&self, request: StartRequest) -> Pin<Box<dyn Future<Output = JobResult<Started>> + Send + '_>> {
         self.starts.lock().expect("test recorder").push((request.job, request.input));
         Box::pin(async { Ok(Started::New(Uuid::new_v4())) })
     }

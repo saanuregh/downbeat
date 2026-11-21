@@ -6,7 +6,7 @@ The engine of [downbeat](https://github.com/downbeat-rs/downbeat): jobs written 
 use downbeat::prelude::*;
 
 #[job(attempts = 3, timeout = 10.minutes())]
-async fn send_report(run: Run, day: NaiveDate) -> Result<()> {
+async fn send_report(run: Run, day: NaiveDate) -> JobResult<()> {
     run.progress("rendering");
     Ok(())
 }

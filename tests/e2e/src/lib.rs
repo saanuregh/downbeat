@@ -51,38 +51,38 @@ pub struct ExitPlan {
 }
 
 #[job]
-pub async fn echo(_run: Run, input: Text) -> Result<Text> {
+pub async fn echo(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 #[job]
-pub async fn shout(_run: Run, input: Text) -> Result<Text> {
+pub async fn shout(_run: Run, input: Text) -> JobResult<Text> {
     Ok(Text { text: input.text.to_uppercase() })
 }
 
 #[job]
-pub async fn both(_run: Run, (quiet, loud): (Text, Text)) -> Result<Text> {
+pub async fn both(_run: Run, (quiet, loud): (Text, Text)) -> JobResult<Text> {
     Ok(Text { text: format!("{} {}", quiet.text, loud.text) })
 }
 
 #[job]
-pub async fn after_change(_run: Run, input: Text) -> Result<Text> {
+pub async fn after_change(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 #[job]
-pub async fn needs_echo(_run: Run, input: Text) -> Result<()> {
+pub async fn needs_echo(_run: Run, input: Text) -> JobResult<()> {
     let _ = input;
     Ok(())
 }
 
 #[job]
-pub async fn guarded(_run: Run, input: Number) -> Result<Number> {
+pub async fn guarded(_run: Run, input: Number) -> JobResult<Number> {
     Ok(input)
 }
 
 #[job]
-pub async fn empty(_run: Run, input: Text) -> Result<Text> {
+pub async fn empty(_run: Run, input: Text) -> JobResult<Text> {
     if input.text.is_empty() {
         return skip("there is nothing to do");
     }
@@ -91,7 +91,7 @@ pub async fn empty(_run: Run, input: Text) -> Result<Text> {
 
 /// Says how `empty` ended, which it learns through an `.after_any` link.
 #[job]
-pub async fn tells_how_empty_ended(_run: Run, ended: Ended<Text>) -> Result<Text> {
+pub async fn tells_how_empty_ended(_run: Run, ended: Ended<Text>) -> JobResult<Text> {
     let text = match ended {
         Ended::Succeeded(output) => format!("succeeded with {}", output.text),
         Ended::Skipped(reason) => format!("skipped: {reason}"),
@@ -102,7 +102,7 @@ pub async fn tells_how_empty_ended(_run: Run, ended: Ended<Text>) -> Result<Text
 }
 
 #[job(attempts = 3, backoff = 1.seconds())]
-pub async fn flaky(_run: Run, input: Flaky) -> Result<u32> {
+pub async fn flaky(_run: Run, input: Flaky) -> JobResult<u32> {
     let calls: u32 =
         std::fs::read_to_string(&input.counter).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(0) + 1;
     std::fs::write(&input.counter, calls.to_string())?;
@@ -113,35 +113,35 @@ pub async fn flaky(_run: Run, input: Flaky) -> Result<u32> {
 }
 
 #[job]
-pub async fn panics(_run: Run) -> Result<()> {
+pub async fn panics(_run: Run) -> JobResult<()> {
     panic!("this job panics on purpose");
 }
 
 /// Follows `panics` when it succeeds, which only "mark as succeeded" can make it do.
 #[job]
-pub async fn after_panics(_run: Run) -> Result<()> {
+pub async fn after_panics(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn on_failure(_run: Run, failure: Failure) -> Result<Text> {
+pub async fn on_failure(_run: Run, failure: Failure) -> JobResult<Text> {
     Ok(Text { text: format!("{} failed: {}", failure.job, failure.kind) })
 }
 
 #[job]
-pub async fn aborts(_run: Run) -> Result<()> {
+pub async fn aborts(_run: Run) -> JobResult<()> {
     std::process::abort();
 }
 
 #[job(timeout = 2.seconds())]
-pub async fn sleeps(_run: Run, input: Seconds) -> Result<()> {
+pub async fn sleeps(_run: Run, input: Seconds) -> JobResult<()> {
     tokio::time::sleep(Duration::from_secs(input.seconds)).await;
     Ok(())
 }
 
 /// Saves a checkpoint every second, and continues from the last one.
 #[job(timeout = 1.minutes())]
-pub async fn counts(run: Run, input: Seconds) -> Result<u64> {
+pub async fn counts(run: Run, input: Seconds) -> JobResult<u64> {
     let mut done: u64 = run.last_checkpoint().unwrap_or(0);
     while done < input.seconds {
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -153,7 +153,7 @@ pub async fn counts(run: Run, input: Seconds) -> Result<u64> {
 }
 
 #[job(recheck_every = 1.seconds())]
-pub async fn waits_for_file(_run: Run, input: Text) -> Result<Text> {
+pub async fn waits_for_file(_run: Run, input: Text) -> JobResult<Text> {
     if !std::path::Path::new(&input.text).exists() {
         return not_ready(format!("{} is not there yet", input.text));
     }
@@ -163,7 +163,7 @@ pub async fn waits_for_file(_run: Run, input: Text) -> Result<Text> {
 /// Waits for the file its input names, then says it is not ready, so a test controls the moment
 /// its run goes back to the queue.
 #[job(recheck_every = 1.minutes())]
-pub async fn not_ready_when_told(_run: Run, input: Text) -> Result<()> {
+pub async fn not_ready_when_told(_run: Run, input: Text) -> JobResult<()> {
     while !std::path::Path::new(&input.text).exists() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -171,7 +171,7 @@ pub async fn not_ready_when_told(_run: Run, input: Text) -> Result<()> {
 }
 
 #[job(max_memory = 64.mb(), timeout = 30.seconds())]
-pub async fn hungry(_run: Run) -> Result<()> {
+pub async fn hungry(_run: Run) -> JobResult<()> {
     let mut hoard: Vec<Vec<u8>> = Vec::new();
     for _ in 0..64 {
         hoard.push(vec![1_u8; 16 << 20]);
@@ -181,58 +181,58 @@ pub async fn hungry(_run: Run) -> Result<()> {
 }
 
 #[job(one_at_a_time)]
-pub async fn single(_run: Run, input: Seconds) -> Result<()> {
+pub async fn single(_run: Run, input: Seconds) -> JobResult<()> {
     tokio::time::sleep(Duration::from_secs(input.seconds)).await;
     Ok(())
 }
 
 #[job(one_per = account)]
-pub async fn per_account(_run: Run, input: AccountWork) -> Result<()> {
+pub async fn per_account(_run: Run, input: AccountWork) -> JobResult<()> {
     tokio::time::sleep(Duration::from_secs(input.seconds)).await;
     Ok(())
 }
 
 #[job]
-pub async fn starter(run: Run, input: Text) -> Result<Text> {
+pub async fn starter(run: Run, input: Text) -> JobResult<Text> {
     let started = run.start(echo, Text { text: format!("started by {}", input.text) }).await?;
     Ok(Text { text: started.run_id().to_string() })
 }
 
 /// Returns more than the 64 KiB a value may hold.
 #[job]
-pub async fn too_big(_run: Run) -> Result<String> {
+pub async fn too_big(_run: Run) -> JobResult<String> {
     Ok("x".repeat(70 * 1024))
 }
 
 /// A job that may be asked for a dry run, followed by `after_rehearses`.
 #[job(supports_dry_run)]
-pub async fn rehearses(_run: Run, input: Text) -> Result<Text> {
+pub async fn rehearses(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 #[job]
-pub async fn after_rehearses(_run: Run, input: Text) -> Result<Text> {
+pub async fn after_rehearses(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 #[job(preset = frequent)]
-pub async fn ticker(_run: Run) -> Result<()> {
+pub async fn ticker(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn report(_run: Run) -> Result<()> {
+pub async fn report(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 /// Follows `dated`, so a backfill's chain reaches a second job.
 #[job]
-pub async fn files_dated(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn files_dated(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Ok(day)
 }
 
 #[job]
-pub async fn dated(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn dated(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Ok(day)
 }
 
@@ -245,27 +245,27 @@ pub fn exits(plan: ExitPlan) -> Program<Text> {
 }
 
 #[job]
-pub async fn noop(_run: Run, input: Number) -> Result<()> {
+pub async fn noop(_run: Run, input: Number) -> JobResult<()> {
     let _ = input;
     Ok(())
 }
 
 #[job(fresh_process)]
-pub async fn fresh_noop(_run: Run, input: Number) -> Result<()> {
+pub async fn fresh_noop(_run: Run, input: Number) -> JobResult<()> {
     let _ = input;
     Ok(())
 }
 
 /// Its child process's id, to see whether runs share a child.
 #[job]
-pub async fn child_pid(_run: Run, input: Number) -> Result<u32> {
+pub async fn child_pid(_run: Run, input: Number) -> JobResult<u32> {
     let _ = input;
     Ok(std::process::id())
 }
 
 /// Spawns a task that outlives the function.
 #[job]
-pub async fn leaves_a_task(_run: Run) -> Result<()> {
+pub async fn leaves_a_task(_run: Run) -> JobResult<()> {
     tokio::spawn(async { tokio::time::sleep(Duration::from_secs(3600)).await });
     Ok(())
 }
@@ -273,7 +273,7 @@ pub async fn leaves_a_task(_run: Run) -> Result<()> {
 /// Its condition crashes the child the first time it is tested for an input (it leaves the file
 /// the input names), so the run is prepared twice.
 #[job(attempts = 2, backoff = 1.seconds(), retry_on = [Crash])]
-pub async fn crashes_while_prepared(_run: Run, input: Text) -> Result<Text> {
+pub async fn crashes_while_prepared(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
@@ -288,7 +288,7 @@ fn not_tested_before(input: &Text) -> bool {
 /// Its condition sleeps past the job's timeout the first time it is tested for an input (it leaves
 /// the file the input names), so the run is prepared twice.
 #[job(timeout = 1.seconds(), attempts = 2, backoff = 1.seconds(), retry_on = [Timeout])]
-pub async fn times_out_while_prepared(_run: Run, input: Text) -> Result<Text> {
+pub async fn times_out_while_prepared(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
@@ -302,7 +302,7 @@ fn slow_the_first_time(input: &Text) -> bool {
 
 /// Its condition takes five seconds, so a test can act while the run is being prepared.
 #[job]
-pub async fn slow_to_prepare(_run: Run, input: Text) -> Result<Text> {
+pub async fn slow_to_prepare(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
@@ -313,7 +313,7 @@ fn after_five_seconds(_input: &Text) -> bool {
 
 /// Waits until it is asked to stop, then leaves the file its input names and returns.
 #[job]
-pub async fn stops_when_asked(run: Run, input: Text) -> Result<()> {
+pub async fn stops_when_asked(run: Run, input: Text) -> JobResult<()> {
     run.cancelled().await;
     std::fs::write(&input.text, "asked")?;
     Ok(())
@@ -321,36 +321,36 @@ pub async fn stops_when_asked(run: Run, input: Text) -> Result<()> {
 
 /// The root of the chains that reach `chorus`: hands its input to both singers.
 #[job]
-pub async fn hands_on(_run: Run, input: Text) -> Result<Text> {
+pub async fn hands_on(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// The root of the chains that reach `in_turn`.
 #[job]
-pub async fn lines_up(_run: Run, input: Text) -> Result<Text> {
+pub async fn lines_up(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// Runs one at a time, for three seconds, after `lines_up`.
 #[job(one_at_a_time)]
-pub async fn in_turn(_run: Run, input: Text) -> Result<Text> {
+pub async fn in_turn(_run: Run, input: Text) -> JobResult<Text> {
     tokio::time::sleep(Duration::from_secs(3)).await;
     Ok(input)
 }
 
 #[job]
-pub async fn sings_loud(_run: Run, input: Text) -> Result<Text> {
+pub async fn sings_loud(_run: Run, input: Text) -> JobResult<Text> {
     Ok(Text { text: input.text.to_uppercase() })
 }
 
 #[job]
-pub async fn sings_soft(_run: Run, input: Text) -> Result<Text> {
+pub async fn sings_soft(_run: Run, input: Text) -> JobResult<Text> {
     Ok(Text { text: input.text.to_lowercase() })
 }
 
 /// Joins `sings_loud` and `sings_soft`.
 #[job]
-pub async fn chorus(_run: Run, (loud, soft): (Text, Text)) -> Result<Text> {
+pub async fn chorus(_run: Run, (loud, soft): (Text, Text)) -> JobResult<Text> {
     Ok(Text { text: format!("{} {}", loud.text, soft.text) })
 }
 

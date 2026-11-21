@@ -60,7 +60,7 @@ message broker.
 | `describe.rs` | Jobs and schedules in words, for `check`, the snapshot and the API. |
 | `job/mod.rs` | The `Job` trait and `JobSpec`, a job with its types erased; input normalising and hashing. |
 | `job/data.rs` | `JobData`, shapes, the canonical identity hash. |
-| `job/outcome.rs` | `Result`, `JobError`, `skip`, `not_ready`, `Outcome`. |
+| `job/outcome.rs` | `JobResult`, `JobError`, `skip`, `not_ready`, `Outcome`. |
 | `job/policy.rs` | `Policy`, its defaults, backoff and retry rules, presets. |
 | `job/program.rs` | `Program`, `ProgramSpec`, the command environment names. |
 | `job/run.rs` | `Run`, `run.start`, the test recorder. |

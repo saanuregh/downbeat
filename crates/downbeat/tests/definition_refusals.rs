@@ -11,13 +11,13 @@ use downbeat::prelude::*;
 static MARKED: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 
 #[job]
-async fn marks(_run: Run, index: u32) -> Result<()> {
+async fn marks(_run: Run, index: u32) -> JobResult<()> {
     MARKED[index as usize].store(true, Ordering::SeqCst);
     Ok(())
 }
 
 #[job]
-async fn left_out(_run: Run) -> Result<()> {
+async fn left_out(_run: Run) -> JobResult<()> {
     Ok(())
 }
 

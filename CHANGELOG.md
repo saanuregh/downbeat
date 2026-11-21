@@ -15,7 +15,7 @@ The first version.
   to run in its place.
 - `#[derive(JobData)]` for inputs and outputs, with `#[job_data(not_compared)]` fields and a
   canonical identity hash.
-- `skip(…)`, `not_ready(…)` and `?` on any printable error.
+- Jobs return `JobResult<T>`; `skip(…)`, `not_ready(…)` and `?` on any printable error.
 - Policies on the job: queue, priority, timeout, attempts, backoff, `retry_on`, `recheck_every`,
   `give_up_after`, `one_at_a_time`, `one_per`, `fresh_process`, `max_memory`, `keep_runs_for`,
   `keep_runs_at_most`, `expect_success_every`, `supports_dry_run`, `name`; presets `frequent`,

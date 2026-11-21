@@ -4,12 +4,12 @@
 use downbeat::prelude::*;
 
 #[job]
-async fn report(_run: Run) -> Result<()> {
+async fn report(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job(name = "report")]
-async fn report_again(_run: Run) -> Result<()> {
+async fn report_again(_run: Run) -> JobResult<()> {
     Ok(())
 }
 

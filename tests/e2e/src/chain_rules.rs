@@ -8,7 +8,7 @@ use crate::scheduling_rules::DayRules;
 
 /// Fails when its text starts with `fail`, so a test chooses how it ends.
 #[job]
-pub async fn may_fail(_run: Run, input: Text) -> Result<Text> {
+pub async fn may_fail(_run: Run, input: Text) -> JobResult<Text> {
     if input.text.starts_with("fail") {
         return Err(JobError::msg(format!("{} on purpose", input.text)));
     }
@@ -17,43 +17,43 @@ pub async fn may_fail(_run: Run, input: Text) -> Result<Text> {
 
 /// Follows `may_fail` however it ended, and returns what it was handed.
 #[job]
-pub async fn tells_how_it_ended(_run: Run, ended: Ended<Text>) -> Result<Ended<Text>> {
+pub async fn tells_how_it_ended(_run: Run, ended: Ended<Text>) -> JobResult<Ended<Text>> {
     Ok(ended)
 }
 
 /// Follows `may_fail` when it fails, and returns the failure it was handed.
 #[job]
-pub async fn takes_the_failure(_run: Run, failure: Failure) -> Result<Failure> {
+pub async fn takes_the_failure(_run: Run, failure: Failure) -> JobResult<Failure> {
     Ok(failure)
 }
 
 /// Backfilled by date; its schedule fires on the 31st only and gives each run an hour.
 #[job]
-pub async fn backfilled_day(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn backfilled_day(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Ok(day)
 }
 
 /// Its schedule's input panics, so a backfill of it cannot start a date.
 #[job]
-pub async fn backfill_cannot_start(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn backfill_cannot_start(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Ok(day)
 }
 
 /// Started by `shifted_window`, an hourly schedule its day rule moves by half an hour.
 #[job]
-pub async fn on_a_shifted_window(_run: Run) -> Result<()> {
+pub async fn on_a_shifted_window(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 /// Keeps at most three chains; tests put its history straight into the tables.
 #[job(keep_runs_at_most = 3)]
-pub async fn keeps_three(_run: Run) -> Result<()> {
+pub async fn keeps_three(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 /// Backfilled by date; its schedule fires on the 1st to the 3rd, but its day rule turns the 2nd off.
 #[job]
-pub async fn backfilled_early_day(_run: Run, day: NaiveDate) -> Result<NaiveDate> {
+pub async fn backfilled_early_day(_run: Run, day: NaiveDate) -> JobResult<NaiveDate> {
     Ok(day)
 }
 

@@ -96,7 +96,7 @@ pub mod metrics {
 
 /// As in the market example.
 #[job]
-pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Result<Prices> {
+pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> JobResult<Prices> {
     run.progress("asking the exchange");
     let count = exchange.prices_for(day);
     if count == 0 {
@@ -106,7 +106,7 @@ pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Res
 }
 
 #[job]
-pub async fn build_candles(_run: Run, prices: Prices) -> Result<Candles> {
+pub async fn build_candles(_run: Run, prices: Prices) -> JobResult<Candles> {
     Ok(Candles { day: prices.day, rows: prices.count })
 }
 
@@ -116,51 +116,51 @@ pub fn export_csv(candles: Candles) -> Program<()> {
 }
 
 #[job]
-pub async fn send_summary(_run: Run, _summary: Summary) -> Result<()> {
+pub async fn send_summary(_run: Run, _summary: Summary) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn refresh_cache(_run: Run) -> Result<()> {
+pub async fn refresh_cache(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn day_digest(_run: Run, _day: TradingDay) -> Result<()> {
+pub async fn day_digest(_run: Run, _day: TradingDay) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn refresh_tokens(_run: Run) -> Result<RefreshReport> {
+pub async fn refresh_tokens(_run: Run) -> JobResult<RefreshReport> {
     Ok(RefreshReport { refreshed: 0, failed: 0 })
 }
 
 #[job]
-pub async fn notify_users(_run: Run, _report: RefreshReport) -> Result<()> {
+pub async fn notify_users(_run: Run, _report: RefreshReport) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn page_oncall(_run: Run, _failure: Failure) -> Result<()> {
+pub async fn page_oncall(_run: Run, _failure: Failure) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn daily_report(_run: Run, _day: TradingDay) -> Result<()> {
+pub async fn daily_report(_run: Run, _day: TradingDay) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn refresh_token(_run: Run) -> Result<()> {
+pub async fn refresh_token(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn sync_accounts(_run: Run) -> Result<()> {
+pub async fn sync_accounts(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-pub async fn housekeeping(_run: Run) -> Result<()> {
+pub async fn housekeeping(_run: Run) -> JobResult<()> {
     Ok(())
 }

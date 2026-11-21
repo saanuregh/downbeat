@@ -40,8 +40,8 @@ pub use dependencies::{Dependencies, Dependency};
 pub use error::Error;
 pub use events::{Event, EventDelivery, FinishedRun};
 pub use job::{
-    Backoff, EXIT_NOT_READY, FieldShape, FunctionBody, Job, JobData, JobError, JobSpec, MAX_VALUE_BYTES, Outcome,
-    Policy, Program, ProgramSpec, Result, RetryOn, RetryOnSet, Run, Shape, Start, Started, Turn, not_ready, presets,
+    Backoff, EXIT_NOT_READY, FieldShape, FunctionBody, Job, JobData, JobError, JobResult, JobSpec, MAX_VALUE_BYTES,
+    Outcome, Policy, Program, ProgramSpec, RetryOn, RetryOnSet, Run, Shape, Start, Started, Turn, not_ready, presets,
     skip,
 };
 pub use pipeline::{
@@ -109,8 +109,8 @@ pub fn policy_of(spec: &JobSpec) -> &Policy {
 /// Everything a product's job and pipeline code uses, in one import.
 pub mod prelude {
     pub use crate::{
-        BytesExt, Day, Definition, DoneFor, DoneWithin, DurationExt, Ended, Failure, Job, JobData, JobError, MapExt,
-        Occurrence, Outcome, Pipeline, Program, Result, RetryOn, Run, Started, command, daily_at, every, job,
+        BytesExt, Day, Definition, DoneFor, DoneWithin, DurationExt, Ended, Failure, Job, JobData, JobError, JobResult,
+        MapExt, Occurrence, Outcome, Pipeline, Program, RetryOn, Run, Started, command, daily_at, every, job,
         not_ready, presets, skip,
     };
     pub use chrono::{NaiveDate, Weekday};

@@ -65,7 +65,7 @@ when all of them have succeeded in the same chain.
 
 ```rust
 #[job]
-async fn day_report(run: Run, (prices, candles): (Prices, Candles)) -> Result<()> {
+async fn day_report(run: Run, (prices, candles): (Prices, Candles)) -> JobResult<()> {
     run.progress(format!("{} prices, {} candles", prices.count, candles.rows));
     Ok(())
 }
@@ -88,7 +88,7 @@ to its parent's chain, and so does a step a person retries.
 - A link may cross into another pipeline. The child belongs to its own pipeline and to its
   parent's chain.
 - When several jobs should start together, give them a common first job. When it does no real
-  work, it is one line: `async fn start_of_day(run: Run, day: TradingDay) -> Result<TradingDay> { Ok(day) }`.
+  work, it is one line: `async fn start_of_day(run: Run, day: TradingDay) -> JobResult<TradingDay> { Ok(day) }`.
 - A child is created at most once per chain.
 - The history of a chain is kept and pruned as a whole, by the first job's `keep_runs_for` and
   `keep_runs_at_most`.

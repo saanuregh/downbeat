@@ -45,7 +45,7 @@ pub struct Report {
 }
 
 #[job(attempts = 3)]
-async fn nightly_report(run: Run, date: NaiveDate) -> Result<Report> {
+async fn nightly_report(run: Run, date: NaiveDate) -> JobResult<Report> {
     run.progress("counting");
     let lines = 42; // your work here
     if lines == 0 {

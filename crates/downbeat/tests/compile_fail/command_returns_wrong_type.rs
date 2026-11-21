@@ -1,7 +1,7 @@
 use downbeat::prelude::*;
 
 #[command]
-fn lists_files() -> Result<()> {
+fn lists_files() -> JobResult<()> {
     Ok(())
 }
 

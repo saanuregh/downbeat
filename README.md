@@ -32,7 +32,7 @@ market hours the product fetches prices. Whenever they changed, it builds candle
 
 ```rust
 #[job(attempts = 3, backoff = 10.seconds()..=2.minutes(), keep_runs_at_most = 50)]
-async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Result<Prices> {
+async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> JobResult<Prices> {
     run.progress("asking the exchange");
     let count = exchange.prices_for(day);
     if count == 0 {
@@ -42,7 +42,7 @@ async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Result<
 }
 
 #[job(preset = heavy, timeout = 30.minutes(), max_memory = 512.mb())]
-async fn build_candles(run: Run, prices: Prices) -> Result<Candles> {
+async fn build_candles(run: Run, prices: Prices) -> JobResult<Candles> {
     let mut built: u32 = run.last_checkpoint().unwrap_or(0);
     while built < prices.count {
         built = (built + 10).min(prices.count);

@@ -50,7 +50,7 @@ pub fn touchy_output(input: Text) -> Program<Touchy> {
 
 /// Its condition panics for the text `panic`.
 #[job]
-pub async fn panics_when_tested(_run: Run, input: Text) -> Result<Text> {
+pub async fn panics_when_tested(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
@@ -77,12 +77,12 @@ pub fn hungry_program() -> Program<()> {
 /// Returns its input; its link to `keeps_its_number` maps it to the id of the process the
 /// adapter runs in.
 #[job]
-pub async fn starts_a_mapped_link(_run: Run, input: Number) -> Result<Number> {
+pub async fn starts_a_mapped_link(_run: Run, input: Number) -> JobResult<Number> {
     Ok(input)
 }
 
 #[job]
-pub async fn keeps_its_number(_run: Run, input: Number) -> Result<Number> {
+pub async fn keeps_its_number(_run: Run, input: Number) -> JobResult<Number> {
     Ok(input)
 }
 
@@ -90,7 +90,7 @@ pub async fn keeps_its_number(_run: Run, input: Number) -> Result<Number> {
 /// the file its input names, then runs past its one-second timeout. Only killing the child's
 /// process group ends the helper.
 #[job(timeout = 1.seconds())]
-pub async fn function_times_out_with_a_helper(_run: Run, input: Text) -> Result<()> {
+pub async fn function_times_out_with_a_helper(_run: Run, input: Text) -> JobResult<()> {
     #[expect(clippy::zombie_processes, reason = "the helper must outlive this call until its group is killed")]
     let helper = std::process::Command::new("/bin/sh")
         .args(["-c", "trap '' TERM; exec sleep 300"])
@@ -182,14 +182,14 @@ impl JobData for Fragile {
 
 /// One per account, so starting it reads its input's `one_per` field.
 #[job(one_per = account)]
-pub async fn takes_fragile(_run: Run, input: Fragile) -> Result<()> {
+pub async fn takes_fragile(_run: Run, input: Fragile) -> JobResult<()> {
     let _ = input;
     Ok(())
 }
 
 /// Needs `echo` done for its own text; the need's closure panics for the text `panic`.
 #[job]
-pub async fn has_a_fragile_need(_run: Run, input: Text) -> Result<Text> {
+pub async fn has_a_fragile_need(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 

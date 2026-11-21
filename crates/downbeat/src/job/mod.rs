@@ -21,7 +21,7 @@ use serde_json::Value;
 pub use data::{FieldShape, JobData, Shape, without_fields};
 pub(crate) use data::{decode_strict, identity_hash};
 pub(crate) use outcome::Stop;
-pub use outcome::{JobError, Outcome, Result, not_ready, skip};
+pub use outcome::{JobError, JobResult, Outcome, not_ready, skip};
 pub use policy::{Backoff, Policy, RetryOn, RetryOnSet, Turn, presets};
 pub(crate) use program::env_names;
 pub use program::{EXIT_NOT_READY, Program, ProgramSpec};
@@ -95,7 +95,7 @@ pub type TurnValueFn = fn(&Value) -> std::result::Result<String, String>;
 
 /// A job function with its types erased: decode the input, fetch the dependencies, call it,
 /// encode the output.
-pub type FunctionBody = fn(Run, Value, Arc<Dependencies>) -> BoxFuture<'static, Result<Value>>;
+pub type FunctionBody = fn(Run, Value, Arc<Dependencies>) -> BoxFuture<'static, JobResult<Value>>;
 
 /// Operations on a job's input that need its type.
 pub(crate) struct InputOps {
@@ -186,13 +186,13 @@ fn hash<T: JobData>(value: &Value) -> std::result::Result<String, String> {
 
 /// Encode a job's output, for the code `#[job]` generates.
 #[doc(hidden)]
-pub fn encode_output<T: JobData>(output: &T) -> Result<Value> {
+pub fn encode_output<T: JobData>(output: &T) -> JobResult<Value> {
     serde_json::to_value(output).map_err(|error| JobError::msg(format!("the output could not be encoded: {error}")))
 }
 
 /// Decode a job's input, for the code `#[job]` generates.
 #[doc(hidden)]
-pub fn decode_input<T: JobData>(input: Value) -> Result<T> {
+pub fn decode_input<T: JobData>(input: Value) -> JobResult<T> {
     decode(input).map_err(|error| JobError(Stop::BadInput(format!("the input does not decode: {error}"))))
 }
 

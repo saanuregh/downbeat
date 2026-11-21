@@ -1,4 +1,4 @@
-error: the function must return `Result<Output>`
+error: the function must return `JobResult<Output>`
  --> tests/compile_fail/job_returns_wrong_type.rs:4:37
   |
 4 | async fn wrong_return(_run: Run) -> Option<u32> {

@@ -33,7 +33,7 @@ struct Exchange {
 }
 
 #[job(attempts = 3, backoff = 30.seconds()..=10.minutes())]
-async fn bhav_archive(run: Run, day: TradingDay, exchange: &Exchange) -> Result<Archive> {
+async fn bhav_archive(run: Run, day: TradingDay, exchange: &Exchange) -> JobResult<Archive> {
     run.progress("downloading");
     if exchange.files.is_empty() {
         return skip("the exchange has not published yet");
@@ -42,40 +42,40 @@ async fn bhav_archive(run: Run, day: TradingDay, exchange: &Exchange) -> Result<
 }
 
 #[job(preset = heavy, timeout = 3.hours(), max_memory = 8.gb())]
-async fn bhav_candles(_run: Run, archive: Archive) -> Result<Candles> {
+async fn bhav_candles(_run: Run, archive: Archive) -> JobResult<Candles> {
     Ok(Candles { day: archive.day, rows: archive.count as u64 * 100 })
 }
 
 #[job(one_per = broker_id, retry_on = [Error, Timeout])]
-async fn eod_report(_run: Run, input: OhlcInput) -> Result<()> {
+async fn eod_report(_run: Run, input: OhlcInput) -> JobResult<()> {
     let _ = input;
     Ok(())
 }
 
 #[job]
-async fn snapshot_candles(_run: Run, day: TradingDay) -> Result<Candles> {
+async fn snapshot_candles(_run: Run, day: TradingDay) -> JobResult<Candles> {
     Ok(Candles { day, rows: 1 })
 }
 
 #[job(one_at_a_time, keep_runs_at_most = 20)]
-async fn token_refresh(_run: Run) -> Result<()> {
+async fn token_refresh(_run: Run) -> JobResult<()> {
     Ok(())
 }
 
 #[job]
-async fn page_oncall(_run: Run, failure: Failure) -> Result<()> {
+async fn page_oncall(_run: Run, failure: Failure) -> JobResult<()> {
     let _ = failure;
     Ok(())
 }
 
 #[job]
-async fn audit_trail(_run: Run, ended: Ended<Candles>) -> Result<()> {
+async fn audit_trail(_run: Run, ended: Ended<Candles>) -> JobResult<()> {
     let _ = ended;
     Ok(())
 }
 
 #[job]
-async fn day_report(_run: Run, (archive, candles): (Archive, Candles)) -> Result<()> {
+async fn day_report(_run: Run, (archive, candles): (Archive, Candles)) -> JobResult<()> {
     let _ = (archive, candles);
     Ok(())
 }

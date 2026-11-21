@@ -503,3 +503,11 @@ The `downbeat` crate does not depend on `anyhow`. What a product calls (`migrate
 and is only printed before the process exits, so none of that detail becomes public API. The
 console is an application and keeps `anyhow`, as do the guide's samples, where it stands for the
 product's own error type.
+
+## 70. A job returns `JobResult<T>`
+
+A job function returns `JobResult<T>`, an alias for `Result<T, JobError>`, instead of
+`downbeat::Result<T>`. With the library's own `downbeat::Error` (decision 69), a `downbeat::Result`
+whose error was not `downbeat::Error` misled readers, and a product's glob import of the prelude
+shadowed the standard library's `Result`. `#[job]` requires the return type to be written
+`JobResult<…>`.

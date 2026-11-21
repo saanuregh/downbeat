@@ -30,14 +30,14 @@ pub struct OutputPlan {
 
 /// The job other jobs need `done_for` an input.
 #[job]
-pub async fn needed_for(_run: Run, input: Text) -> Result<Text> {
+pub async fn needed_for(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// Fails while a `fail-done-recently` file is in the app's finished directory; needed by
 /// `done_within`.
 #[job]
-pub async fn done_recently(_run: Run) -> Result<()> {
+pub async fn done_recently(_run: Run) -> JobResult<()> {
     if let Some(dir) = std::env::var_os(FINISHED_DIR)
         && std::path::Path::new(&dir).join("fail-done-recently").exists()
     {
@@ -48,26 +48,26 @@ pub async fn done_recently(_run: Run) -> Result<()> {
 
 /// Needs `needed_for` the same input, and waits for it.
 #[job(recheck_every = 1.seconds())]
-pub async fn waits_for_need(_run: Run, input: Text) -> Result<Text> {
+pub async fn waits_for_need(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// Needs `needed_for` the same input, and fails without it.
 #[job]
-pub async fn fails_without_need(_run: Run, input: Text) -> Result<Text> {
+pub async fn fails_without_need(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
 /// Needs a success of `done_recently` in the last four seconds, and fails without it.
 #[job]
-pub async fn needs_recent_success(_run: Run, input: Number) -> Result<Number> {
+pub async fn needs_recent_success(_run: Run, input: Number) -> JobResult<Number> {
     Ok(input)
 }
 
 /// Its `only_if` and its need's closure each append a line to `<input>.only_if` and
 /// `<input>.done_for`; the condition is true, and the need (with `.or_fail()`) is never met.
 #[job]
-pub async fn counts_its_tests(_run: Run, input: Text) -> Result<Text> {
+pub async fn counts_its_tests(_run: Run, input: Text) -> JobResult<Text> {
     Ok(input)
 }
 
@@ -90,26 +90,26 @@ fn counted_done_for(input: &Text) -> Text {
 
 /// Hands its input to `checked_in_order`.
 #[job]
-pub async fn order_parent(_run: Run, input: OrderCase) -> Result<OrderCase> {
+pub async fn order_parent(_run: Run, input: OrderCase) -> JobResult<OrderCase> {
     Ok(input)
 }
 
 /// `only_if` passes, a need of `done_recently` within ten seconds (`.or_fail()`), and
 /// `if_changed`, after `order_parent`.
 #[job]
-pub async fn checked_in_order(_run: Run, input: OrderCase) -> Result<OrderCase> {
+pub async fn checked_in_order(_run: Run, input: OrderCase) -> JobResult<OrderCase> {
     Ok(input)
 }
 
 /// Hands its input to `changed_per_key`.
 #[job]
-pub async fn keyed_parent(_run: Run, input: Keyed) -> Result<Keyed> {
+pub async fn keyed_parent(_run: Run, input: Keyed) -> JobResult<Keyed> {
     Ok(input)
 }
 
 /// One run per key at a time, `if_changed`, after `keyed_parent`; fails when told to.
 #[job(one_per = key)]
-pub async fn changed_per_key(_run: Run, input: Keyed) -> Result<Keyed> {
+pub async fn changed_per_key(_run: Run, input: Keyed) -> JobResult<Keyed> {
     if input.fail {
         return Err(JobError::msg("told to fail"));
     }
@@ -118,7 +118,7 @@ pub async fn changed_per_key(_run: Run, input: Keyed) -> Result<Keyed> {
 
 /// A new child process for each run; returns that child's id.
 #[job(fresh_process)]
-pub async fn fresh_child_pid(_run: Run, input: Number) -> Result<u32> {
+pub async fn fresh_child_pid(_run: Run, input: Number) -> JobResult<u32> {
     let _ = input;
     Ok(std::process::id())
 }

@@ -8,7 +8,7 @@ function: what it does, what it needs, and how it runs. What starts it is writte
 
 ```rust
 #[job(…policies…)]
-async fn name(run: Run, input: Input, dependency: &Dependency, …) -> Result<Output>
+async fn name(run: Run, input: Input, dependency: &Dependency, …) -> JobResult<Output>
 ```
 
 | Part | Rule |
@@ -17,7 +17,7 @@ async fn name(run: Run, input: Input, dependency: &Dependency, …) -> Result<Ou
 | `run: Run` | Always first. See [the `Run` value](#the-run-value). |
 | Input | At most one argument, taken by value. Leave it out for a job with no input. A job with several parents takes one tuple. |
 | Dependencies | Any further arguments, taken by shared reference (`&T`). The product provides them; see [dependencies](#dependencies). |
-| Output | `Result<T>`, where `T` is a `JobData` type or `()`. `Result` is `downbeat::Result`. |
+| Output | `JobResult<T>`, where `T` is a `JobData` type or `()`. `JobResult<T>` is `Result<T, JobError>`. |
 
 `#[job]` replaces the function with a handle of the same name that implements the `Job` trait.
 The macro rejects a function that is not async, is generic, takes `&mut`, or does not take
@@ -68,7 +68,7 @@ children receive it, and [`if_changed`](03-pipelines.md#only-when-something-chan
 | Panics | `failed` (`panic`) | A panic is never retried. |
 | Crashes, goes over `max_memory`, or runs past its timeout | `failed` (`crash`, `out_of_memory`, `timeout`), or another attempt if `retry_on` lists that kind | |
 
-`skip` and `not_ready` return `downbeat::Result`, so they sit beside `?`. For an error without an
+`skip` and `not_ready` return `JobResult`, so they sit beside `?`. For an error without an
 error value, use `JobError::msg("…")`.
 
 Use `skip` when something else will ask again, such as a schedule that checks every half hour.
@@ -95,7 +95,7 @@ None is required. Values are ordinary Rust expressions. `30.seconds()`, `5.minut
 ```rust
 #[job(queue = "heavy", timeout = 3.hours(), attempts = 3, backoff = 1.minutes()..=10.minutes(),
       max_memory = 8.gb())]
-async fn rebuild_history(run: Run, day: TradingDay) -> Result<()> { Ok(()) }
+async fn rebuild_history(run: Run, day: TradingDay) -> JobResult<()> { Ok(()) }
 ```
 
 | Policy | Meaning | Default |
@@ -144,7 +144,7 @@ pub const NIGHTLY: downbeat::Policy = downbeat::Policy {
 };
 
 #[job(preset = NIGHTLY, attempts = 2)]
-async fn rebuild_index(run: Run) -> Result<()> { Ok(()) }
+async fn rebuild_index(run: Run) -> JobResult<()> { Ok(()) }
 ```
 
 A person starting a run through the API may give that one run another timeout (it needs the
