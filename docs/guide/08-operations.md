@@ -160,7 +160,7 @@ definition.redact(|stderr| stderr.replace(&secret_prefix(), "***"));
   | `WorkerLost` | A worker stopped renewing while a run's function executed; the run went back to the queue. |
   | `RunInterrupted` | A run has been interrupted by shutdowns three or more times. |
   | `RunSlow` | A running function has gone past 1.5 times the 90th percentile of the job's last 20 successful durations (once at least five exist). Once per run. |
-  | `JobOverdue` | A job with `expect_success_every` has not succeeded for that long. Once per lapse, and not while the job is paused. |
+  | `JobOverdue` | A job with `expect_success_every` has not succeeded for that long. Once per lapse, and not while the job, its queue or everything is paused. |
   | `OccurrencesDropped` | A schedule's missed occurrences were dropped, with the count and the first and last. |
   | `ScheduleFailed` | Creating a schedule's run returned an error (for example a day rule's dependency could not be built, or the input does not fit the job). It is tried again a minute later; other schedules are not affected. |
   | `DatabaseUnreachable` | A worker could not renew a lease for a whole lease length and stopped its function. Sent once the database is back. |
@@ -180,7 +180,7 @@ definition.redact(|stderr| stderr.replace(&secret_prefix(), "***"));
 | Signal | Source | Suggested action |
 | --- | --- | --- |
 | A run failed | `on_finish` with `status = "failed"` | Page for important jobs; read the reason. |
-| A job is overdue | `on_event` `JobOverdue` | Set `expect_success_every` on every job whose absence matters. This catches schedules that stopped, pauses left on, and chains that skip. |
+| A job is overdue | `on_event` `JobOverdue` | Set `expect_success_every` on every job whose absence matters. This catches schedules that stopped, schedule pauses left on, and chains that skip. |
 | Occurrences dropped | `on_event` `OccurrencesDropped` | No scheduler was running; check scheduler deployments. |
 | A schedule cannot fire | `on_event` `ScheduleFailed` | A bug in the schedule's input or day rule. |
 | A worker was lost | `on_event` `WorkerLost` | Look for crashes or kills of worker machines. |

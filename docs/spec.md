@@ -589,18 +589,23 @@ Modules: `scheduler/watch.rs`, `store/history.rs`, `api/read/mod.rs`, `cli.rs` (
 1. Every process with the scheduler role must check, every 30 seconds, for slow runs and overdue
    jobs, by the database's clock.
 2. A job's *expected duration* is the median, and its *slow threshold* 1.5 times the 90th
-   percentile (at least one second), of the durations of its last 20 `succeeded` runs. A job with
-   fewer than five such runs has neither.
+   percentile (at least one second), of the durations of its last 20 `succeeded` runs that were
+   not dry runs. A run's duration is from its first start to its end, retries included. A job
+   with fewer than five such runs has neither.
 3. A running function that has run longer than its job's slow threshold must raise `RunSlow`,
    with how long it has run and the expected duration, once per run.
 4. A job with `expect_success_every = d` is *overdue* when more than `d` has passed since its
    latest success, or, when it has never succeeded, since its first run, finished or not. A job
-   that has never run is never overdue.
-5. An overdue job must raise `JobOverdue`, with its latest success if any, once per lapse: not again
-   until it succeeds, and not while the job is paused.
+   that has never run is never overdue. A dry run is not a success here. A run marked as
+   succeeded is a success from when it was marked. A run that has not started yet counts from when
+   it may first start.
+5. An overdue job must raise `JobOverdue`, with its latest success if any, once per lapse, however
+   many schedulers watch: not again until it succeeds, and not while the job is paused as a run
+   would be (rule 2.5: by its job, its queue or everything).
 6. `GET /healthz` must answer `Health` with the API version and needs no token. `GET /readyz` must
    answer the same only when the database answers, and 503 (`database`) otherwise. `GET /version`
    must answer the API version and the engine's version.
 7. `<binary> health` must exit with success when a worker process on this host has refreshed its
-   `worker` row within two heartbeats, and with failure otherwise.
+   `worker` row within two heartbeats, and with failure otherwise. The host is the worker id's
+   host part, compared whole; scheduler rows do not count.
 

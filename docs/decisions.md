@@ -396,3 +396,14 @@ its main program exited in that time, the worker returned without killing the gr
 the program had started in the background, and that ignored SIGTERM, outlived the run and could
 overlap its next attempt. The group is now killed in that case too, as it is when a program ends
 by itself.
+
+## 61. Overdue follows the run's own rules, and is decided under a lock
+
+The overdue check now matches how the rest of the engine treats a run. A pause of the job's queue
+or of everything quiets it, as it holds back the job's runs (rule 2.5). A dry run is not a
+success, because it does no work. A run marked as succeeded counts from when it was marked, as its
+`on_finish` does; dating it by its end could put it before the last event and hide the next lapse.
+A run started with `not_before` counts from when it may start. The check and the event share a
+transaction under an advisory lock per job, so two schedulers that watch at once raise one event.
+`health` matches the host whole, from worker rows only, and reads the host name the way the worker
+id is built. Found by an audit after section 16 was added; each case has a test that failed before.

@@ -545,11 +545,16 @@ async fn start_from_job(context: &WorkerContext, run: &RunRow, start: ChildStart
         .map_err(|error| error.to_string())
 }
 
+/// `<host>-<process id>-<4 hex digits>`; `health` reads the host back out of it.
 pub(crate) fn worker_id() -> String {
-    let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .map_or_else(|_| "worker".to_owned(), |name| name.trim().to_owned());
     let suffix: u16 = rand_suffix();
-    format!("{host}-{}-{suffix:04x}", std::process::id())
+    format!("{}-{}-{suffix:04x}", host_name(), std::process::id())
+}
+
+/// This machine's name, or `worker` when it cannot be read.
+pub(crate) fn host_name() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .map_or_else(|_| "worker".to_owned(), |name| name.trim().to_owned())
 }
 
 fn rand_suffix() -> u16 {

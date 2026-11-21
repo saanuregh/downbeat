@@ -114,7 +114,7 @@ async fn rebuild_history(run: Run, day: TradingDay) -> Result<()> { Ok(()) }
 | `max_memory = 8.gb()` | The run is killed when its process's resident memory goes above this. | No limit |
 | `keep_runs_for = 30.days()` | How long finished runs stay in the history. For a chain, the first job's setting decides. | 30 days |
 | `keep_runs_at_most = 20` | Also keep only the newest this many chains whose first run did not fail. | No limit |
-| `expect_success_every = 26.hours()` | Tell `on_event` once when the job has not succeeded for this long. Not while it is paused. | Off |
+| `expect_success_every = 26.hours()` | Tell `on_event` once when the job has not succeeded for this long. Not while it, its queue or everything is paused. Dry runs are not successes here. | Off |
 | `supports_dry_run` | The job checks `run.is_dry_run()` and writes nothing when it is set. Only such a job accepts a dry-run request. | Off |
 | `name = "…"` | The job's name, when it should differ from the function's. | The function's name |
 | `preset = heavy` | Start from a preset, then apply the other policies. | `Policy::DEFAULT` |

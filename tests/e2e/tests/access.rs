@@ -295,22 +295,24 @@ async fn an_idempotency_key_is_scoped_to_its_caller_actor_and_job() {
         |name: &str, key| downbeat_client::Client::builder(&base).caller(name).audience("test").key(key).connect();
     let console = client("console", console_key).await.unwrap();
     let portal = client("portal", portal_key).await.unwrap();
-    let start = |client: &downbeat_client::Client, job: &'static str| {
+    let start = |client: &downbeat_client::Client, actor: &'static str, job: &'static str| {
         let client = client.clone();
         async move {
-            let alice = client.acting_for("alice", Scope::Operate, None);
-            alice.start(job, &json!({ "text": "x" })).idempotency_key("shared").even_if_queued().send().await.unwrap()
+            let person = client.acting_for(actor, Scope::Operate, None);
+            person.start(job, &json!({ "text": "x" })).idempotency_key("shared").even_if_queued().send().await.unwrap()
         }
     };
 
-    let first = start(&console, "echo").await;
-    let other_job = start(&console, "shout").await;
-    let other_caller = start(&portal, "echo").await;
-    assert!(!first.repeated && !other_job.repeated && !other_caller.repeated);
+    let first = start(&console, "alice", "echo").await;
+    let other_actor = start(&console, "bob", "echo").await;
+    let other_job = start(&console, "alice", "shout").await;
+    let other_caller = start(&portal, "alice", "echo").await;
+    assert!(!first.repeated && !other_actor.repeated && !other_job.repeated && !other_caller.repeated);
+    assert_ne!(first.run_id, other_actor.run_id, "another actor's key starts its own run");
     assert_ne!(first.run_id, other_job.run_id, "the same key for another job starts its own run");
     assert_ne!(first.run_id, other_caller.run_id, "the same actor name under another caller starts its own run");
 
-    let again = start(&console, "echo").await;
+    let again = start(&console, "alice", "echo").await;
     assert!(again.repeated);
     assert_eq!(again.run_id, first.run_id);
 }

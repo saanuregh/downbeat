@@ -222,12 +222,13 @@ async fn health(common: &Common, definition: Definition) -> anyhow::Result<ExitC
     let registry = build_registry(definition, common.environment.as_deref())?;
     let options: sqlx::postgres::PgConnectOptions = common.database_url.parse()?;
     let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_with(options).await?;
-    let host =
-        std::fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().to_owned()).unwrap_or_default();
+    // The host is the worker id without its last two parts (see `worker_id`), compared whole.
     let fresh: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM downbeat.worker WHERE worker_id LIKE $1 || '-%' AND last_seen_at > now() - $2)",
+        "SELECT EXISTS (SELECT 1 FROM downbeat.worker
+                         WHERE role = 'worker' AND regexp_replace(worker_id, '-[0-9]+-[0-9a-f]{4}$', '') = $1
+                           AND last_seen_at > now() - $2)",
     )
-    .bind(host)
+    .bind(crate::worker::host_name())
     .bind(crate::store::interval(registry.settings.heartbeat * 2))
     .fetch_one(&pool)
     .await?;

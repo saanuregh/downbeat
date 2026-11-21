@@ -58,13 +58,14 @@ pub(crate) async fn by_ids(pool: &PgPool, ids: &[Uuid]) -> sqlx::Result<Vec<Hist
 }
 
 /// A job's expected duration (the median of its last twenty successes) and the "slow" threshold
-/// (one and a half times their 90th percentile). Needs at least five successes.
+/// (one and a half times their 90th percentile). Needs at least five successes. A success lasts
+/// from its first start to its end, retries included; dry runs are left out.
 pub(crate) async fn expected_duration(pool: &PgPool, job: &str) -> sqlx::Result<Option<(Duration, Duration)>> {
     let row: Option<(i64, Option<f64>, Option<f64>)> = sqlx::query_as(
         "SELECT count(*), percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds), percentile_cont(0.9) WITHIN GROUP (ORDER BY seconds)
            FROM (SELECT EXTRACT(EPOCH FROM finished_at - started_at)::float8 AS seconds
                    FROM downbeat.run_history
-                  WHERE job_name = $1 AND status = 'succeeded' AND started_at IS NOT NULL
+                  WHERE job_name = $1 AND status = 'succeeded' AND NOT dry_run AND started_at IS NOT NULL
                   ORDER BY finished_at DESC LIMIT 20) recent",
     )
     .bind(job)
@@ -78,30 +79,40 @@ pub(crate) async fn expected_duration(pool: &PgPool, job: &str) -> sqlx::Result<
     })
 }
 
-/// Since when a job has been waiting for a success: its latest success, or, if it has never
-/// succeeded, its first run. `None` for a job that has never run. The one rule `expect_success_every`
-/// is measured by, for the API and for `on_event` alike.
-pub(crate) async fn waiting_for_success_since(pool: &PgPool, job: &str) -> sqlx::Result<Option<DateTime<Utc>>> {
-    if let Some((_, at)) = last_success(pool, job, None).await? {
-        return Ok(Some(at));
-    }
-    // A run still queued or running counts as well, so a job whose runs never finish is overdue too.
-    sqlx::query_scalar(
-        "SELECT min(created_at) FROM (
-            SELECT created_at FROM downbeat.run_history WHERE job_name = $1 AND joined_run IS NULL
-            UNION ALL
-            SELECT created_at FROM downbeat.run WHERE job_name = $1) runs",
-    )
-    .bind(job)
-    .fetch_one(pool)
-    .await
+/// How long a job has gone without a success, for `expect_success_every`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::FromRow)]
+pub(crate) struct Wait {
+    /// When the wait began: the latest success, or, if there is none, the first run.
+    pub(crate) since: DateTime<Utc>,
+    pub(crate) last_success: Option<DateTime<Utc>>,
+    /// Whether the wait is longer than the job allows, by the database's clock.
+    pub(crate) overdue: bool,
 }
 
-/// Whether a job has gone longer than `every` without a success.
-pub(crate) async fn overdue(pool: &PgPool, job: &str, every: Duration) -> sqlx::Result<Option<DateTime<Utc>>> {
-    let Some(since) = waiting_for_success_since(pool, job).await? else { return Ok(None) };
-    // By the database's clock, like every time rule.
-    let lapsed: bool =
-        sqlx::query_scalar("SELECT $1 < now() - $2").bind(since).bind(interval(every)).fetch_one(pool).await?;
-    Ok(lapsed.then_some(since))
+/// The one rule `expect_success_every` is measured by, for the API and for `on_event` alike.
+/// `None` for a job that has never run.
+///
+/// A dry run does no work, so it is not a success here. A run a person marked as succeeded counts
+/// from when it was marked. A run still waiting to start counts from when it may first start, so a
+/// run started with `not_before` is not overdue before it was due, and one still queued or running
+/// counts at all, so a job whose runs never finish is overdue too.
+pub(crate) async fn wait_for_success(pool: &PgPool, job: &str, every: Duration) -> sqlx::Result<Option<Wait>> {
+    sqlx::query_as(
+        "WITH success AS (
+              SELECT max(GREATEST(finished_at, marked_at)) AS at FROM downbeat.run_history
+               WHERE job_name = $1 AND status = 'succeeded' AND NOT dry_run),
+         waiting AS (
+              SELECT COALESCE((SELECT at FROM success), (
+                       SELECT min(began) FROM (
+                         SELECT created_at AS began FROM downbeat.run_history WHERE job_name = $1 AND joined_run IS NULL
+                         UNION ALL
+                         SELECT CASE WHEN starts = 0 THEN run_at ELSE created_at END FROM downbeat.run WHERE job_name = $1
+                       ) runs)) AS since)
+         SELECT since, (SELECT at FROM success) AS last_success, since < now() - $2 AS overdue
+           FROM waiting WHERE since IS NOT NULL",
+    )
+    .bind(job)
+    .bind(interval(every))
+    .fetch_optional(pool)
+    .await
 }

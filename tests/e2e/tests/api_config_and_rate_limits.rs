@@ -1,6 +1,6 @@
 //! The control API's configuration and authentication rules: when it is on and where
 //! `--local` listens, a request with no token, the rate limit's refill and buckets, and which
-//! refusals are reported.
+//! refusals are reported, and a database error is not one.
 
 mod support;
 
@@ -252,4 +252,25 @@ async fn a_named_callers_refusals_are_reported_once_a_minute_with_their_count() 
         [(403, 1), (403, 3)],
         "a minute later, the next carries every refusal since the last report"
     );
+}
+
+/// 14.12: a request that fails on the database (503) is not counted as refused.
+#[tokio::test]
+async fn a_database_error_is_not_a_refused_request() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    sqlx::query("DROP TABLE downbeat.used_token").execute(&database.pool).await.unwrap();
+    let body = serde_json::to_vec(&json!({ "input": { "text": "x" } })).unwrap();
+    let answer = Signer::local(&format!("http://{listen}")).send("POST", "/v1/jobs/echo/runs", &body).await;
+    let status = answer.status();
+    let detail: serde_json::Value = answer.json().await.unwrap();
+    assert_eq!(status, 503, "{detail}");
+    assert_eq!(detail["error"], "database", "{detail}");
+    let refused: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event' AND detail->>'event' = 'request_refused')",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert!(!refused);
 }

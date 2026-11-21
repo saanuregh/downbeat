@@ -40,28 +40,38 @@ async fn slow_runs(pool: &PgPool) -> sqlx::Result<()> {
 async fn overdue_jobs(pool: &PgPool, registry: &Registry) -> sqlx::Result<()> {
     for (name, job) in &registry.jobs {
         let Some(every) = job.spec.policy.expect_success_every else { continue };
-        let Some(since) = history::overdue(pool, name, every).await? else { continue };
-        let last_success = history::last_success(pool, name, None).await?.map(|(_, at)| at);
-        let quiet: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM downbeat.pause WHERE kind = 'job' AND name = $1 AND (until IS NULL OR until > now()))
-                 OR EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event' AND job_name = $1
-                             AND detail->>'event' = 'job_overdue' AND at > $2)",
-        )
-        .bind(name)
-        .bind(since)
-        .fetch_one(pool)
-        .await?;
-        if !quiet {
-            let mut connection = pool.acquire().await?;
-            audit::event(
-                &mut connection,
-                &Event::JobOverdue { job: (*name).to_owned(), last_success },
-                Some(name),
-                None,
-                None,
-            )
-            .await?;
+        let Some(wait) = history::wait_for_success(pool, name, every).await? else { continue };
+        if wait.overdue {
+            report_overdue(pool, name, job.spec.policy.queue, wait).await?;
         }
     }
     Ok(())
+}
+
+/// Raises `JobOverdue` once per lapse. The check and the event share a transaction under a lock per
+/// job, so two schedulers watching at once raise it once between them.
+async fn report_overdue(pool: &PgPool, job: &str, queue: &str, wait: history::Wait) -> sqlx::Result<()> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('job_overdue:' || $1, 0))")
+        .bind(job)
+        .execute(&mut *transaction)
+        .await?;
+    // Paused as a run would be (rule 2.5): by its job, its queue or everything.
+    let quiet: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM downbeat.pause
+                         WHERE ((kind = 'job' AND name = $1) OR (kind = 'queue' AND name = $2) OR kind = 'all')
+                           AND (until IS NULL OR until > now()))
+             OR EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event' AND job_name = $1
+                         AND detail->>'event' = 'job_overdue' AND at > $3)",
+    )
+    .bind(job)
+    .bind(queue)
+    .bind(wait.since)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if !quiet {
+        let event = Event::JobOverdue { job: job.to_owned(), last_success: wait.last_success };
+        audit::event(&mut transaction, &event, Some(job), None, None).await?;
+    }
+    transaction.commit().await
 }

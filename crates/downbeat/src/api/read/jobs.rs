@@ -67,7 +67,7 @@ async fn job_view(state: &State, job: &RegisteredJob) -> Result<JobView, Failure
             .await?;
     let expected = history::expected_duration(&state.pool, name).await?;
     let overdue = match job.spec.policy.expect_success_every {
-        Some(every) => history::overdue(&state.pool, name, every).await?.is_some(),
+        Some(every) => history::wait_for_success(&state.pool, name, every).await?.is_some_and(|wait| wait.overdue),
         None => false,
     };
     Ok(JobView {

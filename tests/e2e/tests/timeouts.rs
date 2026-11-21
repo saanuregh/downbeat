@@ -1,4 +1,4 @@
-//! A command that runs past its timeout takes every process it started with it.
+//! A command or function that runs past its timeout takes every process it started with it.
 
 mod support;
 
