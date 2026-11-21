@@ -175,6 +175,14 @@ definition.redact(|stderr| stderr.replace(&secret_prefix(), "***"));
   Every log line a function writes through `tracing` carries its `run_id`.
 - `redact` runs over a failed command's standard error before its tail is stored.
 
+## A daily look
+
+`GET /v1/report?days=7` (`Client::report(7)`, or the console's Report screen) shows each job's
+last days in the definition's zone: runs and failures per day, the failure rate, the typical,
+90th-percentile and longest time, and yesterday's failed runs. Runs that pruning has removed
+still count, so a `frequent` job's failure rate stays right. Use it for a morning check; use the
+callbacks above for anything that must wake someone.
+
 ## What to alert on
 
 | Signal | Source | Suggested action |

@@ -184,6 +184,7 @@ pub(crate) fn router(state: State) -> Router {
         .route("/backfills", get(read::backfills).post(act::start_backfill))
         .route("/backfills/{id}/cancel", post(act::cancel_backfill))
         .route("/audit", get(read::audit))
+        .route("/report", get(read::report))
         // Unknown paths under /v1 go through the token check too, so a request without one is
         // answered 401 and counted, like any other (spec 14.3).
         .fallback(|| async { error::Failure::not_found("there is no such endpoint; see the HTTP API reference") })

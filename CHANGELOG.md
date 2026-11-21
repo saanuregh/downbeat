@@ -68,6 +68,8 @@ The first version.
   replay protection, idempotency keys, and a rate limit per caller and actor.
 - `downbeat-api` crate with the wire types and token signing; `downbeat-client` crate for Rust
   callers, starting jobs by name or, through `job_name!`, with a typed input.
+- `GET /v1/report` and `Client::report`: each job's recent days (runs, failures, failure rate,
+  timing) and yesterday's failed runs, counting runs that pruning has removed.
 
 ### Console
 
@@ -75,6 +77,7 @@ The first version.
   scope and pipelines, an audit of sign-ins and grant changes, and preferences.
 - Signed forwarding of the screens' requests to any number of schedulers.
 - Screens built with Bun and embedded in the binary.
+- A Report screen: each job's last 7, 14 or 30 days, and yesterday's failed runs.
 - `--local` mode and `keygen`.
 
 ### Project

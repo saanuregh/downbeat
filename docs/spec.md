@@ -468,7 +468,12 @@ Modules: `pruning.rs`.
    callback, or a row that is its job's latest success. Pruning must take the chain's lock without
    waiting, pass over a chain whose lock is held, and check these conditions again after the lock
    is held, in a statement that sees the data as it is then.
-4. Also removed: `joined` rows after two days; idempotency keys after seven days; overrides 30
+4. The statement that removes chains must, in the same statement, add their runs (not dry runs,
+   not `joined` rows) to `downbeat.day_totals`: per job and calendar day in the definition's zone,
+   the count of each final status and the longest succeeded run. The report reads them with the
+   history (section 14), so its counts do not change when runs are pruned. Totals older than 31 days are
+   removed.
+5. Also removed: `joined` rows after two days; idempotency keys after seven days; overrides 30
    days after their date; delivered audit rows after a year; pauses that have ended; worker rows
    not seen for a day.
 
@@ -542,6 +547,10 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
 20. Errors must be JSON `{ "error": "<code>", "message": "<sentence>" }`, including an unknown
     path, a wrong method and a body that does not parse. Every response must carry
     the `downbeat-api-version` header.
+21. The report must count each job's runs by the calendar day, in the definition's zone, on which
+    they finished, adding the history and the day totals of pruned runs (section 13), leaving out
+    dry runs and `joined` rows. Its days must run from `days − 1` days ago to today by the
+    database's clock, with `days` from 1 to 30. Failure rate is failed ÷ (succeeded + failed).
 
 ## 15. The console's access model
 

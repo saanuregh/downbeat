@@ -399,3 +399,52 @@ pub struct Health {
     pub ok: bool,
     pub api: u32,
 }
+
+/// `GET /report`: each job's recent days, and yesterday's failures. Days are calendar days in the
+/// definition's zone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Report {
+    pub zone: String,
+    /// Oldest first; the last is today, so far.
+    pub days: Vec<NaiveDate>,
+    /// Jobs that failed yesterday first, most failures first, then the rest by name.
+    pub jobs: Vec<JobReport>,
+    /// Newest first, at most 50; only runs still in the history, so a failure pruning has removed
+    /// since is counted in `jobs` but not listed here.
+    pub failed_yesterday: Vec<FailedRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobReport {
+    pub job: String,
+    /// One per day of [`Report::days`], in the same order.
+    pub days: Vec<DayReport>,
+}
+
+/// One job's runs that finished on one day. Dry runs and joined requests are not counted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DayReport {
+    pub date: NaiveDate,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub skipped: i64,
+    pub cancelled: i64,
+    pub expired: i64,
+    /// Failed ÷ (succeeded + failed); absent when neither happened.
+    pub failure_rate: Option<f64>,
+    /// From start to finish, over succeeded runs still in the history.
+    pub median_seconds: Option<f64>,
+    pub p90_seconds: Option<f64>,
+    /// Over every succeeded run, including those pruned since.
+    pub longest_seconds: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FailedRun {
+    pub run_id: Uuid,
+    pub job: String,
+    pub failed_because: Option<String>,
+    pub reason: String,
+    pub finished_at: DateTime<Utc>,
+    pub log_link: Option<String>,
+}

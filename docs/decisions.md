@@ -479,3 +479,17 @@ compatible versions of the rest. What changed:
 
 downbeat is licensed under MIT alone, not MIT OR Apache-2.0. One license is simpler for users and
 contributors to read, and MIT already allows every use the dual license did.
+
+## 68. The daily report is read on demand, and pruning keeps its counts
+
+People wanted a daily look at how jobs did: failures, failure rate and timing. It is a read
+endpoint, `GET /v1/report`, with a console screen, rather than a pushed event: the callbacks
+already cover anything that must reach someone, and a report read on demand needs no schedule or
+delivery.
+
+Its counts come from the history, but `keep_runs_at_most` prunes a frequent job's successes within
+the hour, which would inflate its failure rate. So pruning, in the statement that removes chains,
+adds their runs to `downbeat.day_totals` (a count per status and the longest success, per job and
+day). That adds no write to a run's ending. Medians and 90th percentiles cannot be added up, so
+they come from the runs still in the history. Totals are kept by calendar day in the definition's
+zone at pruning time; if the zone changes, older totals stay on the old zone's days.

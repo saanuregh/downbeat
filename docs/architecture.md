@@ -90,7 +90,7 @@ message broker.
 | `scheduler/callbacks.rs` | Delivering `on_finish` and `on_event`. |
 | `scheduler/watch.rs` | Slow runs and overdue jobs. |
 | `reaper.rs` | Taking back lost runs; ending expired, cancelled, given-up and unregistered runs. |
-| `pruning.rs` | Removing old history by chain, and other expired rows. |
+| `pruning.rs` | Removing old history by chain, adding what it removes to the day totals, and other expired rows. |
 | `store/mod.rs` | The connection pool; intervals. |
 | `store/migrate.rs` | The engine's migrations. |
 | `store/runs.rs` | Creating, claiming and holding runs: every fenced write. |
@@ -100,7 +100,7 @@ message broker.
 | `store/audit.rs` | Audit rows and engine events. |
 | `api/mod.rs` | The control API's configuration (callers file, `--local`) and router. |
 | `api/auth.rs` | Verifying every request; scopes and job limits; rate limits. |
-| `api/read/` | The GET endpoints, one file per concern: jobs and pipelines, runs, calendar, operations. |
+| `api/read/` | The GET endpoints, one file per concern: jobs and pipelines, runs, calendar, operations, the report. |
 | `api/act/` | The changing endpoints and their previews: starting, runs and chains, pauses, overrides and backfills. |
 | `api/views.rs` | Rows into API views, with reasons for unstored states. |
 | `api/error.rs` | The API's error shape. |
@@ -118,7 +118,7 @@ message broker.
 
 Every engine table is in schema `downbeat`, created by the migrations in
 [`crates/downbeat/migrations/`](../crates/downbeat/migrations) (`0002` adds the pause of
-everything, `0003` adds `run_history.marked_at`) and tracked in `downbeat.migration`. All times are compared with the database's `now()`.
+everything, `0003` adds `run_history.marked_at`, `0004` adds `day_totals`) and tracked in `downbeat.migration`. All times are compared with the database's `now()`.
 
 | Table | Holds | Written by | Read by |
 | --- | --- | --- | --- |
@@ -132,6 +132,7 @@ everything, `0003` adds `run_history.marked_at`) and tracked in `downbeat.migrat
 | `backfill` | Backfills and their progress. | API, backfill driver | Backfill driver, API |
 | `idempotency` | Idempotency keys and the run each produced. | `starting::start` | `starting::start` |
 | `used_token` | `jti`s of changing requests, until they expire. | API authentication | API authentication |
+| `day_totals` | Per job and day, the runs pruning removed: a count per final status and the longest success. | Pruning, in the statement that removes chains | The report |
 | `audit` | What people did, and the engine's events (`actor = 'engine'`, `action = 'event'`). | API, reaper, scheduler, worker | Audit endpoint, event delivery, overdue check |
 | `migration` | Applied migrations, with a breaking flag. | `store::migrate` | `store::migrate` |
 

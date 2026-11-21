@@ -47,7 +47,7 @@ pub async fn prune_old_chains_with_a_pause<F: Future<Output = ()>>(
     let mut transaction = pool.begin().await?;
     let locked = crate::pruning::lock_older_than(&mut transaction, job, keep_for).await?;
     between().await;
-    crate::pruning::remove_locked(transaction, &locked).await
+    crate::pruning::remove_locked(transaction, &locked, registry.zone.name()).await
 }
 
 /// Registers the schedules of this environment, as each scheduler does at start and every minute.

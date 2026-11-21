@@ -54,8 +54,12 @@ async fn every_screen_renders_its_data_without_an_error() {
     let run = finished(&database.pool, started.run_id, SOON).await;
     finished_job(&database.pool, "both", SOON).await;
 
-    let screens: [(String, &[&str]); 12] = [
+    let screens: [(String, &[&str]); 13] = [
         ("/s/local".into(), &["Overview", "Failing", "Paused"]),
+        (
+            "/s/local/report".into(),
+            &["Report", "Failed yesterday", "No failed run from yesterday is in the history.", "echo", "Today"],
+        ),
         ("/s/local/calendar".into(), &["Calendar", "Timeline"]),
         ("/s/local/pipelines".into(), &["Pipelines", "basics", "latest chain began"]),
         ("/s/local/pipelines/basics".into(), &["Jobs and links", "Recent chains", "shout"]),

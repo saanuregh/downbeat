@@ -424,3 +424,10 @@ td.cell-reason > .inline-status {
   gap: 2px;
   font-size: 0.9rem;
 }
+
+/* The report: one narrow column per day. */
+
+.report-table .report-day {
+  text-align: center;
+  white-space: nowrap;
+}

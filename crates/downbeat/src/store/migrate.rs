@@ -28,6 +28,12 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("../../migrations/0003_marked_at.sql"),
         breaking: false,
     },
+    Migration {
+        version: 4,
+        name: "day totals",
+        sql: include_str!("../../migrations/0004_day_totals.sql"),
+        breaking: false,
+    },
 ];
 
 /// Arbitrary, fixed: the advisory lock that serialises migrations across processes.

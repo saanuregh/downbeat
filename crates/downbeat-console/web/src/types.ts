@@ -300,3 +300,41 @@ export interface StartResponse {
   joined?: boolean;
   repeated?: boolean;
 }
+
+/** `GET /v1/report`: each job's recent days, in the scheduler's zone, and yesterday's failures. */
+export interface Report {
+  zone: string;
+  /** Oldest first; the last is today. */
+  days: string[];
+  /** Jobs that failed yesterday first, then by name. */
+  jobs: JobReport[];
+  failed_yesterday: FailedRun[];
+}
+
+export interface JobReport {
+  job: string;
+  /** One per day of `Report.days`, in the same order. */
+  days: DayReport[];
+}
+
+export interface DayReport {
+  date: string;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  cancelled: number;
+  expired: number;
+  failure_rate: number | null;
+  median_seconds: number | null;
+  p90_seconds: number | null;
+  longest_seconds: number | null;
+}
+
+export interface FailedRun {
+  run_id: string;
+  job: string;
+  failed_because: string | null;
+  reason: string;
+  finished_at: string;
+  log_link: string | null;
+}

@@ -15,6 +15,7 @@ import { OverviewScreen } from "./screens/overview";
 import { PipelineScreen } from "./screens/pipeline";
 import { PipelinesScreen } from "./screens/pipelines";
 import { QueuesScreen } from "./screens/queues";
+import { ReportScreen } from "./screens/report";
 import { RunScreen } from "./screens/run";
 import { RunsScreen } from "./screens/runs";
 
@@ -23,6 +24,7 @@ type Screen = ComponentType<{ params: Record<string, string> }>;
 /** Screens of one scheduler, under /s/<scheduler>. */
 const schedulerRoutes: [pattern: string, screen: Screen, section: string][] = [
   ["", OverviewScreen, "Overview"],
+  ["/report", ReportScreen, "Report"],
   ["/calendar", CalendarScreen, "Calendar"],
   ["/pipelines", PipelinesScreen, "Pipelines"],
   ["/pipelines/:name", PipelineScreen, "Pipelines"],
@@ -37,6 +39,7 @@ const schedulerRoutes: [pattern: string, screen: Screen, section: string][] = [
 
 const navigation: [path: string, section: string][] = [
   ["", "Overview"],
+  ["/report", "Report"],
   ["/calendar", "Calendar"],
   ["/pipelines", "Pipelines"],
   ["/jobs", "Jobs"],

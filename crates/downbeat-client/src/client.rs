@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use downbeat_api::types::{
     ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, Done, JobView, MarkSucceededRequest,
-    OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, RunView, ScheduleView,
+    OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, Report, RunView, ScheduleView,
     StartRequest, StartResponse, Version,
 };
 use downbeat_api::{
@@ -224,6 +224,11 @@ impl Client {
         self.as_self().get(&format!("/v1/calendar?date={date}")).await
     }
 
+    /// Each job's last `days` days (1 to 30, ending today), and yesterday's failures.
+    pub async fn report(&self, days: u32) -> Result<Report, Error> {
+        self.as_self().report(days).await
+    }
+
     pub async fn cancel(&self, run: Uuid) -> Result<Done, Error> {
         self.as_self().post(&format!("/v1/runs/{run}/cancel"), None::<&()>, None).await
     }
@@ -358,6 +363,10 @@ impl<'a> ActingClient<'a> {
 
     pub async fn audit(&self) -> Result<Page<AuditEntry>, Error> {
         self.get("/v1/audit").await
+    }
+
+    pub async fn report(&self, days: u32) -> Result<Report, Error> {
+        self.get(&format!("/v1/report?days={days}")).await
     }
 }
 

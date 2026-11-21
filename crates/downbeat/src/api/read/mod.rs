@@ -3,11 +3,13 @@
 mod calendar;
 mod jobs;
 mod operations;
+mod report;
 mod runs;
 
 pub(crate) use calendar::{calendar, overrides, schedules};
 pub(crate) use jobs::{chain, job, jobs, pipeline, pipelines};
 pub(crate) use operations::{audit, backfills, queues};
+pub(crate) use report::report;
 pub(crate) use runs::{run, runs};
 
 use axum::Json;

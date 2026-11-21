@@ -177,6 +177,7 @@ confirmed. When the console connects to several schedulers, one is in view at a 
 | Screen | Answers |
 | --- | --- |
 | Overview | Is anything failing, stuck, slow, overdue or held right now? |
+| Report | How each job did over the last 7, 14 or 30 days: runs and failures per day, failure rate, typical and longest time, and yesterday's failed runs. |
 | Calendar | What runs on a date, after day rules, overrides and pauses. Dated overrides are added here. |
 | Pipelines and Pipeline | Each pipeline's jobs and links, coloured by its recent chains. |
 | Chain | One chain job by job, with reasons, "retry this step", and cancel. |

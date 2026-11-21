@@ -59,6 +59,7 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
 | `POST /v1/backfills` | A | `BackfillRequest` | `Done` with the backfill's `id` | ✓ |
 | `POST /v1/backfills/{id}/cancel` | A, covering every job in its current chain | | `Done` | ✓ |
 | `GET /v1/audit?limit=&before=` | R | | `Page<AuditEntry>` | |
+| `GET /v1/report?days=` | R | `days` 1 to 30, default 7 | `Report` | |
 
 ### Endpoint notes
 
@@ -86,6 +87,21 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
   schedules; `from` must not be after `to`. Cancelling a backfill that is not running is 409.
 - **Audit.** `limit` defaults to 50, at most 200. Pass `next_cursor` as `before` for the next
   page.
+
+### `GET /v1/report`
+
+Each job's last `days` calendar days in the definition's zone, the last being today so far, and
+yesterday's failed runs. Unknown query parameters are refused (400), as is `days` outside 1 to 30.
+
+- Jobs listed: every registered job the token covers, and any other covered job that ran in the
+  window (a removed job's failures still show). Jobs that failed yesterday come first, most
+  failures first, then the rest by name.
+- Counted by the day a run finished. Dry runs and `joined` rows are not counted.
+- Counts and the longest time include runs that pruning has removed since; the median and the 90th
+  percentile come from the runs still in the history.
+- `failed_yesterday` lists only runs still in the history. A failure pruned since (a short
+  `keep_runs_for`, or a chain whose first run succeeded under `keep_runs_at_most`) is counted but
+  not listed.
 
 ### `GET /v1/runs`
 
@@ -133,6 +149,10 @@ All in `downbeat_api::types`. Optional fields are `null` when absent, unless not
 | `QueueView` | `name`, `queued`, `running`, `queued_because: {code: count}`, `longest_wait_seconds?`, `workers: WorkerView[]` (seen in the last minute), `paused: PauseView?` |
 | `WorkerView` | `worker_id`, `slots`, `build`, `last_seen_at` |
 | `BackfillView` | `backfill_id`, `job`, `schedule`, `from`, `to`, `reached` (the next date to run, or the one running), `state` (`running`, `done`, `failed`, `cancelled`), `reason?`, `continue_on_failure`, `created_by`, `created_at` |
+| `Report` | `zone`, `days: date[]` (oldest first), `jobs: JobReport[]`, `failed_yesterday: FailedRun[]` (newest first, at most 50) |
+| `JobReport` | `job`, `days: DayReport[]` (one per `Report.days`, same order) |
+| `DayReport` | `date`, `succeeded`, `failed`, `skipped`, `cancelled`, `expired`, `failure_rate?` (failed ÷ (succeeded + failed)), `median_seconds?`, `p90_seconds?`, `longest_seconds?` (start to finish, over succeeded runs) |
+| `FailedRun` | `run_id`, `job`, `failed_because?`, `reason`, `finished_at`, `log_link?` |
 | `AuditEntry` | `audit_id`, `at`, `actor`, `action`, `job?`, `run_id?`, `schedule?`, `detail` (JSON) |
 | `OverrideView` | `override_id`, `schedule`, `date`, `change`, `times: string[]` (`HH:MM`), `note`, `created_by` |
 | `StartRequest` | `input` (default `null`), `priority?: i16`, `not_before?: time`, `dry_run`, `without_children`, `even_if_queued`, `ignore_conditions` (booleans, default `false`), `timeout_seconds?: u64` (0 for none). Unknown fields refused. |
