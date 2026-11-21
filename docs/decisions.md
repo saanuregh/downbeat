@@ -474,3 +474,8 @@ compatible versions of the rest. What changed:
 - **sha2 0.11:** digests no longer format as hex with `{:x}`; one test uses `hex::encode`.
 - **Still held back by other crates:** openidconnect 4.1, its newest release, still uses reqwest
   0.12, so the console builds both reqwest versions. axum pins matchit 0.8.4.
+
+## 67. MIT license only
+
+downbeat is licensed under MIT alone, not MIT OR Apache-2.0. One license is simpler for users and
+contributors to read, and MIT already allows every use the dual license did.

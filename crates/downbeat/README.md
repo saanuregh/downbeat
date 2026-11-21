@@ -14,4 +14,4 @@ async fn send_report(run: Run, day: NaiveDate) -> Result<()> {
 
 Start with the [user guide](https://github.com/downbeat-rs/downbeat/blob/main/docs/guide/01-getting-started.md).
 
-Licensed under either of Apache License, Version 2.0 or MIT license, at your option.
+Licensed under the MIT license.

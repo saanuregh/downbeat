@@ -4,4 +4,4 @@ The control API of [downbeat](https://github.com/downbeat-rs/downbeat): its requ
 
 Depend on it to speak the API from Rust without the client, or to verify tokens. The wire format is in the [HTTP API reference](https://github.com/downbeat-rs/downbeat/blob/main/docs/reference/http-api.md).
 
-Licensed under either of Apache License, Version 2.0 or MIT license, at your option.
+Licensed under the MIT license.

@@ -140,7 +140,4 @@ report vulnerabilities as described in [SECURITY.md](SECURITY.md), not in a publ
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT license](LICENSE-MIT), at your option. Unless you explicitly state otherwise, any
-contribution you intentionally submit for inclusion in this work, as defined in the Apache-2.0
-license, is dual licensed as above, without any additional terms or conditions.
+Licensed under the [MIT license](LICENSE).

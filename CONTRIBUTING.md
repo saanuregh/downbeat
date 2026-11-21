@@ -137,5 +137,5 @@ against any newer schema.
 - Run `mise run check` and say so.
 - For a change to the console's screens, run `mise run demo`, look at the changed screens in light
   and dark themes and at phone width, and attach screenshots.
-- By contributing, you agree that your contribution is dual licensed under MIT OR Apache-2.0, as
-  the [README](README.md#license) says.
+- By contributing, you agree that your contribution is licensed under the MIT license, as the
+  [README](README.md#license) says.

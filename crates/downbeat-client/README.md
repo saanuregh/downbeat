@@ -14,4 +14,4 @@ scheduler.start("daily_report", &serde_json::json!({ "date": "2026-11-20" })).se
 
 See [the control API and the client](https://github.com/downbeat-rs/downbeat/blob/main/docs/guide/07-api-and-client.md).
 
-Licensed under either of Apache License, Version 2.0 or MIT license, at your option.
+Licensed under the MIT license.

@@ -12,4 +12,4 @@ target/release/downbeat-console --local   # beside a scheduler started with --lo
 
 Deploying it is described in [the console guide](https://github.com/downbeat-rs/downbeat/blob/main/docs/guide/06-console.md).
 
-Licensed under either of Apache License, Version 2.0 or MIT license, at your option.
+Licensed under the MIT license.
