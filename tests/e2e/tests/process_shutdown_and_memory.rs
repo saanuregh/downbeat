@@ -1,4 +1,4 @@
-//! More process and shutdown rules (spec 10.1, 10.6, 11.1 and 11.3).
+//! Process and shutdown rules (spec 10.1, 10.6, 11.1 and 11.3).
 
 mod support;
 

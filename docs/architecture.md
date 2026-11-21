@@ -27,13 +27,17 @@ the data model, the main flows, and how failures are handled. The rules themselv
 
 - **The product binary** embeds the `downbeat` crate and calls `downbeat::run(definition)`. Its
   command line chooses the roles: `scheduler`, `worker`, or `scheduler worker`. Every process
-  with a role also runs the reaper.
+  with a role also runs the reaper. Each role keeps a row in `downbeat.worker` fresh every
+  heartbeat (role `worker` or `scheduler`) and deletes it when it stops.
+- **The scheduler's cadences**: it registers schedules every 60 s; fires due schedules and delivers
+  callbacks every `poll`; drives backfills every two polls; and watches for slow runs and overdue
+  jobs every 30 s. The reaper sweeps every 5 s and prunes every hour.
 - **Child processes** are the same binary, started by a worker with `DOWNBEAT_CHILD_FD` set.
   `downbeat::run` sees the variable and runs `child::main` instead of the command line. A child
   talks to its worker over a Unix socket on descriptor 3. Each worker slot owns one child.
 - **Command programs** are started by the worker itself, after the child has described them.
-- **The console** is a separate binary with its own database. It reaches schedulers only through
-  the control API, as a trusted caller.
+- **The console** is a separate binary with its own database, which it prunes every ten minutes
+  (ended sessions, unfinished sign-ins older than ten minutes, audit rows older than a year). It reaches schedulers only through the control API, as a trusted caller.
 
 All coordination goes through Postgres: row locks with `SKIP LOCKED`, unique indexes for the
 same-work rules, advisory locks per chain, and the database's clock. There is no leader and no
@@ -48,6 +52,9 @@ message broker.
 | `lib.rs` | The public API: re-exports, `run`, `run_as`, `child_process`, `migrate`, `check_problems`, the prelude. |
 | `definition.rs` | `Definition` (zone, environments, dependencies, pipelines, callbacks) and `Settings` (timings), with the shutdown-fit check. |
 | `cli.rs` | The product binary's command line; starting roles; signal handling; the `health` command. |
+| `guard.rs` | Calls into product code outside a child (schedule inputs, day rules, callbacks, `redact`), with a panic turned into an error that costs only that call. |
+| `testing.rs` | `downbeat::testing::Schedules`: a definition's schedules on any date or instant, with no database. |
+| `measure.rs` | Hidden entry points that run one engine step (claim, prune, deliver, fire, watch) for the measurements and tests; not part of the API. |
 | `check.rs` | `check` (print, snapshot, verify, warnings) and `run-once`. |
 | `registry.rs` | Running the pipeline functions and checking the result: the `Registry` every process uses. All `check` problems are found here. |
 | `describe.rs` | Jobs and schedules in words, for `check`, the snapshot and the API. |
@@ -109,15 +116,15 @@ message broker.
 
 ## Data model
 
-Every engine table is in schema `downbeat`, created by
-[`migrations/0001_initial.sql`](../crates/downbeat/migrations/0001_initial.sql) and tracked in
-`downbeat.migration`. All times are compared with the database's `now()`.
+Every engine table is in schema `downbeat`, created by the migrations in
+[`crates/downbeat/migrations/`](../crates/downbeat/migrations) (`0002` adds the pause of
+everything, `0003` adds `run_history.marked_at`) and tracked in `downbeat.migration`. All times are compared with the database's `now()`.
 
 | Table | Holds | Written by | Read by |
 | --- | --- | --- | --- |
 | `chain` | One row per chain: pipeline, first job, who started it, backfill id, cancellation. | `store::runs::create`, `store::cancel` | Ending routine (cancelled?), chain and pipeline views, pruning |
 | `run` | Unfinished runs (`queued`, `running`) with their lease, fence, counters, keys, progress, checkpoint, call log. | Every start, the worker, the reaper | Claim, reaper, sweeps, API, backfill |
-| `run_history` | Finished runs with status, reasons, output, error chain, stderr tail, callback state. | The ending routine, joined requests, mark as succeeded | Needs, `if_changed`, children's input, API, callbacks, pruning |
+| `run_history` | Finished runs with status, reasons, output, error chain, stderr tail, callback state, and who marked a run as succeeded and when. | The ending routine, joined requests, mark as succeeded | Needs, `if_changed`, children's input, API, callbacks, pruning |
 | `schedule_state` | Per schedule: watermark, next due time, last registration, times digest. | Scheduler registration and firing, override changes | Firing, job and schedule views |
 | `schedule_override` | Dated overrides. Unique per schedule and date. | API | Firing, calendar, previews |
 | `pause` | Active pauses of schedules, jobs and queues, and of everything (`kind = 'all'`). | API | Claim, firing, views, overdue check |
@@ -179,7 +186,8 @@ The console's tables are in schema `console` of its own database
 6. **Call.** `worker::call::function` sends `Go`; the child spawns the function and answers
    `Started`, then `Progress`, `Checkpoint` and `Start` messages, and finally `Ended`. Meanwhile
    `worker::lease` heartbeats, and `call` watches the timeout, memory, lease and shutdown.
-7. **Decide and record.** `worker::decide` maps the ending to an `Ending` or a `Requeue`.
+7. **Decide and record.** `worker::decide` maps the ending to a `Decision`: `End`, `Requeue`, or
+   `Nothing` when the worker no longer holds the run.
    `worker::record` writes it: `store::ending::end` for an ending, `runs::requeue` otherwise.
 8. **Deliver.** The scheduler's `callbacks::deliver` picks up the new history row and calls
    `on_finish`.
@@ -249,7 +257,7 @@ The console's tables are in schema `console` of its own database
 
 ## Where to start reading
 
-1. [`examples/market/src/main.rs`](../examples/market/src/lib.rs): what a product writes.
+1. [`examples/market/src/lib.rs`](../examples/market/src/lib.rs): what a product writes.
 2. [`crates/downbeat/src/lib.rs`](../crates/downbeat/src/lib.rs) and `cli.rs`: how it starts.
 3. `registry.rs`: what a definition becomes.
 4. `worker/mod.rs`, `drive` and `decide`: the life of a run.
@@ -261,7 +269,8 @@ The console's tables are in schema `console` of its own database
 
 Each layer of tests, and when to use it, is listed in
 [CONTRIBUTING.md](../CONTRIBUTING.md#how-the-tests-run). In short: unit tests beside the code for
-pure calculation; `crates/downbeat/tests` for the product-facing API and `check`; and
+pure calculation; `crates/downbeat/tests` for the product-facing API, `check`, compile errors
+(`trybuild` cases in `compile_fail/`) and engine steps against Postgres; and
 end-to-end tests in [`tests/e2e`](../tests/e2e) that run a test product
 ([`src/lib.rs`](../tests/e2e/src/lib.rs)) as real scheduler, worker and console processes.
 

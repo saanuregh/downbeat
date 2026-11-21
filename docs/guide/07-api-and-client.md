@@ -46,7 +46,8 @@ answers "who can even try".
 
 Each scope includes the ones before it. A token can ask for no more than its caller's
 `max_scope`. A caller limited to some `jobs` must name them in every token, sees only those jobs
-in every list, and cannot pause a queue (that needs a token covering every job).
+in every list, and cannot do what reaches jobs outside its list: pause a queue or everything, or
+cancel a chain or a backfill whose chain includes another job.
 
 ## Signed requests from any language
 
@@ -164,7 +165,8 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
   and `.local()` for a scheduler started with `--local`.
 - **Other calls**: `jobs()`, `job(name)`, `run(id)`, `runs("status=failed&job=x")`, `chain(id)`,
   `pipelines()`, `calendar(date)`, `cancel(run_id)`, and `start(…).preview()`.
-  `as_caller()` returns an `ActingClient` with `pause`, `resume`, `mark_succeeded`,
+  `as_caller()` returns an `ActingClient` with `pause`, `resume`, `pause_everything`,
+  `resume_everything`, `mark_succeeded`,
   `add_override`, `preview_override`, `overrides`, `start_backfill`, `backfills`, `schedules`,
   `queues`, `audit`, and generic `get`, `post` and `delete` for any other endpoint, such as
   `post("/v1/runs/{id}/retry", None::<&()>, None)`.

@@ -5,7 +5,7 @@ pub(crate) mod backfill;
 pub(crate) mod callbacks;
 pub(crate) mod fire;
 pub(crate) mod plan;
-mod watch;
+pub(crate) mod watch;
 
 use std::future::Future;
 use std::sync::Arc;

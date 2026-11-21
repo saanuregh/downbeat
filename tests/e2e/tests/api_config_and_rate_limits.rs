@@ -1,4 +1,4 @@
-//! More of the control API's configuration and authentication rules: when it is on and where
+//! The control API's configuration and authentication rules: when it is on and where
 //! `--local` listens, a request with no token, the rate limit's refill and buckets, and which
 //! refusals are reported.
 

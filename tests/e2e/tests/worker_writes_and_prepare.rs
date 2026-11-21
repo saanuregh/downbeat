@@ -1,4 +1,4 @@
-//! More of a run's life: the status the API shows, which workers count as serving a queue, how
+//! A run's life: the status the API shows, which workers count as serving a queue, how
 //! preparing is bounded and fenced, what the function-start write does, which writes a worker's
 //! ownership guards, how the backoff doubles, and the progress a heartbeat saves.
 

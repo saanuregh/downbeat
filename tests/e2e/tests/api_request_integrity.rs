@@ -1,4 +1,4 @@
-//! The control API's rules not checked elsewhere: the body hash's presence, the log line for every
+//! The control API's rules: the body hash's presence, the log line for every
 //! refused request, and reading a chain with a token limited to some jobs.
 
 mod support;

@@ -51,12 +51,12 @@ were stored when the run was queued, and apply while its next check time is in t
 
 | Value | Meaning | Retried? |
 | --- | --- | --- |
-| `error` | The function returned an error. `error_chain` has the message. | While attempts remain (`Error` is in `retry_on` by default) |
+| `error` | The function returned an error. `error_chain` has the message. Also a command's program that could not be started; the reason says why. | While attempts remain (`Error` is in `retry_on` by default) |
 | `panic` | The function panicked. | Never |
 | `crash` | The child process died without the worker killing it: an abort, a signal, the kernel's out-of-memory killer. Also a crash while the run was being prepared. | Only with `retry_on = [Crash, …]` |
 | `out_of_memory` | The worker killed the process above `max_memory`. | Only with `Memory` in `retry_on` |
 | `timeout` | The function ran past its timeout. Also when preparing the run took longer than the timeout. | Only with `Timeout` in `retry_on` |
-| `exit_code` | A command's program exited with a status other than 0 or 75, or could not be started. `stderr_tail` has the end of its standard error. | Like `error` |
+| `exit_code` | A command's program exited with a status other than 0 or 75. `stderr_tail` has the end of its standard error. | Like `error` |
 | `signal` | A command's program was killed by a signal it was not sent by the worker. | Like `error` |
 | `bad_input` | The input did not decode into the job's type, a link's data did not fit, a command's argument looked like an option, or a command's output did not fit its type. | Never |
 | `output_too_large` | The output was over 64 KiB. | Never |

@@ -1,4 +1,4 @@
-//! The console's access rules not checked elsewhere: an identity token with no email, the
+//! The console's access rules: an identity token with no email, the
 //! pipelines list fetched as the console itself, who may see people and the audit, and the names
 //! `--local` answers to.
 

@@ -1,4 +1,4 @@
-//! More of the same-work rules, conditions, chains and the control API: the exact same-work and
+//! Same-work keys, conditions, chain actions and the control API: the exact same-work and
 //! turn keys, a join's chain, `if_changed` on a scheduled run, the chain lock every chain action
 //! takes, which `.after` children are not created, a retry's dry run, idempotency keys per actor,
 //! a preview's false conditions, and audit rows for pausing queues and schedules.

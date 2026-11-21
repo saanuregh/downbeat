@@ -57,7 +57,7 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
 | `DELETE /v1/overrides/{id}` | A | | `Done` | ✓ |
 | `GET /v1/backfills` | R | | `BackfillView[]`, newest 200 | |
 | `POST /v1/backfills` | A | `BackfillRequest` | `Done` with the backfill's `id` | ✓ |
-| `POST /v1/backfills/{id}/cancel` | A | | `Done` | ✓ |
+| `POST /v1/backfills/{id}/cancel` | A, covering every job in its current chain | | `Done` | ✓ |
 | `GET /v1/audit?limit=&before=` | R | | `Page<AuditEntry>` | |
 
 ### Endpoint notes

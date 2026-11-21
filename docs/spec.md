@@ -455,7 +455,9 @@ Modules: `scheduler/callbacks.rs`, `events.rs`, `store/audit.rs`.
 
 Modules: `pruning.rs`.
 
-1. Pruning runs hourly in every process with a role, in batches of 500 chains per statement.
+1. Pruning runs hourly in every process with a role, in batches of 500 chains per statement,
+   batch after batch while a batch comes back full, for at most five minutes a pass; what is left
+   waits for the next pass.
 2. History must be removed a whole chain at a time (deleting the chain cascades to its rows), by
    the policy of the chain's first job:
    - chains started more than `keep_runs_for` ago;
@@ -509,7 +511,7 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     `RequestRefused` event, carrying the count since the last one, is recorded at most once a
     minute per caller and status. A token that does not verify names no trusted caller, so its
     refusals are reported with no caller. Refusals by an endpoint (403 for scope, 404, 409, 422) are
-    answers, not attacks, and are not counted.
+    answers, not attacks, and are not counted; nor is a 503 because the database cannot be reached.
 
 **Authorization.**
 
@@ -517,9 +519,10 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     `operate`. Pauses and resumes, overrides, backfills and mark as succeeded need `administer`,
     and so does a start with `ignore_conditions` or `timeout_seconds`.
 14. A token limited to jobs must see and act on only those jobs: lists are filtered, a single
-    item of another job is 403, a chain needs its first job covered to be read (and is left out of
-    a pipeline's recent chains otherwise) and every job in it covered to be cancelled, and a queue pause or the pause of everything needs a token covering
-   every job.
+    item of another job is 403, and a chain needs its first job covered to be read (and is left out
+    of a pipeline's recent chains otherwise). Cancelling a chain, or a backfill (which cancels the
+    chain of the date it is running), needs every job in that chain covered; a queue pause or the
+    pause of everything needs a token covering every job.
 
 **Requests.**
 
@@ -578,3 +581,26 @@ Modules: `downbeat-console/src/access.rs`, `session.rs`, `proxy.rs`, `api.rs`, `
    scheduler. A grant to a person needs that person to have signed in before.
 8. `--local` must listen on a loopback address only, and must answer only requests whose `Host` is
    `127.0.0.1`, `localhost` or `[::1]` with its port.
+
+## 16. Watching and health
+
+Modules: `scheduler/watch.rs`, `store/history.rs`, `api/read/mod.rs`, `cli.rs` (`health`).
+
+1. Every process with the scheduler role must check, every 30 seconds, for slow runs and overdue
+   jobs, by the database's clock.
+2. A job's *expected duration* is the median, and its *slow threshold* 1.5 times the 90th
+   percentile (at least one second), of the durations of its last 20 `succeeded` runs. A job with
+   fewer than five such runs has neither.
+3. A running function that has run longer than its job's slow threshold must raise `RunSlow`,
+   with how long it has run and the expected duration, once per run.
+4. A job with `expect_success_every = d` is *overdue* when more than `d` has passed since its
+   latest success, or, when it has never succeeded, since its first run, finished or not. A job
+   that has never run is never overdue.
+5. An overdue job must raise `JobOverdue`, with its latest success if any, once per lapse: not again
+   until it succeeds, and not while the job is paused.
+6. `GET /healthz` must answer `Health` with the API version and needs no token. `GET /readyz` must
+   answer the same only when the database answers, and 503 (`database`) otherwise. `GET /version`
+   must answer the API version and the engine's version.
+7. `<binary> health` must exit with success when a worker process on this host has refreshed its
+   `worker` row within two heartbeats, and with failure otherwise.
+

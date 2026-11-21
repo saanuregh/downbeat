@@ -1,4 +1,4 @@
-//! More schedule rules (spec section 8): missed occurrences under ten seconds old, and backfills
+//! Schedule rules (spec section 8): missed occurrences under ten seconds old, and backfills
 //! driven by two schedulers at once, ignoring overrides and passing over days a rule turns off.
 
 mod support;

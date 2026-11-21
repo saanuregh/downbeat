@@ -11,7 +11,7 @@ use crate::store::interval;
 
 /// Chains removed per statement, so no statement holds its locks for long.
 const BATCH: i64 = 500;
-/// How long one pass may keep deleting. Measured at about two thousand chains a second, a pass
+/// How long one pass may keep deleting. Measured at about 7,500 chains a second, a pass
 /// keeps up with far more than the tens of thousands of runs a day the engine is sized for, and
 /// whatever is left waits for the next pass.
 const PASS_BUDGET: Duration = Duration::from_secs(300);

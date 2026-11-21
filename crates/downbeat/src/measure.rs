@@ -67,3 +67,8 @@ pub async fn fire_due_schedules(pool: &PgPool, definition: Definition, environme
 fn registry(definition: Definition, environment: Option<&str>) -> sqlx::Result<Registry> {
     Registry::build(definition, environment).map_err(|problems| sqlx::Error::Protocol(format!("{problems:?}")))
 }
+
+/// One pass of the watch for slow runs and overdue jobs, as the scheduler runs it every 30 s.
+pub async fn watch_once(pool: &PgPool, definition: Definition) -> sqlx::Result<()> {
+    crate::scheduler::watch::check(pool, &registry(definition, None)?).await
+}

@@ -1,4 +1,4 @@
-//! More of the console's access rules: the return path after sign-in, a change the scheduler
+//! The console's access rules: the return path after sign-in, a change the scheduler
 //! refuses at every scope tried, and who may list and remove grants.
 
 mod fake_provider;

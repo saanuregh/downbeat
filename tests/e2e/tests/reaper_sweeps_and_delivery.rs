@@ -1,4 +1,4 @@
-//! More reaper, delivery and retention rules (spec 9.5, 9.6, 12.4 and 13.2).
+//! Reaper, delivery and retention rules (spec 9.5, 9.6, 12.4 and 13.2).
 
 mod support;
 

@@ -1,4 +1,4 @@
-//! The last unchecked engine rules: an ended pause holds nothing (2.5, 3.1), a join never lowers
+//! Engine rules at their edges: an ended pause holds nothing (2.5, 3.1), a join never lowers
 //! what the queued run had (5.2), `if_changed` looks only at the latest success (6.7), which
 //! children an ending creates (7), and no transaction is open while `on_finish` runs (12.2).
 

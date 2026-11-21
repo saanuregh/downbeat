@@ -61,7 +61,9 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 | --- | --- | --- |
 | Unit | `#[cfg(test)] mod tests` beside the code | Pure calculation and parsing with many edge cases: schedule times, hashes, tokens, access rules. |
 | Authoring | `crates/downbeat/tests/authoring.rs` | The product-facing API compiles and behaves as the guide says. |
-| Check | `crates/downbeat/tests/check.rs` | `check` names each mistake. |
+| Check | `crates/downbeat/tests/check.rs`, `registry_problems.rs` | `check` names each mistake. |
+| Compile errors | `crates/downbeat/tests/macro_signatures.rs` with `compile_fail/` | `trybuild` cases: a wrong job or command signature does not compile, with a clear message. Keep only cases whose compiler output lists no engine internals. |
+| Engine steps | `crates/downbeat/tests/pruning_rules.rs` and others that use `downbeat::measure` | One engine step against the throwaway cluster, run through `scripts/test.sh`. |
 | End to end | `tests/e2e/tests/` | Behaviour through real processes: a test product (`tests/e2e/src/lib.rs`) as scheduler and workers, the API through `downbeat-client`, the console. |
 | Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Needs `DOWNBEAT_TEST_DEX` naming a `dex` binary; `scripts/test.sh` sets it when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`). Otherwise it reports itself skipped. CI always runs it. |
 | Screens | `tests/e2e/tests/screens.rs` | Every console screen renders its data in headless Chromium with no error. Runs when `DOWNBEAT_TEST_BROWSER` names a Chromium-based browser or one is on `PATH`; CI always runs it. |
@@ -71,7 +73,9 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 
 Prefer an end-to-end test that drives the public API through a realistic scenario. Each test gets
 its own database (`Database::fresh()`), so tests run in parallel. Add a job to the test product
-when a scenario needs one, and name it in one of its pipelines. To see the API's raw HTTP answers
+when a scenario needs one: general jobs in `tests/e2e/src/lib.rs`, and jobs for one area's rules in
+its `*_rules.rs` module. A schedule that must not fire in other tests belongs in the `rules`
+environment (or one of its own), which only tests that ask for it start. To see the API's raw HTTP answers
 (status codes, error bodies, a reused token), sign requests with `support::Signer` rather than
 `downbeat-client`, which retries.
 

@@ -1,6 +1,5 @@
 //! Watching for runs that are slow and jobs that are overdue, and telling `on_event` once.
 
-use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -14,15 +13,16 @@ pub(crate) async fn check(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
 }
 
 async fn slow_runs(pool: &PgPool) -> sqlx::Result<()> {
-    let running: Vec<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT run_id, job_name, function_started_at FROM downbeat.run
+    // How long each has run is measured by the database's clock, like every time rule.
+    let running: Vec<(Uuid, String, f64)> = sqlx::query_as(
+        "SELECT run_id, job_name, EXTRACT(EPOCH FROM now() - function_started_at)::float8 FROM downbeat.run
           WHERE state = 'running' AND function_started_at IS NOT NULL AND NOT slow_reported",
     )
     .fetch_all(pool)
     .await?;
-    for (run_id, job, started) in running {
+    for (run_id, job, seconds) in running {
         let Some((expected, slow_after)) = history::expected_duration(pool, &job).await? else { continue };
-        let running_for = (Utc::now() - started).to_std().unwrap_or_default();
+        let running_for = std::time::Duration::from_secs_f64(seconds.max(0.0));
         if running_for > slow_after && runs::mark_slow(pool, run_id).await? {
             let event = Event::RunSlow {
                 run_id,

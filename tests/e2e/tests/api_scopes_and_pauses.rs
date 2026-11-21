@@ -1,4 +1,4 @@
-//! More of the control API's endpoint rules: which scope each action needs, what a token limited to
+//! The control API's endpoint rules: which scope each action needs, what a token limited to
 //! jobs may pause, what a pause must say, and the version header on every answer.
 
 mod support;

@@ -277,6 +277,12 @@ pub async fn follows_failure(_run: Run, failure: Failure) -> Result<Failure> {
     Ok(failure)
 }
 
+/// Expected to succeed every two seconds, so a test sees it fall overdue quickly.
+#[job(expect_success_every = 2.seconds())]
+pub async fn expected_often(_run: Run) -> Result<()> {
+    Ok(())
+}
+
 pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(takes_lopsided);
     pipeline.job(starts_lopsided);
@@ -322,4 +328,5 @@ pub(crate) fn runtime_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(ends_as_told);
     pipeline.job(follows_success).after(ends_as_told);
     pipeline.job(follows_failure).after_failure(ends_as_told);
+    pipeline.job(expected_often);
 }

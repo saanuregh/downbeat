@@ -1,4 +1,4 @@
-//! Parts of a run's life not covered elsewhere: a run not yet due is not claimed (spec 3.1), a
+//! Parts of a run's life: a run not yet due is not claimed (spec 3.1), a
 //! child that exits by itself is a crash (3.5), a program that cannot start is an error that is
 //! retried (4.2), a wait goes back to the queue after `recheck_every` (3.5, 4.4), and a heartbeat
 //! moves the lease forward and saves a pending checkpoint (9.1).

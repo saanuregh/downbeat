@@ -36,6 +36,6 @@ carries over.
   measure its own binary before using `fresh_process` for frequent jobs.
 - **Pruning keeps up.** The first measurement found that one hourly pass removed only 500 chains,
   about 12,000 runs a day, below the volume the engine is sized for. Pruning now deletes batch
-  after batch, for up to five minutes a pass, at about 6,500 chains a second here.
+  after batch, for up to five minutes a pass, at about 7,500 chains a second here (60,000 in 8 s).
 - **An index on chains by first job and start time did not help pruning** (12.7 s with it against
   9 s without), so it was not added.

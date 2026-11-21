@@ -145,7 +145,8 @@ within this long of its time".
 
 - When a schedule has missed several occurrences, only the **most recent** one is considered.
   It runs if it has not expired, and is dropped if it has. The earlier ones are dropped too.
-  Dropped occurrences are reported to `on_event` as `OccurrencesDropped`, with the count.
+  Dropped occurrences more than ten seconds late, and an expired latest one, are reported to
+  `on_event` as `OccurrencesDropped`, with the count.
 - A run that was created but not started by its expiry ends as `expired`, and never runs late.
 - A run whose function has been called at least once is never expired.
 

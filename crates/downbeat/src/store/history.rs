@@ -85,14 +85,23 @@ pub(crate) async fn waiting_for_success_since(pool: &PgPool, job: &str) -> sqlx:
     if let Some((_, at)) = last_success(pool, job, None).await? {
         return Ok(Some(at));
     }
-    sqlx::query_scalar("SELECT min(created_at) FROM downbeat.run_history WHERE job_name = $1 AND joined_run IS NULL")
-        .bind(job)
-        .fetch_one(pool)
-        .await
+    // A run still queued or running counts as well, so a job whose runs never finish is overdue too.
+    sqlx::query_scalar(
+        "SELECT min(created_at) FROM (
+            SELECT created_at FROM downbeat.run_history WHERE job_name = $1 AND joined_run IS NULL
+            UNION ALL
+            SELECT created_at FROM downbeat.run WHERE job_name = $1) runs",
+    )
+    .bind(job)
+    .fetch_one(pool)
+    .await
 }
 
 /// Whether a job has gone longer than `every` without a success.
 pub(crate) async fn overdue(pool: &PgPool, job: &str, every: Duration) -> sqlx::Result<Option<DateTime<Utc>>> {
-    let since = waiting_for_success_since(pool, job).await?;
-    Ok(since.filter(|since| Utc::now() - *since > chrono::TimeDelta::from_std(every).unwrap_or(chrono::TimeDelta::MAX)))
+    let Some(since) = waiting_for_success_since(pool, job).await? else { return Ok(None) };
+    // By the database's clock, like every time rule.
+    let lapsed: bool =
+        sqlx::query_scalar("SELECT $1 < now() - $2").bind(since).bind(interval(every)).fetch_one(pool).await?;
+    Ok(lapsed.then_some(since))
 }

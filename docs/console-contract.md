@@ -47,4 +47,4 @@ request and response types are in `crates/downbeat-api/src/types.rs`; the endpoi
   is `null` on the last page. Needs `administer` on some scheduler. What people did to jobs is the scheduler's
   audit: `/api/schedulers/{name}/v1/audit`.
 - `GET /api/preferences` → `{ time_zone: string|null, filters: object }`;
-  `PUT /api/preferences` with the same shape.
+  `PUT /api/preferences` with the same shape; the body is limited to 16 KiB (400 beyond).
