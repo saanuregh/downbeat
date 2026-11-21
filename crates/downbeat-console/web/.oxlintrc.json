@@ -10,7 +10,9 @@
     "react/no-danger": "error",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
-    "no-console": ["warn", { "allow": ["log", "error"] }]
+    "no-console": ["warn", { "allow": ["log", "error"] }],
+    // An <svg> drawing needs role="img" to be announced; an <img> cannot hold the drawing.
+    "jsx-a11y/prefer-tag-over-role": "off"
   },
   "ignorePatterns": ["dist", "node_modules"]
 }

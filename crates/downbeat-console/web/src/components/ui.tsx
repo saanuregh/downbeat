@@ -106,16 +106,23 @@ export function Section(props: {
 }
 
 /** A two-column list of labels and values. */
-export function Facts({ items }: { items: [string, ReactNode][] }) {
+/** A list of labelled facts; each child is a `Fact`. */
+export function Facts({ children }: { children: ReactNode }) {
+  return <dl className="facts">{children}</dl>;
+}
+
+export function Fact({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <dl className="facts">
-      {items.map(([label, value]) => (
-        <div key={label} className="fact">
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="fact">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
   );
 }
 

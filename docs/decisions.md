@@ -442,3 +442,15 @@ The toolchain is Rust 1.100. The crates still build on 1.98, their declared mini
   three unused dependencies. The guide-sample crate declares that it does not inherit the
   workspace's lints, because its samples compile exactly as the docs show them.
 
+## 65. `bun lint` once Bun 1.4.6 ships
+
+Bun's own linter, `bun lint`, is only in Bun canary, which mise cannot install or lock. Until Bun
+1.4.6 ships, oxlint stays. `bun lint` reads `.oxlintrc.json` and already passes on the screens.
+Its three findings were fixed so that both linters agree:
+- `Facts` now takes `Fact` children instead of `[label, value]` pairs, which also removes the
+  placeholder `key` props;
+- `prefer-tag-over-role` is off, because an SVG drawing needs `role="img"`.
+
+When 1.4.6 ships: pin it in `mise.toml` and CI, replace the `lint` script and the oxlint
+dependency with `bun lint --max-warnings=0`, and update CONTRIBUTING.
+

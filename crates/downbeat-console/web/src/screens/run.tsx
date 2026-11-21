@@ -1,10 +1,10 @@
-import type { ReactNode } from "react";
 // One run: the reason first, then everything about it, and what can be done to it.
 import { ActionButton } from "../components/action";
 import { MarkSucceededButton } from "../components/action-forms";
 import {
   ErrorNote,
   ExternalLink,
+  Fact,
   Facts,
   JsonBlock,
   Loading,
@@ -49,22 +49,6 @@ export function RunScreen({ params }: { params: Record<string, string> }) {
     view.queued_because ?? view.skipped_because ?? view.failed_because;
 
   // Who recorded the outcome by hand, and when; why is in the reason above.
-  const marked: [string, ReactNode][] = view.marked_by
-    ? [
-        [
-          "Marked as succeeded",
-          <span key="marked">
-            {formatActor(view.marked_by)}
-            {view.marked_at && (
-              <>
-                , <Time at={view.marked_at} />
-              </>
-            )}
-          </span>,
-        ],
-      ]
-    : [];
-
   return (
     <>
       <Reason large>{view.reason}</Reason>
@@ -145,62 +129,71 @@ export function RunScreen({ params }: { params: Record<string, string> }) {
         }
       />
 
-      <Facts
-        items={[
-          [
-            "Timing",
-            timingAgainstExpected(
-              view.started_at
-                ? secondsBetween(view.started_at, view.finished_at)
-                : null,
-              view.expected_seconds,
-              view.slow,
-            ),
-          ],
-          ["Due", <Time key="due" at={view.due_at} />],
-          ["Created", <Time key="created" at={view.created_at} />],
-          ["Started", <Time key="started" at={view.started_at} />],
-          ["Finished", <Time key="finished" at={view.finished_at} />],
-          ["Attempt", `${view.attempt} of ${view.attempts}`],
-          [
-            "Calls",
-            `${view.calls}${view.lost_count ? `, ${view.lost_count} lost` : ""}${view.interruptions ? `, ${view.interruptions} interrupted` : ""}`,
-          ],
-          ["Started by", formatStartedBy(view)],
-          ...marked,
-          ["Queue and priority", `${view.queue}, priority ${view.priority}`],
-          [
-            "Chain",
-            <Link key="chain" to={href(`/chains/${view.chain_id}`)}>
-              {shortId(view.chain_id)}
-            </Link>,
-          ],
-          [
-            "Pipeline",
-            view.pipeline ? (
-              <Link
-                key="pipeline"
-                to={href(`/pipelines/${encodeURIComponent(view.pipeline)}`)}
-              >
-                {view.pipeline}
-              </Link>
-            ) : (
-              "–"
-            ),
-          ],
-          ["Checkpoint", view.has_checkpoint ? "Has one" : "None"],
-          [
-            "Logs",
-            view.log_link ? (
-              <ExternalLink key="logs" href={view.log_link}>
-                Open logs
-              </ExternalLink>
-            ) : (
-              "No link"
-            ),
-          ],
-        ]}
-      />
+      <Facts>
+        <Fact label="Timing">
+          {timingAgainstExpected(
+            view.started_at
+              ? secondsBetween(view.started_at, view.finished_at)
+              : null,
+            view.expected_seconds,
+            view.slow,
+          )}
+        </Fact>
+        <Fact label="Due">
+          <Time at={view.due_at} />
+        </Fact>
+        <Fact label="Created">
+          <Time at={view.created_at} />
+        </Fact>
+        <Fact label="Started">
+          <Time at={view.started_at} />
+        </Fact>
+        <Fact label="Finished">
+          <Time at={view.finished_at} />
+        </Fact>
+        <Fact label="Attempt">{`${view.attempt} of ${view.attempts}`}</Fact>
+        <Fact label="Calls">
+          {`${view.calls}${view.lost_count ? `, ${view.lost_count} lost` : ""}${view.interruptions ? `, ${view.interruptions} interrupted` : ""}`}
+        </Fact>
+        <Fact label="Started by">{formatStartedBy(view)}</Fact>
+        {view.marked_by && (
+          <Fact label="Marked as succeeded">
+            {formatActor(view.marked_by)}
+            {view.marked_at && (
+              <>
+                , <Time at={view.marked_at} />
+              </>
+            )}
+          </Fact>
+        )}
+        <Fact label="Queue and priority">
+          {`${view.queue}, priority ${view.priority}`}
+        </Fact>
+        <Fact label="Chain">
+          <Link to={href(`/chains/${view.chain_id}`)}>
+            {shortId(view.chain_id)}
+          </Link>
+        </Fact>
+        <Fact label="Pipeline">
+          {view.pipeline ? (
+            <Link to={href(`/pipelines/${encodeURIComponent(view.pipeline)}`)}>
+              {view.pipeline}
+            </Link>
+          ) : (
+            "–"
+          )}
+        </Fact>
+        <Fact label="Checkpoint">
+          {view.has_checkpoint ? "Has one" : "None"}
+        </Fact>
+        <Fact label="Logs">
+          {view.log_link ? (
+            <ExternalLink href={view.log_link}>Open logs</ExternalLink>
+          ) : (
+            "No link"
+          )}
+        </Fact>
+      </Facts>
 
       {view.progress && (
         <Section title="Progress">

@@ -10,6 +10,7 @@ import { StartButton } from "../components/start-dialog";
 import {
   Empty,
   ErrorNote,
+  Fact,
   Facts,
   Loading,
   PageHeader,
@@ -97,33 +98,33 @@ export function JobScreen({ params }: { params: Record<string, string> }) {
         </p>
       )}
 
-      <Facts
-        items={[
-          [
-            "Last run",
-            view.last_run ? (
-              <span className="inline-status">
-                <StatusBadge status={view.last_run.status} />
-                <Link to={href(`/runs/${view.last_run.run_id}`)}>
-                  <Time at={view.last_run.at} />
-                </Link>
-              </span>
-            ) : (
-              "Never"
-            ),
-          ],
-          [
-            "Next",
-            view.next_occurrence ? (
-              <Time at={view.next_occurrence} />
-            ) : (
-              "Not scheduled"
-            ),
-          ],
-          ["Expected duration", formatDuration(view.expected_seconds)],
-          ["Dry run", view.supports_dry_run ? "Supported" : "Not supported"],
-        ]}
-      />
+      <Facts>
+        <Fact label="Last run">
+          {view.last_run ? (
+            <span className="inline-status">
+              <StatusBadge status={view.last_run.status} />
+              <Link to={href(`/runs/${view.last_run.run_id}`)}>
+                <Time at={view.last_run.at} />
+              </Link>
+            </span>
+          ) : (
+            "Never"
+          )}
+        </Fact>
+        <Fact label="Next">
+          {view.next_occurrence ? (
+            <Time at={view.next_occurrence} />
+          ) : (
+            "Not scheduled"
+          )}
+        </Fact>
+        <Fact label="Expected duration">
+          {formatDuration(view.expected_seconds)}
+        </Fact>
+        <Fact label="Dry run">
+          {view.supports_dry_run ? "Supported" : "Not supported"}
+        </Fact>
+      </Facts>
       {view.last_run && <p className="reason">{view.last_run.reason}</p>}
 
       <div className="columns">
