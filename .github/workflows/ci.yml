@@ -10,8 +10,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The tests start a throwaway cluster with these binaries (mise-tasks/postgres.sh).
-  PG_BIN: /usr/lib/postgresql/16/bin
 
 jobs:
   check:

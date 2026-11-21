@@ -142,20 +142,18 @@ async fn a_child_never_runs_two_functions_at_once() {
     }
 }
 
-/// The ids of processes holding a connection to the test cluster's Unix socket, read with `ss`:
-/// the client end of each socket whose server end is the cluster's `.s.PGSQL` socket.
+/// The ids of processes holding a connection to the test cluster, read with `ss`: the processes
+/// with an established TCP connection to the cluster's port.
 fn processes_connected_to_postgres() -> Vec<u32> {
-    let listing = std::process::Command::new("ss").args(["-xpn"]).output().expect("ss runs");
-    let text = String::from_utf8_lossy(&listing.stdout);
-    let rows: Vec<Vec<&str>> = text.lines().skip(1).map(|line| line.split_whitespace().collect()).collect();
-    // Columns: type, state, recv-q, send-q, local address, local inode, peer address, peer inode, users.
-    let client_inodes: Vec<&str> =
-        rows.iter().filter(|row| row.len() >= 8 && row[4].contains(".s.PGSQL")).map(|row| row[7]).collect();
-    rows.iter()
-        .filter(|row| row.len() >= 9 && client_inodes.contains(&row[5]))
-        .flat_map(|row| {
-            row[8].split("pid=").skip(1).filter_map(|rest| rest.split(',').next()?.parse().ok()).collect::<Vec<u32>>()
-        })
+    let url = std::env::var("DOWNBEAT_TEST_DATABASE_URL").unwrap();
+    let port = url.rsplit_once(':').and_then(|(_, rest)| rest.split('/').next()).expect("the URL names a port");
+    let listing = std::process::Command::new("ss")
+        .args(["-tnpH", "state", "established", "dport", "=", &format!(":{port}")])
+        .output()
+        .expect("ss runs");
+    String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .flat_map(|line| line.split("pid=").skip(1).filter_map(|rest| rest.split(',').next()?.parse().ok()))
         .collect()
 }
 

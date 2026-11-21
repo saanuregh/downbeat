@@ -1,5 +1,5 @@
 //! Pruning works through any number of old chains in one pass, and removes the other rows that
-//! expire. Needs the throwaway Postgres cluster `scripts/test.sh` starts.
+//! expire. Needs the throwaway Postgres cluster `mise-tasks/test-rust` starts.
 
 use downbeat::prelude::*;
 use sqlx::PgPool;
@@ -22,7 +22,7 @@ fn definition() -> Definition {
 /// A database of its own for one test, in the test cluster.
 async fn fresh_database() -> PgPool {
     let base = std::env::var("DOWNBEAT_TEST_DATABASE_URL")
-        .expect("DOWNBEAT_TEST_DATABASE_URL is not set; run the tests with scripts/test.sh");
+        .expect("DOWNBEAT_TEST_DATABASE_URL is not set; run the tests with mise-tasks/test-rust");
     let admin = PgPool::connect(&base).await.expect("the test cluster is reachable");
     let name: String = sqlx::query_scalar("SELECT 'test_' || replace(gen_random_uuid()::text, '-', '')")
         .fetch_one(&admin)

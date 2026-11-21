@@ -1,6 +1,6 @@
 //! A measurement of the engine's hot paths against a real Postgres, for `docs/performance.md`.
 //! It seeds a large table, so it does not run with the other tests:
-//! `scripts/test.sh -p downbeat-e2e --test measure -- --ignored --nocapture`.
+//! `mise-tasks/test-rust -p downbeat-e2e --test measure -- --ignored --nocapture`.
 
 mod support;
 

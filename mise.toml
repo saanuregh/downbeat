@@ -3,11 +3,13 @@
 # and runs the file tasks directly.
 min_version = "2026.11.0"
 
+[settings]
+idiomatic_version_file_enable_tools = ["rust"]
+
 [tools]
 "aqua:koalaman/shellcheck" = "0.11.0"
 "aqua:rhysd/actionlint" = "1.7.12"
 bun = "1.4.5"
-"conda:postgresql" = "18.4"
 
 [tasks.check]
 description = "Format check, lint and test everything"

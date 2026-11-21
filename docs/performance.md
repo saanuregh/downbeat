@@ -10,7 +10,8 @@ mise run measure
 ## Results
 
 Measured on 2026-11-20 on one laptop (16 cores), with Postgres 18 on the same machine over a Unix
-socket and `fsync=off`, as `mise-tasks/test-rust` starts it. A production database with durable writes
+socket and `fsync=off`. `mise-tasks/test-rust` now runs Postgres in a podman container reached over
+TCP, which adds some latency per statement. A production database with durable writes
 and a network between it and the workers is slower per statement; the shape of the results is what
 carries over.
 

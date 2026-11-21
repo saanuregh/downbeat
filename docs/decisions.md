@@ -251,7 +251,7 @@ the process and never reach the next run.
 
 `tests/e2e/tests/sign_in_dex.rs` runs Dex with an in-memory store and one password user, fills in
 its login form, and checks that the console signs the person in and forwards a request for them.
-CI does not run it (Dex ships no release binary to download); `scripts/test.sh` runs it whenever
+CI does not run it (Dex ships no release binary to download); `mise-tasks/test-rust` runs it whenever
 `dex` is on `PATH`.
 
 ## 42. The specification was checked rule by rule against the code
@@ -419,3 +419,14 @@ in `mise-tasks/`, which are plain bash, so CI runs `mise-tasks/test-rust` withou
 own tool setup. `mise run check` now runs every step CI runs (API docs, the example's snapshot),
 plus actionlint, which CI leaves out because the runners do not include it. Dex stays optional:
 mise could only build it from Go source.
+
+## 63. The tests' Postgres runs in a podman container
+
+`mise-tasks/postgres.sh` now starts the official Postgres image in podman, with its data in memory
+and its port on 127.0.0.1, instead of a cluster from local server programs. Locally and in CI the
+tests run against the same pinned version; before, CI used Ubuntu's Postgres 16 and mise installed
+18.4 from conda-forge, whose dependencies made up most of `mise.lock`. Contributors now need
+podman (a podman machine on macOS). The engine does not care how it reaches Postgres; the one test
+that looked at connections through the Unix socket now looks at TCP connections to the port. This
+replaces the Postgres part of decision 62.
+

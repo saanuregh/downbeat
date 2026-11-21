@@ -116,7 +116,7 @@ async fn someone_who_administers_only_some_pipelines_cannot_see_people_or_the_au
     }
 }
 
-/// The console binary, built next to this test's own binary by `scripts/test.sh`.
+/// The console binary, built next to this test's own binary by `mise-tasks/test-rust`.
 #[tokio::test]
 async fn in_local_mode_each_own_name_is_answered_only_with_the_consoles_port() {
     let database = Database::fresh().await;

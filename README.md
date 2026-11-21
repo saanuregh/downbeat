@@ -76,8 +76,8 @@ runs and what it follows are written in the pipeline function.
 
 You need Linux and the Rust toolchain named in [`rust-toolchain.toml`](rust-toolchain.toml).
 
-With [mise](https://mise.jdx.dev), which installs the other pinned tools (Bun for the screens and
-PostgreSQL's server programs):
+With [mise](https://mise.jdx.dev), which installs the other pinned tools, and
+[podman](https://podman.io), which runs the throwaway Postgres:
 
 ```sh
 mise install

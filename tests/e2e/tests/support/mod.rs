@@ -31,7 +31,7 @@ pub fn free_port() -> u16 {
     }
 }
 
-/// A database of its own for one test, created in the throwaway cluster `scripts/test.sh` starts.
+/// A database of its own for one test, created in the throwaway cluster `mise-tasks/test-rust` starts.
 pub struct Database {
     pub url: String,
     pub pool: PgPool,
@@ -40,7 +40,7 @@ pub struct Database {
 impl Database {
     pub async fn fresh() -> Database {
         let base = std::env::var("DOWNBEAT_TEST_DATABASE_URL")
-            .expect("DOWNBEAT_TEST_DATABASE_URL is not set; run the tests with scripts/test.sh");
+            .expect("DOWNBEAT_TEST_DATABASE_URL is not set; run the tests with mise-tasks/test-rust");
         let admin = PgPool::connect(&base).await.expect("the test cluster is reachable");
         let name = format!("test_{}", Uuid::new_v4().simple());
         sqlx::query(&format!("CREATE DATABASE {name}")).execute(&admin).await.expect("a test database");
@@ -332,7 +332,7 @@ impl Signer {
     }
 }
 
-/// The console binary, built next to the tests' own binaries by `scripts/test.sh`.
+/// The console binary, built next to the tests' own binaries by `mise-tasks/test-rust`.
 pub fn console_binary() -> std::path::PathBuf {
     let test = std::env::current_exe().unwrap();
     test.parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console")

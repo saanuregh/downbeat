@@ -11,17 +11,11 @@ You need:
 - Linux. The worker uses process groups, the parent-death signal and `/proc`, and the tests run
   real worker processes.
 - [mise](https://mise.jdx.dev), which installs the tools pinned in [`mise.toml`](mise.toml)
-  and locked in [`mise.lock`](mise.lock): Bun for the console's screens, PostgreSQL's server
-  programs for the tests' throwaway cluster, and actionlint and shellcheck. The tests need no
-  running database and no credentials. The Rust toolchain is pinned in
-  [`rust-toolchain.toml`](rust-toolchain.toml) and installed by rustup.
-- To use PostgreSQL programs other than mise's, set `PG_BIN` to their directory, for example in a
-  git-ignored `mise.local.toml`:
-
-  ```toml
-  [env]
-  PG_BIN = "/usr/lib/postgresql/16/bin"
-  ```
+  and locked in [`mise.lock`](mise.lock): Bun for the console's screens, and actionlint and
+  shellcheck. The Rust toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml) and
+  installed by rustup.
+- [Podman](https://podman.io), which runs the tests' throwaway Postgres in a container. The tests
+  need no running database and no credentials.
 
 Then:
 
@@ -32,8 +26,6 @@ mise run check
 
 ## Tasks
 
-| Command | What it does |
-| --- | --- |
 `mise tasks` lists them all. The longer ones are plain bash files in
 [`mise-tasks/`](mise-tasks), which run without mise too.
 
@@ -57,8 +49,9 @@ Dex sign-in test always on.
 
 ## How the tests run
 
-[`mise-tasks/test-rust`](mise-tasks/test-rust) starts a Postgres cluster in a temporary directory, with
-trust authentication and a Unix socket only, and removes it on exit. It exports
+[`mise-tasks/test-rust`](mise-tasks/test-rust) starts Postgres in a podman container (the image is
+named in [`mise-tasks/postgres.sh`](mise-tasks/postgres.sh)), with its data in memory, trust
+authentication and its port on 127.0.0.1 only, and removes it on exit. It exports
 `DOWNBEAT_TEST_DATABASE_URL`, builds every binary (the end-to-end tests start the console binary),
 and runs `cargo test --workspace`. Arguments are passed to `cargo test`:
 
