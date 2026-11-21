@@ -194,7 +194,7 @@ async fn relay(State(relay): State<Relay>, request: axum::extract::Request) -> a
         .unwrap_or_default()
         .to_owned();
     relay.seen.lock().unwrap().push((request_line, bearer));
-    let path = parts.uri.path_and_query().map(|path| path.as_str().to_owned()).unwrap_or_default();
+    let path = parts.uri.path_and_query().map_or_default(|path| path.as_str().to_owned());
     let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes()).unwrap();
     let mut forwarded = relay.http.request(method, format!("{}{path}", relay.target));
     for (name, value) in &parts.headers {

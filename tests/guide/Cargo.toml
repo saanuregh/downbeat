@@ -20,3 +20,6 @@ uuid.workspace = true
 
 [build-dependencies]
 syn.workspace = true
+
+# The samples are compiled as the docs show them, so the workspace's lints do not apply.
+[lints]

@@ -13,7 +13,7 @@ use support::{Database, Signer, with_api_at, with_callers};
 /// A callers file with one caller of this name, `max_scope` and job list, and its key.
 fn caller(name: &str, max_scope: &str, jobs: Option<&str>) -> (String, PrivateKey) {
     let key = PrivateKey::generate();
-    let jobs = jobs.map(|jobs| format!("jobs = {jobs}\n")).unwrap_or_default();
+    let jobs = jobs.map_or_default(|jobs| format!("jobs = {jobs}\n"));
     let entry = format!(
         "[[caller]]\nname = \"{name}\"\nkeys = [\"{}\"]\nmax_scope = \"{max_scope}\"\n{jobs}",
         key.public().to_base64()

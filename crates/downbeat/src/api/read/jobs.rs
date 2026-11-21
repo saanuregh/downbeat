@@ -197,8 +197,7 @@ fn pipeline_view(state: &State, caller: &Caller, name: &str) -> PipelineView {
             parents: job
                 .link
                 .as_ref()
-                .map(|link| link.parents.iter().map(|parent| (*parent).to_owned()).collect())
-                .unwrap_or_default(),
+                .map_or_default(|link| link.parents.iter().map(|parent| (*parent).to_owned()).collect()),
             schedules: job.schedules.clone(),
         })
         .collect();
@@ -262,8 +261,7 @@ pub(crate) async fn chain(
             .registry
             .job(job)
             .and_then(|j| j.link.as_ref())
-            .map(|link| link.parents.iter().map(|p| (*p).to_owned()).collect())
-            .unwrap_or_default();
+            .map_or_default(|link| link.parents.iter().map(|p| (*p).to_owned()).collect());
         let why_not =
             runs.is_empty().then(|| why_not(&state, job, &parents, &ended, &unfinished, cancelled_at.is_some()));
         nodes.push(ChainNode { job: job.clone(), parents, runs, why_not });

@@ -332,10 +332,14 @@ impl Signer {
     }
 }
 
-/// The console binary, built next to the tests' own binaries by `mise-tasks/test-rust`.
+/// The console binary `mise-tasks/test-rust` builds, in the nearest folder above the test's own
+/// executable that holds it: how deep test executables sit depends on the Cargo version.
 pub fn console_binary() -> std::path::PathBuf {
     let test = std::env::current_exe().unwrap();
-    test.parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console")
+    test.ancestors()
+        .map(|folder| folder.join("downbeat-console"))
+        .find(|path| path.is_file())
+        .expect("the console binary is built; run the tests with mise-tasks/test-rust")
 }
 
 /// A running console process, stopped when dropped.

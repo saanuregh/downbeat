@@ -39,7 +39,7 @@ pub(crate) fn parse(attribute: TokenStream) -> syn::Result<Arguments> {
     let mut arguments = Arguments { name: None, one_per: None, settings: Vec::new(), preset: None };
     let mut seen = Vec::new();
     for meta in metas {
-        let key = meta.path().get_ident().map(ToString::to_string).unwrap_or_default();
+        let key = meta.path().get_ident().map_or_default(ToString::to_string);
         if seen.contains(&key) {
             return Err(syn::Error::new_spanned(meta.path(), format!("`{key}` is set twice")));
         }

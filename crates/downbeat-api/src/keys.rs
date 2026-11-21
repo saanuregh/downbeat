@@ -35,7 +35,7 @@ impl PrivateKey {
 
     /// The key as PKCS#8 PEM, to keep in a secret store.
     pub fn to_pem(&self) -> String {
-        self.0.to_pkcs8_pem(LineEnding::LF).map(|pem| pem.to_string()).unwrap_or_default()
+        self.0.to_pkcs8_pem(LineEnding::LF).map_or_default(|pem| pem.to_string())
     }
 
     pub fn public(&self) -> PublicKey {

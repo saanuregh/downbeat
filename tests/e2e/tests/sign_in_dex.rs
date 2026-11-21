@@ -141,10 +141,8 @@ key_file = "{key}"
     );
     let file = std::env::temp_dir().join(format!("console-{}.toml", uuid::Uuid::new_v4()));
     std::fs::write(&file, config).unwrap();
-    let binary =
-        std::env::current_exe().unwrap().parent().and_then(std::path::Path::parent).unwrap().join("downbeat-console");
     let process = Process(
-        Command::new(binary)
+        Command::new(support::console_binary())
             .args(["--config", &file.display().to_string()])
             .env("DOWNBEAT_CONSOLE_DATABASE_URL", &database.url)
             .env("TEST_CLIENT_SECRET", "console-secret")

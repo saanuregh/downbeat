@@ -116,8 +116,8 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
     })?;
     // Nested under /v1, the router sees the path without its prefix; the token binds the full one.
     let path_and_query = parts.extensions.get::<axum::extract::OriginalUri>().map_or_else(
-        || parts.uri.path_and_query().map(ToString::to_string).unwrap_or_default(),
-        |original| original.0.path_and_query().map(ToString::to_string).unwrap_or_default(),
+        || parts.uri.path_and_query().map_or_default(ToString::to_string),
+        |original| original.0.path_and_query().map_or_default(ToString::to_string),
     );
     let binding = RequestBinding { method: parts.method.as_str(), path_and_query: &path_and_query, body: &body };
     let now = chrono::Utc::now().timestamp();

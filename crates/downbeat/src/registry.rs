@@ -352,7 +352,7 @@ fn check_graph(
 
     // Cycles: walk from every job; a job met again on the current path closes a cycle.
     let parents_of = |name: &str| -> Vec<&'static str> {
-        jobs.get(name).and_then(|job| job.link.as_ref()).map(|link| link.parents.clone()).unwrap_or_default()
+        jobs.get(name).and_then(|job| job.link.as_ref()).map_or_default(|link| link.parents.clone())
     };
     let mut cyclic = BTreeSet::new();
     for start in jobs.keys() {

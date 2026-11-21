@@ -234,8 +234,7 @@ fn groups_of(id_token: &str, claim: &str) -> Vec<String> {
     claims
         .get(claim)
         .and_then(serde_json::Value::as_array)
-        .map(|groups| groups.iter().filter_map(|group| group.as_str().map(str::to_owned)).collect())
-        .unwrap_or_default()
+        .map_or_default(|groups| groups.iter().filter_map(|group| group.as_str().map(str::to_owned)).collect())
 }
 
 fn cookie(value: &str, max_age: u64) -> HeaderValue {

@@ -430,3 +430,15 @@ podman (a podman machine on macOS). The engine does not care how it reaches Post
 that looked at connections through the Unix socket now looks at TCP connections to the port. This
 replaces the Postgres part of decision 62.
 
+## 64. Rust 1.100
+
+The toolchain is Rust 1.100. The crates still build on 1.98, their declared minimum.
+
+- Cargo 1.100 puts test executables deeper in the target folder, so the end-to-end tests now find
+  the console binary in the nearest folder above their own executable that holds it.
+- Clippy's new `assert_is_empty` lint is allowed: its suggested rewrite spells out an empty
+  array's full element type in every assertion.
+- Cargo's new manifest checks found leftovers, now removed: `homepage` repeated `repository`, and
+  three unused dependencies. The guide-sample crate declares that it does not inherit the
+  workspace's lints, because its samples compile exactly as the docs show them.
+
