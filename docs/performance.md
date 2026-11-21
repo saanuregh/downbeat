@@ -1,16 +1,16 @@
 # Performance
 
 What the engine's hot paths cost, measured against a real Postgres. The measurement is
-[`tests/e2e/tests/measure.rs`](../tests/e2e/tests/measure.rs); run it with:
+[`tests/e2e/tests/measure.rs`](../tests/e2e/tests/measure.rs); run it alone, printing the numbers, with:
 
 ```sh
-scripts/test.sh -p downbeat-e2e --test measure -- --ignored --nocapture --test-threads=1
+mise run measure
 ```
 
 ## Results
 
 Measured on 2026-11-20 on one laptop (16 cores), with Postgres 18 on the same machine over a Unix
-socket and `fsync=off`, as `scripts/test.sh` starts it. A production database with durable writes
+socket and `fsync=off`, as `mise-tasks/test-rust` starts it. A production database with durable writes
 and a network between it and the workers is slower per statement; the shape of the results is what
 carries over.
 

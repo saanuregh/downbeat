@@ -138,7 +138,7 @@ The sign-in flow is tested end to end against a small fake provider that checks 
 Ed25519 tokens ([`tests/e2e/tests/sign_in.rs`](../../tests/e2e/tests/sign_in.rs)), and against a
 real one, [Dex](https://dexidp.io), whose login form the test fills in
 ([`tests/e2e/tests/sign_in_dex.rs`](../../tests/e2e/tests/sign_in_dex.rs); it needs
-`DOWNBEAT_TEST_DEX`, which `scripts/test.sh` sets when `dex` is on `PATH`, and CI always runs it).
+`DOWNBEAT_TEST_DEX`, which `mise-tasks/test-rust` sets when `dex` is on `PATH`, and CI always runs it).
 
 ## Who may do what: grants
 

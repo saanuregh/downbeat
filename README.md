@@ -74,11 +74,10 @@ runs and what it follows are written in the pipeline function.
 
 ## Quick start
 
-You need Linux, the Rust toolchain named in [`rust-toolchain.toml`](rust-toolchain.toml), and
-PostgreSQL's server programs (`initdb`, `pg_ctl`) on your `PATH`, or `PG_BIN` set to their
-directory.
+You need Linux and the Rust toolchain named in [`rust-toolchain.toml`](rust-toolchain.toml).
 
-With [mise](https://mise.jdx.dev), which installs the pinned tools (Bun, for the screens):
+With [mise](https://mise.jdx.dev), which installs the other pinned tools (Bun for the screens and
+PostgreSQL's server programs):
 
 ```sh
 mise install

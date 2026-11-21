@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
+#MISE description="Run the demo product and the console locally"
 # Runs the example product (scheduler and workers) and the console on this machine, with a
 # throwaway Postgres, and no sign-in. Stop it with Ctrl-C; everything it made is removed.
 set -euo pipefail
+# shellcheck source=mise-tasks/postgres.sh
 source "$(dirname "$0")/postgres.sh"
 
 if command -v bun >/dev/null; then

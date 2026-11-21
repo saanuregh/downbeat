@@ -274,8 +274,8 @@ pure calculation; `crates/downbeat/tests` for the product-facing API, `check`, c
 end-to-end tests in [`tests/e2e`](../tests/e2e) that run a test product
 ([`src/lib.rs`](../tests/e2e/src/lib.rs)) as real scheduler, worker and console processes.
 
-[`scripts/test.sh`](../scripts/test.sh) starts a throwaway Postgres cluster in a temporary
-directory (through [`scripts/postgres.sh`](../scripts/postgres.sh)), builds every binary (the
+[`mise-tasks/test-rust`](../mise-tasks/test-rust) starts a throwaway Postgres cluster in a
+temporary directory (through [`mise-tasks/postgres.sh`](../mise-tasks/postgres.sh)), builds every binary (the
 end-to-end tests start the console binary), and runs `cargo test --workspace`. Each end-to-end
 test creates its own database in that cluster, so tests run in parallel. The test product uses
 short timings (one-second heartbeats, three-second leases).

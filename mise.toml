@@ -1,13 +1,17 @@
-# Development tools and recurring commands. CI does not use this file: it reads the Rust version
-# from rust-toolchain.toml and pins Bun itself.
+# Development tools and recurring commands. Longer tasks are plain bash files in mise-tasks/.
+# CI does not use mise: it reads the Rust version from rust-toolchain.toml, pins its own tools,
+# and runs the file tasks directly.
 min_version = "2026.11.0"
 
 [tools]
+"aqua:koalaman/shellcheck" = "0.11.0"
+"aqua:rhysd/actionlint" = "1.7.12"
 bun = "1.4.5"
+"conda:postgresql" = "18.4"
 
 [tasks.check]
 description = "Format check, lint and test everything"
-depends = ["fmt-check", "lint", "test"]
+depends = ["fmt-check", "lint", "doc", "snapshot", "test"]
 
 [tasks.fmt]
 description = "Format Rust and the console's screens"
@@ -21,21 +25,37 @@ run = [
 ]
 
 [tasks.lint]
-description = "Clippy on every crate and oxlint on the screens, warnings as errors"
+description = "Clippy, the screens' type-check and oxlint, actionlint and shellcheck; warnings as errors"
 run = [
   "cargo clippy --workspace --all-targets -- -D warnings",
   "cd crates/downbeat-console/web && bun run check && bun run lint",
+  "actionlint",
+  "shellcheck --external-sources mise-tasks/test-rust mise-tasks/demo mise-tasks/postgres.sh",
 ]
 
+[tasks.doc]
+description = "Build the public crates' API docs, warnings as errors"
+env = { RUSTDOCFLAGS = "-D warnings" }
+run = "cargo doc --no-deps -p downbeat -p downbeat-api -p downbeat-client -p downbeat-macros"
+
+[tasks.snapshot]
+description = "Fail if the example product's schedule snapshot is stale"
+run = "cargo run -q -p market -- check --verify-snapshot examples/market/schedules.snapshot > /dev/null"
+
 [tasks.test]
-description = "Run every test; database tests use a throwaway Postgres"
-run = ["cd crates/downbeat-console/web && bun run test", "scripts/test.sh"]
+description = "Run every test: the screens' unit tests and the Rust tests"
+depends = ["test-web", "test-rust"]
+
+[tasks.test-web]
+description = "Run the screens' unit tests"
+dir = "crates/downbeat-console/web"
+run = "bun run test"
+
+[tasks.measure]
+description = "Measure the engine's hot paths (see docs/performance.md)"
+run = "mise-tasks/test-rust -p downbeat-e2e --test measure -- --ignored --nocapture --test-threads=1"
 
 [tasks.web]
 description = "Build the console's screens"
 dir = "crates/downbeat-console/web"
 run = ["bun install --frozen-lockfile", "bun check", "bun run build"]
-
-[tasks.demo]
-description = "Run the demo product and the console locally"
-run = "scripts/demo.sh"

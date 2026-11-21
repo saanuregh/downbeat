@@ -10,7 +10,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The tests start a throwaway cluster with these binaries (scripts/postgres.sh).
+  # The tests start a throwaway cluster with these binaries (mise-tasks/postgres.sh).
   PG_BIN: /usr/lib/postgresql/16/bin
 
 jobs:
@@ -42,6 +42,10 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The runners include shellcheck. The tasks are plain bash, so CI runs them without mise.
+      - name: Lint the task scripts
+        run: shellcheck --external-sources mise-tasks/test-rust mise-tasks/demo mise-tasks/postgres.sh
+
       - name: API docs build without warnings
         run: cargo doc --no-deps -p downbeat -p downbeat-api -p downbeat-client -p downbeat-macros
         env:
@@ -57,7 +61,7 @@ jobs:
         run: echo "DOWNBEAT_TEST_DEX=$(nix build --no-link --print-out-paths nixpkgs#dex-oidc)/bin/dex" >> "$GITHUB_ENV"
 
       - name: Test
-        run: scripts/test.sh
+        run: mise-tasks/test-rust
         env:
           # GitHub's Ubuntu runners include Google Chrome; the screens test renders every screen in it.
           DOWNBEAT_TEST_BROWSER: google-chrome

@@ -10,13 +10,13 @@ You need:
 
 - Linux. The worker uses process groups, the parent-death signal and `/proc`, and the tests run
   real worker processes.
-- [mise](https://mise.jdx.dev), which installs the pinned tools from [`mise.toml`](mise.toml)
-  (Bun, for the console's screens). The Rust toolchain is pinned in
+- [mise](https://mise.jdx.dev), which installs the tools pinned in [`mise.toml`](mise.toml)
+  and locked in [`mise.lock`](mise.lock): Bun for the console's screens, PostgreSQL's server
+  programs for the tests' throwaway cluster, and actionlint and shellcheck. The tests need no
+  running database and no credentials. The Rust toolchain is pinned in
   [`rust-toolchain.toml`](rust-toolchain.toml) and installed by rustup.
-- PostgreSQL's server programs (`initdb`, `pg_ctl`, `postgres`). The tests start their own
-  throwaway cluster, so you need no running database and no credentials. If the programs are not
-  on your `PATH`, set `PG_BIN` to their directory, for example in a `mise.local.toml` (it is
-  git-ignored):
+- To use PostgreSQL programs other than mise's, set `PG_BIN` to their directory, for example in a
+  git-ignored `mise.local.toml`:
 
   ```toml
   [env]
@@ -34,27 +34,37 @@ mise run check
 
 | Command | What it does |
 | --- | --- |
-| `mise run check` | Format check, Clippy, and every test. Run it before you open a pull request. |
-| `mise run fmt` | Format the Rust code and the console's screens. |
-| `mise run lint` | Clippy with warnings as errors, plus the screens' type-check and oxlint. |
-| `mise run test` | The screens' unit tests, then every Rust test through `scripts/test.sh`. |
+`mise tasks` lists them all. The longer ones are plain bash files in
+[`mise-tasks/`](mise-tasks), which run without mise too.
+
+| Command | What it does |
+| --- | --- |
+| `mise run check` | Everything below except `web`, `demo` and `measure`. Run it before you open a pull request. |
+| `mise run fmt` / `fmt-check` | Format the Rust code and the console's screens, or fail if anything is not formatted. |
+| `mise run lint` | Clippy with warnings as errors, the screens' type-check and oxlint, actionlint on the CI workflow, and shellcheck on the task scripts. |
+| `mise run doc` | Build the public crates' API docs, warnings as errors. |
+| `mise run snapshot` | Fail if the example product's schedule snapshot is stale. |
+| `mise run test` | `test-web` and `test-rust`. |
+| `mise run test-web` | The screens' unit tests. |
+| `mise run test-rust [args]` | Every Rust test against a throwaway Postgres; arguments go to `cargo test`. |
 | `mise run web` | Install, type-check and build the console's screens. |
 | `mise run demo` | Run the example product and the console locally, with a throwaway database. |
+| `mise run measure` | Measure the engine's hot paths ([docs/performance.md](docs/performance.md)). |
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) does not use mise. It runs the same
-checks, plus `cargo doc` with warnings as errors, a check that the example's schedule snapshot is
-current, and the Dex sign-in test.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) does not use mise. It installs its own
+tools, runs the same steps except actionlint, and runs `mise-tasks/test-rust` directly, with the
+Dex sign-in test always on.
 
 ## How the tests run
 
-[`scripts/test.sh`](scripts/test.sh) starts a Postgres cluster in a temporary directory, with
+[`mise-tasks/test-rust`](mise-tasks/test-rust) starts a Postgres cluster in a temporary directory, with
 trust authentication and a Unix socket only, and removes it on exit. It exports
 `DOWNBEAT_TEST_DATABASE_URL`, builds every binary (the end-to-end tests start the console binary),
 and runs `cargo test --workspace`. Arguments are passed to `cargo test`:
 
 ```sh
-scripts/test.sh -p downbeat-e2e --test runs     # one end-to-end test file
-scripts/test.sh -p downbeat schedule            # unit tests whose name matches
+mise run test-rust -p downbeat-e2e --test runs     # one end-to-end test file
+mise run test-rust -p downbeat schedule            # unit tests whose name matches
 ```
 
 | Layer | Where | Use it for |
@@ -63,9 +73,9 @@ scripts/test.sh -p downbeat schedule            # unit tests whose name matches
 | Authoring | `crates/downbeat/tests/authoring.rs` | The product-facing API compiles and behaves as the guide says. |
 | Check | `crates/downbeat/tests/check.rs`, `registry_problems.rs` | `check` names each mistake. |
 | Compile errors | `crates/downbeat/tests/macro_signatures.rs` with `compile_fail/` | `trybuild` cases: a wrong job or command signature does not compile, with a clear message. Keep only cases whose compiler output lists no engine internals. |
-| Engine steps | `crates/downbeat/tests/pruning_rules.rs` and others that use `downbeat::measure` | One engine step against the throwaway cluster, run through `scripts/test.sh`. |
+| Engine steps | `crates/downbeat/tests/pruning_rules.rs` and others that use `downbeat::measure` | One engine step against the throwaway cluster, run through `mise run test-rust`. |
 | End to end | `tests/e2e/tests/` | Behaviour through real processes: a test product (`tests/e2e/src/lib.rs`) as scheduler and workers, the API through `downbeat-client`, the console. |
-| Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Needs `DOWNBEAT_TEST_DEX` naming a `dex` binary; `scripts/test.sh` sets it when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`). Otherwise it reports itself skipped. CI always runs it. |
+| Real sign-in | `tests/e2e/tests/sign_in_dex.rs` | The console signing a person in through Dex. Needs `DOWNBEAT_TEST_DEX` naming a `dex` binary; `mise-tasks/test-rust` sets it when `dex` is on `PATH` (for example `nix shell nixpkgs#dex-oidc`). Otherwise it reports itself skipped. CI always runs it. |
 | Screens | `tests/e2e/tests/screens.rs` | Every console screen renders its data in headless Chromium with no error. Runs when `DOWNBEAT_TEST_BROWSER` names a Chromium-based browser or one is on `PATH`; CI always runs it. |
 | Docs | `tests/guide` | Every Rust sample in the README and the user guide compiles; samples written with "…" are syntax templates and are skipped. A sample may use the names in `tests/guide/src/scaffold.rs`. |
 | Example | `examples/market/tests` | The test kit (`downbeat::testing`) on a real definition: schedules on any date, with no database. |

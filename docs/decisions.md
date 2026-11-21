@@ -407,3 +407,15 @@ A run started with `not_before` counts from when it may start. The check and the
 transaction under an advisory lock per job, so two schedulers that watch at once raise one event.
 `health` matches the host whole, from worker rows only, and reads the host name the way the worker
 id is built. Found by an audit after section 16 was added; each case has a test that failed before.
+
+## 62. mise manages every development tool and task
+
+mise now installs PostgreSQL's server programs (from conda-forge, prebuilt), actionlint and
+shellcheck as well as Bun, all locked for every platform in `mise.lock`. A contributor no longer
+needs Postgres from the system or `PG_BIN`, though `PG_BIN` still picks another installation.
+PostgreSQL is pinned at 18.4, the newest version conda-forge builds for every platform the lock
+covers (18.6 and 18.7 have no macOS Apple silicon build yet). The longer tasks are mise file tasks
+in `mise-tasks/`, which are plain bash, so CI runs `mise-tasks/test-rust` without mise and keeps its
+own tool setup. `mise run check` now runs every step CI runs (API docs, the example's snapshot),
+plus actionlint, which CI leaves out because the runners do not include it. Dex stays optional:
+mise could only build it from Go source.

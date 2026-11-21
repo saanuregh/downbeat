@@ -1,4 +1,5 @@
-# Sourced by the other scripts: starts a throwaway Postgres cluster in a temporary directory that is
+# shellcheck shell=bash
+# Sourced by the tasks that need a database, and not a task itself (it is not executable): starts a throwaway Postgres cluster in a temporary directory that is
 # removed on exit, and exports DOWNBEAT_PG_URL for its `postgres` database. PG_BIN picks an
 # installation other than the one on PATH.
 bin="${PG_BIN:+$PG_BIN/}"
