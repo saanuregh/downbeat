@@ -279,3 +279,38 @@ async fn a_used_changing_token_is_kept_until_six_seconds_after_it_expires() {
     .unwrap();
     assert!((expires_at - (claims.exp + 6)).abs() <= 1, "expires_at {expires_at}, exp {}", claims.exp);
 }
+
+// Rule 14.16: an Idempotency-Key belongs to one caller, actor and job.
+#[tokio::test]
+async fn an_idempotency_key_is_scoped_to_its_caller_actor_and_job() {
+    let database = Database::fresh().await;
+    database.hold("echo").await;
+    database.hold("shout").await;
+    let (console_entry, console_key) = caller("console", "operate", None);
+    let (portal_entry, portal_key) = caller("portal", "operate", None);
+    let people = "acts_for_people = true\n";
+    let callers = format!("audience = \"test\"\n{console_entry}{people}{portal_entry}{people}");
+    let (_app, base) = with_callers(&database, &callers).await;
+    let client =
+        |name: &str, key| downbeat_client::Client::builder(&base).caller(name).audience("test").key(key).connect();
+    let console = client("console", console_key).await.unwrap();
+    let portal = client("portal", portal_key).await.unwrap();
+    let start = |client: &downbeat_client::Client, job: &'static str| {
+        let client = client.clone();
+        async move {
+            let alice = client.acting_for("alice", Scope::Operate, None);
+            alice.start(job, &json!({ "text": "x" })).idempotency_key("shared").even_if_queued().send().await.unwrap()
+        }
+    };
+
+    let first = start(&console, "echo").await;
+    let other_job = start(&console, "shout").await;
+    let other_caller = start(&portal, "echo").await;
+    assert!(!first.repeated && !other_job.repeated && !other_caller.repeated);
+    assert_ne!(first.run_id, other_job.run_id, "the same key for another job starts its own run");
+    assert_ne!(first.run_id, other_caller.run_id, "the same actor name under another caller starts its own run");
+
+    let again = start(&console, "echo").await;
+    assert!(again.repeated);
+    assert_eq!(again.run_id, first.run_id);
+}

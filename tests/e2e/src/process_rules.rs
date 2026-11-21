@@ -5,7 +5,7 @@ use std::time::Duration;
 use downbeat::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{FINISHED_DIR, Text};
+use crate::{FINISHED_DIR, Number, Text};
 
 /// An output whose decoding reacts to its text: `panic` panics, and `slow` writes the decoding
 /// process's id to `checking.pid` in the app's finished directory, then takes five seconds.
@@ -72,6 +72,37 @@ pub fn fresh_command(input: Text) -> Program<()> {
 pub fn hungry_program() -> Program<()> {
     Program::new("/bin/sh")
         .args(["-c", r#"exec awk 'BEGIN { s = "x"; while (length(s) < 67108864) s = s s; while (1) {} }'"#])
+}
+
+/// Returns its input; its link to `keeps_its_number` maps it to the id of the process the
+/// adapter runs in.
+#[job]
+pub async fn starts_a_mapped_link(_run: Run, input: Number) -> Result<Number> {
+    Ok(input)
+}
+
+#[job]
+pub async fn keeps_its_number(_run: Run, input: Number) -> Result<Number> {
+    Ok(input)
+}
+
+/// Starts a helper that ignores SIGTERM, writes `<helper pid> <own pid> <own process group>` to
+/// the file its input names, then runs past its one-second timeout. Only killing the child's
+/// process group ends the helper.
+#[job(timeout = 1.seconds())]
+pub async fn function_times_out_with_a_helper(_run: Run, input: Text) -> Result<()> {
+    #[expect(clippy::zombie_processes, reason = "the helper must outlive this call until its group is killed")]
+    let helper = std::process::Command::new("/bin/sh")
+        .args(["-c", "trap '' TERM; exec sleep 300"])
+        .spawn()
+        .expect("the helper starts");
+    let stat = std::fs::read_to_string("/proc/self/stat").expect("its own process status");
+    // The fields after the command name, which is in parentheses, start with state, parent, group.
+    let group = stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(2)).unwrap_or("?");
+    std::fs::write(&input.text, format!("{} {} {group}", helper.id(), std::process::id()))
+        .expect("the file is written");
+    tokio::time::sleep(Duration::from_secs(300)).await;
+    Ok(())
 }
 
 /// Starts a helper in the background, writes its id to the file its input names, and exits 0.
@@ -178,6 +209,11 @@ pub(crate) fn process_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(long_stderr);
     pipeline.job(not_ready_when_asked_to_stop);
     pipeline.job(sleeps_a_minute);
+    pipeline.job(function_times_out_with_a_helper);
+    pipeline.job(starts_a_mapped_link);
+    pipeline
+        .job(keeps_its_number)
+        .after(starts_a_mapped_link.map(|_: Number| Number { n: i64::from(std::process::id()) }));
     pipeline.job(takes_fragile);
     pipeline.job(has_a_fragile_need).needs(crate::echo.done_for(fragile_need));
 }

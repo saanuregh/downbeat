@@ -266,6 +266,20 @@ mod tests {
     }
 
     #[test]
+    fn a_token_verifies_against_any_of_its_callers_keys() {
+        let old = PrivateKey::generate();
+        let new = PrivateKey::generate();
+        let keys = [old.public(), new.public()];
+        for key in [&old, &new] {
+            let result = verify(&token(key, b""), |_| Some(&keys[..]), "prod", request(b""), NOW);
+            assert!(result.is_ok(), "{result:?}");
+        }
+        let unnamed = serde_json::json!({ "alg": "Ed25519", "typ": TOKEN_TYPE, "kid": "retired" });
+        let result = verify(&with_header(&new, &unnamed, &claims()), |_| Some(&keys[..]), "prod", request(b""), NOW);
+        assert!(result.is_ok(), "a key id that names none of the keys still tries each one: {result:?}");
+    }
+
+    #[test]
     fn a_token_expires_after_a_minute() {
         let key = PrivateKey::generate();
         let keys = [key.public()];

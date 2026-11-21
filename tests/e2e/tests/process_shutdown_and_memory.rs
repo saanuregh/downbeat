@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use downbeat::InAppClient;
-use downbeat_e2e::process_rules::hungry_program;
+use downbeat_e2e::process_rules::{hungry_program, starts_a_mapped_link};
 use downbeat_e2e::*;
 use sqlx::PgPool;
 use support::{App, Database, SOON, eventually, finished, finished_job, with_api_in};
@@ -45,6 +45,21 @@ async fn a_function_runs_in_a_child_of_the_worker() {
     assert_ne!(pid, app.pid(), "the function did not run in the worker");
     // The child is kept for the next run, so it is still alive.
     assert_eq!(parent_of(pid), Some(app.pid()), "the function ran in the worker's child");
+}
+
+// 10.1: a link's adapter is product code too, so it runs in a child, not in the worker.
+#[tokio::test]
+async fn a_link_adapter_runs_in_a_child_of_the_worker() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let app = App::with(&database, &["worker", "--queues", "default=1"], "test");
+
+    client.start(starts_a_mapped_link, Number { n: 0 }).await.unwrap();
+    let kept = finished_job(&database.pool, "keeps_its_number", SOON).await;
+    assert_eq!(kept.status, "succeeded", "{kept:?}");
+    let pid = u32::try_from(kept.output.unwrap()["n"].as_u64().unwrap()).unwrap();
+    assert_ne!(pid, app.pid(), "the adapter ran in the worker");
+    assert_eq!(parent_of(pid), Some(app.pid()), "the adapter ran in the worker's child");
 }
 
 // 10.6: memory is sampled every two seconds, so a program over its limit goes within a few.
