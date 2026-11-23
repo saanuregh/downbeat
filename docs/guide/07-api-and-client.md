@@ -178,6 +178,8 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
 - **Acting for someone else**: `client.acting_for("asha@example.com", Scope::Operate, None)`
   signs as that actor. Only a caller with `acts_for_people = true` may do this.
 - **Errors**: `Error::Api { status, code, message }` carries the scheduler's answer.
+  `Error::Connection` means the scheduler could not be reached or its answer could not be read;
+  the HTTP library's own error is the `source()` of its `ConnectionError`.
   `Error::is_transient()` says whether retrying could help. A 401 for an expired token adds
   "check this machine's clock".
 

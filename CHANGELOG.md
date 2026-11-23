@@ -18,6 +18,8 @@ major version ([decision 72](docs/decisions.md#72-the-public-api-can-grow-after-
   output types (`FinishedRun`, `Event`, `Started`, `Failure`, `Ended`, `Outcome`, `Day` and
   others), are `#[non_exhaustive]`: a match needs a `_` arm, and a request is built with
   `new(…)` and setters, such as `PauseRequest::new(note).until_resumed()`.
+- `downbeat_client::Error::Connection` holds a `ConnectionError` instead of a `reqwest::Error`;
+  the `reqwest::Error` is its `source()`.
 
 ### Jobs
 

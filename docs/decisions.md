@@ -557,3 +557,11 @@ a status or an error is a minor version, not a major one.
   default and set these fields" like a struct literal. The compiler no longer checks that the
   scheduler sets every field of an answer; the end-to-end tests read them. A product's tests can
   build an answer the same way.
+- **The client's errors do not name its HTTP library.** `Error::Connection` holds an opaque
+  `ConnectionError` whose `source()` is the `reqwest::Error`, so the client can move to another
+  `reqwest` major, or another library, without a major version of its own; `is_transient` reads
+  the same facts as before. The engine's `Error::Database` keeps `sqlx::Error`, so a caller can
+  still tell a connection failure from a failed statement. It is the only place `sqlx` shows in
+  the engine's supported API (`InAppClient` connects by URL, decision 9; only the hidden `measure`
+  module takes a `PgPool`), so moving to another `sqlx` major is a breaking change of
+  `downbeat::Error`.

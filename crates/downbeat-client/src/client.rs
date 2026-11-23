@@ -76,7 +76,7 @@ impl Builder {
 
     /// Trust this certificate authority (PEM) instead of the system's.
     pub fn certificate_authority(mut self, pem: &[u8]) -> Result<Self, Error> {
-        self.ca = Some(reqwest::Certificate::from_pem(pem)?);
+        self.ca = Some(reqwest::Certificate::from_pem(pem).map_err(Error::connection)?);
         Ok(self)
     }
 
@@ -136,7 +136,15 @@ impl Builder {
         if let Some(ca) = self.ca {
             http = http.tls_certs_only([ca]);
         }
-        let client = Client { http: http.build()?, base, caller, audience, key, scope: self.scope, jobs: self.jobs };
+        let client = Client {
+            http: http.build().map_err(Error::connection)?,
+            base,
+            caller,
+            audience,
+            key,
+            scope: self.scope,
+            jobs: self.jobs,
+        };
         let version: Version = client.unsigned_get("/version").await?;
         let supported = vec![API_VERSION.saturating_sub(1), API_VERSION];
         if !supported.contains(&version.api) {
@@ -185,7 +193,7 @@ impl Client {
 
     async fn unsigned_get<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
         let url = self.base.join(path).map_err(|error| Error::Setup(error.to_string()))?;
-        decode(self.http.get(url).send().await?).await
+        decode(self.http.get(url).send().await.map_err(Error::connection)?).await
     }
 
     /// Start a job by name, with any input that serialises to what the job takes. Send it with
@@ -341,7 +349,7 @@ impl<'a> ActingClient<'a> {
         if let Some(key) = idempotency_key {
             request = request.header(IDEMPOTENCY_HEADER, key);
         }
-        Ok(request.send().await?)
+        request.send().await.map_err(Error::connection)
     }
 
     /// A signed GET of `path_and_query`, decoded as `T`.
@@ -515,9 +523,9 @@ pub(crate) fn path(segments: &[&str]) -> String {
 async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, Error> {
     let status = response.status();
     if status.is_success() {
-        return Ok(response.json().await?);
+        return response.json().await.map_err(Error::connection);
     }
-    let body = response.bytes().await?;
+    let body = response.bytes().await.map_err(Error::connection)?;
     let error: ApiError = serde_json::from_slice(&body).unwrap_or_else(|_| {
         with_defaults!(ApiError { error: "unknown".into(), message: undecoded_message(status, &body) })
     });
