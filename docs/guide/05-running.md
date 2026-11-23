@@ -193,6 +193,79 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+The same split with Docker Compose: one scheduler and two workers from the same `market` image,
+one worker for the `default` queue and one sized for the `heavy` queue. Postgres is included so
+the file runs on its own; in production, drop it and point `DOWNBEAT_DATABASE_URL` at your
+database.
+
+```yaml
+# compose.yaml
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: market
+      POSTGRES_PASSWORD: market
+    volumes: [postgres:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "market"]
+      interval: 2s
+
+  scheduler:
+    image: market:latest
+    command: ["scheduler", "--listen", "0.0.0.0:7400", "--callers", "/etc/market/callers.toml"]
+    environment: &downbeat
+      DOWNBEAT_DATABASE_URL: postgres://market:market@postgres/market
+      DOWNBEAT_ENVIRONMENT: production
+    volumes: ["./callers.toml:/etc/market/callers.toml:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: always
+
+  worker:
+    image: market:latest
+    command: ["worker", "--queues", "default=8"]
+    environment: *downbeat
+    # Reaps the processes that command jobs leave behind.
+    init: true
+    # Compose sends SIGTERM to the worker only; it drains and stops its runs itself. The grace
+    # period must exceed the definition's `stop_within` (30 s).
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "market", "health"]
+      interval: 30s
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: always
+
+  worker-heavy:
+    image: market:latest
+    command: ["worker", "--queues", "heavy=1"]
+    environment: *downbeat
+    init: true
+    stop_grace_period: 40s
+    # One slot, so this limit is the job's own memory and CPU.
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "market", "health"]
+      interval: 30s
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: always
+
+volumes:
+  postgres:
+```
+
+- Every service runs the same binary; only the command picks the role. Each role migrates the
+  schema when it starts, so the order they start in does not matter.
+- Add workers with `docker compose up --scale worker=3`; they share the queue's runs. Run a
+  second scheduler the same way when you want one to survive the other's restart.
+- The scheduler's port is not published: keep the control API on a private network, behind a
+  proxy that terminates TLS ([chapter 7](07-api-and-client.md)). The console runs beside it as
+  in [chapter 6](06-console.md); it reaches a scheduler only over HTTPS.
+
 On Kubernetes, the same two rules apply: set `terminationGracePeriodSeconds` above `stop_within`,
 and give workers an exec liveness probe running `market health`. Point the scheduler's readiness
 probe at `GET /readyz` and its liveness probe at `GET /healthz`.
