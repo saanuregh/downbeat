@@ -17,7 +17,8 @@ major version ([decision 72](docs/decisions.md#72-the-public-api-can-grow-after-
 - Request, answer and error types in `downbeat-api` and `downbeat-client`, and the engine's
   output types (`FinishedRun`, `Event`, `Started`, `Failure`, `Ended`, `Outcome`, `Day` and
   others), are `#[non_exhaustive]`: a match needs a `_` arm, and a request is built with
-  `new(…)` and setters, such as `PauseRequest::new(note).until_resumed()`.
+  `new(…)` and setters, such as `PauseRequest::new(note).until_resumed()`. A product's tests build a
+  `Failure` or a `FinishedRun` with `Failure::for_test` and `FinishedRun::for_test`.
 - `downbeat_client::Error::Connection` holds a `ConnectionError` instead of a `reqwest::Error`;
   the `reqwest::Error` is its `source()`.
 - `downbeat::Error::Database` holds a `DatabaseError` instead of a `sqlx::Error`; the

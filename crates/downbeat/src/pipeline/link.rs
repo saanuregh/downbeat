@@ -130,6 +130,14 @@ pub struct Failure {
     pub reason: String,
 }
 
+impl Failure {
+    /// A failure for testing an `.after_failure(…)` child, with a nil run id, as
+    /// [`Run::for_test`](crate::Run::for_test) is a run for testing a job.
+    pub fn for_test(job: impl Into<String>, kind: impl Into<String>, reason: impl Into<String>) -> Self {
+        Failure { job: job.into(), run_id: Uuid::nil(), kind: kind.into(), reason: reason.into() }
+    }
+}
+
 impl JobData for Failure {
     fn shape() -> Shape {
         Shape::named("Failure")

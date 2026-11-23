@@ -253,6 +253,9 @@ async fn skips_when_nothing_is_published() {
   dry run.
 - `run.started_jobs()` lists what the function started with `run.start`, as job name and input.
   `run.reported()` lists its progress lines and checkpoints, in order.
+- `Failure::for_test(job, kind, reason)` is the input an `.after_failure(…)` child receives, and
+  `FinishedRun::for_test(job, status)` is what an `on_finish` callback receives; set any other
+  field on the value. Both have nil ids, as `Run::for_test()` does.
 - For a command, `.test(input)` returns the `ProgramSpec` it would start, with `program`, `args`
   and `env`, so a test can check the arguments.
 - `downbeat::check_problems(definition())` returns what `check` would report. An empty list means

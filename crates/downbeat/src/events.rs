@@ -35,6 +35,27 @@ pub struct FinishedRun {
 }
 
 impl FinishedRun {
+    /// A finished run for testing an `on_finish` callback, as [`Run::for_test`](crate::Run::for_test)
+    /// is a run for testing a job: nil ids, started by `test`, no failures, finished now, and
+    /// every optional field empty. Set any other field on the value it returns.
+    pub fn for_test(job: impl Into<String>, status: impl Into<String>) -> Self {
+        FinishedRun {
+            run_id: Uuid::nil(),
+            job: job.into(),
+            chain_id: Uuid::nil(),
+            status: status.into(),
+            skipped_because: None,
+            failed_because: None,
+            reason: String::new(),
+            started_by: "test".to_owned(),
+            actor: None,
+            failures: 0,
+            output: None,
+            finished_at: Utc::now(),
+            log_link: None,
+        }
+    }
+
     /// Whether the run's status is `failed`.
     pub fn failed(&self) -> bool {
         self.status == "failed"

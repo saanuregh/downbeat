@@ -141,6 +141,22 @@ async fn a_job_function_can_be_called_directly() {
     assert_eq!(run.reported(), vec!["progress: downloading".to_owned()]);
 }
 
+#[tokio::test]
+async fn a_failure_child_can_be_called_with_a_made_up_failure() {
+    let failure = Failure::for_test("bhav_archive", "timeout", "took longer than 10m");
+    assert_eq!((failure.job.as_str(), failure.kind.as_str()), ("bhav_archive", "timeout"));
+    assert_eq!(page_oncall.test(Run::for_test(), failure).await, Outcome::Succeeded(()));
+}
+
+#[test]
+fn a_finished_run_can_be_made_up_for_a_callback_test() {
+    let mut run = downbeat::FinishedRun::for_test("bhav_archive", "failed");
+    run.failed_because = Some("timeout".into());
+    assert!(run.failed());
+    assert_eq!(run.job, "bhav_archive");
+    assert!(!downbeat::FinishedRun::for_test("bhav_archive", "succeeded").failed());
+}
+
 #[test]
 fn policies_come_from_the_attribute() {
     let spec = <bhav_candles as Job>::spec();

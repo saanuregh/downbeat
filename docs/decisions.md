@@ -548,6 +548,8 @@ a status or an error is a minor version, not a major one.
   `Day::Off(…)` and `retry_on = [Error, Timeout]`; only its matches need a `_` arm. `Scope` is
   included because a narrower or a split scope is a plausible addition and a caller rarely matches
   on it. Configuration a product builds (`Policy`, `Settings`, `QueueTimings`) is left open.
+  A product's tests still make the two values it receives: `Failure::for_test` and
+  `FinishedRun::for_test`, like `Run::for_test`, build them with nil ids.
 - **Requests are built with `new(…)` and setters.** `new` takes the required fields; each
   optional field has a chainable setter, as the client's `Start` builder already had. A boolean
   option's setter takes no argument and turns it on.
