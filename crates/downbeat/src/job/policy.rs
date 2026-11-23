@@ -154,6 +154,7 @@ impl From<RangeInclusive<Duration>> for Backoff {
 
 /// A kind of failure that may deserve another attempt. A panic never does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RetryOn {
     /// The function returned an error (or a command exited with a failure status).
     Error,
@@ -201,6 +202,7 @@ impl RetryOnSet {
 
 /// What a run takes turns on, so two runs never execute at once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Turn {
     /// The default: runs for the same work (same input) take turns.
     SameWork,

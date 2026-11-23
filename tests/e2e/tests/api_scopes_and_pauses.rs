@@ -57,17 +57,10 @@ async fn an_operate_token_is_refused_resumes_override_removal_and_backfill_cance
         let _: Value = admin.post(path, &pause).await;
     }
     let day = chrono::NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
-    let off = OverrideRequest {
-        schedules: vec!["report".into()],
-        date: day,
-        change: "off".into(),
-        times: vec![],
-        note: "holiday".into(),
-    };
+    let off = OverrideRequest::new(["report"], day, "off", "holiday");
     let _: Value = admin.post("/v1/overrides", &serde_json::to_value(off).unwrap()).await;
     let overrides: Vec<OverrideView> = admin.get("/v1/overrides").await;
-    let backfill =
-        BackfillRequest { job: "dated".into(), schedule: None, from: day, to: day, continue_on_failure: false };
+    let backfill = BackfillRequest::new("dated", day, day);
     let _: Value = admin.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
     let backfills: Vec<BackfillView> = admin.get("/v1/backfills").await;
     let before = changes(&database).await;

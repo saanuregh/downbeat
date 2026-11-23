@@ -170,6 +170,11 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
   `add_override`, `preview_override`, `overrides`, `start_backfill`, `backfills`, `schedules`,
   `queues`, `audit`, and generic `get`, `post` and `delete` for any other endpoint, such as
   `post("/v1/runs/{id}/retry", None::<&()>, None)`.
+- **Requests and answers can grow.** Build a request with `new(…)` from its required fields and a
+  setter for each optional one, such as `PauseRequest::new("bad upstream data").until(end)` or
+  `BackfillRequest::new("daily_report", from, to).continue_on_failure()`. Every request, answer
+  and error type is `#[non_exhaustive]`, so a match needs a `_` arm and a later version can add a
+  field or a variant without breaking your code.
 - **Acting for someone else**: `client.acting_for("asha@example.com", Scope::Operate, None)`
   signs as that actor. Only a caller with `acts_for_people = true` may do this.
 - **Errors**: `Error::Api { status, code, message }` carries the scheduler's answer.
@@ -191,6 +196,7 @@ let started = jobs
 match started {
     Started::New(run_id) => println!("started {run_id}"),
     Started::Joined(run_id) => println!("already queued as {run_id}"),
+    _ => println!("started {}", started.run_id()),
 }
 ```
 

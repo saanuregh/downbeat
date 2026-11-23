@@ -4,6 +4,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use downbeat_api::types::ApiError;
+use downbeat_api::with_defaults;
 
 #[derive(Debug)]
 pub(crate) struct Failure {
@@ -51,6 +52,7 @@ impl From<sqlx::Error> for Failure {
 
 impl IntoResponse for Failure {
     fn into_response(self) -> Response {
-        (self.status, Json(ApiError { error: self.code.to_owned(), message: self.message })).into_response()
+        (self.status, Json(with_defaults!(ApiError { error: self.code.to_owned(), message: self.message })))
+            .into_response()
     }
 }

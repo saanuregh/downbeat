@@ -69,6 +69,7 @@ pub(crate) struct StartRequest {
 /// What starting a job did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(tag = "result", content = "run_id", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Started {
     /// A new run was created.
     New(Uuid),

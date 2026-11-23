@@ -41,6 +41,7 @@ impl<I> std::fmt::Debug for Schedule<I> {
 
 /// One moment a schedule fires.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Occurrence {
     pub(crate) at: DateTime<Utc>,
     pub(crate) local: NaiveDateTime,
@@ -67,6 +68,7 @@ impl Occurrence {
 
 /// What a day rule says about one date.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Day {
     /// The schedule's normal times.
     Normal,

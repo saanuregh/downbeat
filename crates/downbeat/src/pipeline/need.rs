@@ -11,6 +11,7 @@ use crate::job::{Job, JobData, decode, identity_hash};
 
 /// What a run does when a need is not met.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WhenUnmet {
     /// The default: the run ends as skipped.
     Skip,

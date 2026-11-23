@@ -59,6 +59,7 @@ pub fn not_ready<T>(reason: impl Into<String>) -> JobResult<T> {
 
 /// What a call of a job function produced, as seen by a test.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Outcome<T> {
     Succeeded(T),
     Skipped(String),

@@ -8,6 +8,7 @@ use axum::extract::{Extension, Query, State as Extract};
 use chrono::{DateTime, Utc};
 use downbeat_api::Scope;
 use downbeat_api::types::{AuditEntry, BackfillView, Page, QueueView, WorkerView};
+use downbeat_api::with_defaults;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -77,15 +78,17 @@ pub(crate) async fn queues(
         let serving = workers
             .iter()
             .filter_map(|(id, queues, build, seen)| {
-                queues.get(&name).and_then(serde_json::Value::as_i64).map(|slots| WorkerView {
-                    worker_id: id.clone(),
-                    slots,
-                    build: build.clone(),
-                    last_seen_at: *seen,
+                queues.get(&name).and_then(serde_json::Value::as_i64).map(|slots| {
+                    with_defaults!(WorkerView {
+                        worker_id: id.clone(),
+                        slots,
+                        build: build.clone(),
+                        last_seen_at: *seen,
+                    })
                 })
             })
             .collect();
-        views.push(QueueView {
+        views.push(with_defaults!(QueueView {
             paused: views::pause_of(&state.pool, "queue", &name).await?,
             name,
             queued: count,
@@ -93,7 +96,7 @@ pub(crate) async fn queues(
             queued_because: because,
             longest_wait_seconds: longest,
             workers: serving,
-        });
+        }));
     }
     Ok(Json(views))
 }
@@ -114,7 +117,7 @@ pub(crate) async fn backfills(
 }
 
 pub(crate) fn backfill_view(row: BackfillRow) -> BackfillView {
-    BackfillView {
+    with_defaults!(BackfillView {
         backfill_id: row.backfill_id,
         job: row.job_name,
         schedule: row.schedule,
@@ -126,7 +129,7 @@ pub(crate) fn backfill_view(row: BackfillRow) -> BackfillView {
         continue_on_failure: row.continue_on_failure,
         created_by: row.created_by,
         created_at: row.created_at,
-    }
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,17 +160,19 @@ pub(crate) async fn audit(
     let items: Vec<AuditEntry> = rows
         .into_iter()
         .take(usize::try_from(limit).unwrap_or(0))
-        .map(|row| AuditEntry {
-            audit_id: row.audit_id,
-            at: row.at,
-            actor: row.actor,
-            action: row.action,
-            job: row.job_name,
-            run_id: row.run_id,
-            schedule: row.schedule,
-            detail: row.detail,
+        .map(|row| {
+            with_defaults!(AuditEntry {
+                audit_id: row.audit_id,
+                at: row.at,
+                actor: row.actor,
+                action: row.action,
+                job: row.job_name,
+                run_id: row.run_id,
+                schedule: row.schedule,
+                detail: row.detail,
+            })
         })
         .collect();
     let next_cursor = more.then(|| items.last().map(|entry| entry.audit_id.to_string())).flatten();
-    Ok(Json(Page { items, next_cursor }))
+    Ok(Json(with_defaults!(Page { items, next_cursor })))
 }

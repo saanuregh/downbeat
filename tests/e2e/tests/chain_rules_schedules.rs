@@ -53,8 +53,8 @@ async fn a_shifted_day_moves_the_window_and_an_every_run_expires_after_one_inter
 }
 
 async fn start_backfill(client: &Client, job: &str, from: &str, to: &str, continue_on_failure: bool) -> i64 {
-    let request =
-        BackfillRequest { job: job.into(), schedule: None, from: date(from), to: date(to), continue_on_failure };
+    let request = BackfillRequest::new(job, date(from), date(to));
+    let request = if continue_on_failure { request.continue_on_failure() } else { request };
     client.as_caller().start_backfill(&request).await.unwrap().id.expect("a backfill names its id")
 }
 

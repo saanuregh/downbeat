@@ -44,7 +44,7 @@ has one link. A second `.after` does not compile.
 | --- | --- | --- |
 | `.after(parent)` | Succeeded | The parent's output |
 | `.after_failure(parent)` | Failed for good, with its attempts used up | `Failure { job, run_id, kind, reason }` |
-| `.after_any(parent)` | Ended in any way: succeeded, skipped, failed, cancelled, expired | `Ended<T>`: `Succeeded(T)`, `Skipped(reason)`, `Failed(Failure)`, `Cancelled(reason)`, `Expired(reason)` |
+| `.after_any(parent)` | Ended in any way: succeeded, skipped, failed, cancelled, expired | `Ended<T>`: `Succeeded(T)`, `Skipped(reason)`, `Failed(Failure)`, `Cancelled(reason)`, `Expired(reason)`; a match on it needs a `_` arm |
 
 `kind` in `Failure` is the parent's `failed_because`, such as `error`, `timeout` or `crash`.
 

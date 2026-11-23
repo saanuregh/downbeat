@@ -7,6 +7,7 @@ use axum::extract::{Extension, Path, Query, State as Extract};
 use chrono::{DateTime, Utc};
 use downbeat_api::Scope;
 use downbeat_api::types::{Page, RunView};
+use downbeat_api::with_defaults;
 use serde::Deserialize;
 use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
@@ -148,7 +149,7 @@ pub(crate) async fn runs(
             next = last.finished_at.map(|at| Cursor::Finished(at, last.run_id).text());
         }
     }
-    Ok(Json(Page { items, next_cursor: next }))
+    Ok(Json(with_defaults!(Page { items, next_cursor: next })))
 }
 
 /// The jobs a list may show: those the token covers, narrowed by `job` and `pipeline`.
@@ -213,8 +214,9 @@ pub(crate) async fn run(
         caller.require_job(&row.job_name)?;
         let detail = views::detail(&state.pool, id, row.parents.clone(), &row.call_log, None, None).await?;
         let views = views::unfinished(&state.pool, &state.registry, vec![row]).await?;
-        let view = views.into_iter().next().expect("one view for one row");
-        return Ok(Json(RunView { detail: Some(detail), ..view }));
+        let mut view = views.into_iter().next().expect("one view for one row");
+        view.detail = Some(detail);
+        return Ok(Json(view));
     }
     let row: HistoryRow = sqlx::query_as("SELECT * FROM downbeat.run_history WHERE run_id = $1")
         .bind(id)

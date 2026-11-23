@@ -97,6 +97,7 @@ pub async fn tells_how_empty_ended(_run: Run, ended: Ended<Text>) -> JobResult<T
         Ended::Skipped(reason) => format!("skipped: {reason}"),
         Ended::Failed(failure) => format!("failed: {}", failure.reason),
         Ended::Cancelled(reason) | Ended::Expired(reason) => format!("ended: {reason}"),
+        _ => "ended in a way this job does not know".to_owned(),
     };
     Ok(Text { text })
 }

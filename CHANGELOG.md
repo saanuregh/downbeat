@@ -9,6 +9,16 @@ database schema or the control API.
 
 The first version.
 
+### Breaking
+
+Changes to the API of the pre-release crates, made so later versions can add to it without a
+major version ([decision 72](docs/decisions.md#72-the-public-api-can-grow-after-01)):
+
+- Request, answer and error types in `downbeat-api` and `downbeat-client`, and the engine's
+  output types (`FinishedRun`, `Event`, `Started`, `Failure`, `Ended`, `Outcome`, `Day` and
+  others), are `#[non_exhaustive]`: a match needs a `_` arm, and a request is built with
+  `new(…)` and setters, such as `PauseRequest::new(note).until_resumed()`.
+
 ### Jobs
 
 - `#[job(…)]` turns a typed async function into a job handle; `#[command(…)]` describes a program

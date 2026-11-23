@@ -11,13 +11,7 @@ use downbeat_client::types::{BackfillRequest, Done, OverrideRequest};
 use support::{Database, SOON, eventually, with_api_in};
 
 fn request(schedule: &str, date: NaiveDate, change: &str, times: &[&str]) -> OverrideRequest {
-    OverrideRequest {
-        schedules: vec![schedule.into()],
-        date,
-        change: change.into(),
-        times: times.iter().map(|time| (*time).to_owned()).collect(),
-        note: "a test".into(),
-    }
+    OverrideRequest::new([schedule], date, change, "a test").times(times.iter().copied())
 }
 
 fn date(text: &str) -> NaiveDate {
@@ -62,7 +56,7 @@ async fn an_override_is_refused_when_its_change_does_not_fit_the_schedule() {
         request("missed_window", day, "window", &["10:00", "11:00", "12:00"]),
         request("never_fires", day, "window", &["10:00", "11:00"]),
         request("all_day_every", day, "window", &["10:00", "11:00"]),
-        OverrideRequest { note: " ".into(), ..request("never_fires", day, "off", &[]) },
+        OverrideRequest::new(["never_fires"], day, "off", " "),
     ];
     for refused in &refused {
         assert!(admin.add_override(refused).await.is_err(), "{refused:?}");
@@ -150,12 +144,9 @@ async fn a_backfill_fails_at_a_failed_date_unless_it_continues_on_failure() {
     let (_app, client, _) = with_api_in(&database, "rules").await;
     let pool = &database.pool;
     // The schedule fires on the 31st only: 2030-01-31 and 2030-03-31 in this range.
-    let backfill = |continue_on_failure| BackfillRequest {
-        job: "fails_on_its_day".into(),
-        schedule: None,
-        from: date("2030-01-31"),
-        to: date("2030-03-31"),
-        continue_on_failure,
+    let backfill = |continue_on_failure| {
+        let request = BackfillRequest::new("fails_on_its_day", date("2030-01-31"), date("2030-03-31"));
+        if continue_on_failure { request.continue_on_failure() } else { request }
     };
     client.as_caller().start_backfill(&backfill(false)).await.unwrap();
     eventually(pool, "SELECT EXISTS (SELECT 1 FROM downbeat.backfill WHERE state = 'failed')", SOON).await;

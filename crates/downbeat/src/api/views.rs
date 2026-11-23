@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use downbeat_api::types::{CallView, PauseView, RunDetail, RunSummary, RunView};
+use downbeat_api::with_defaults;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -19,7 +20,7 @@ pub(crate) fn finished(registry: &Registry, row: HistoryRow, detail: Option<RunD
     // Failures count failed calls; a run that ended any other way was on the attempt after them. A
     // run marked as succeeded failed first, so its failures already count its last call.
     let attempt = i32::from(row.failures) + i32::from(row.status != "failed" && row.marked_by.is_none());
-    RunView {
+    with_defaults!(RunView {
         pipeline: registry.job(&row.job_name).map(|job| job.pipeline.clone()),
         log_link: registry.log_link_for(row.run_id),
         run_id: row.run_id,
@@ -55,7 +56,7 @@ pub(crate) fn finished(registry: &Registry, row: HistoryRow, detail: Option<RunD
         marked_at: row.marked_at,
         note: row.note,
         detail,
-    }
+    })
 }
 
 /// Queued or running runs, in the order given, with the reason worked out now for states that are
@@ -79,7 +80,7 @@ pub(crate) async fn unfinished(pool: &PgPool, registry: &Registry, rows: Vec<Run
         };
         let job = registry.job(&row.job_name);
         let expected = durations.get(&row.job_name);
-        views.push(RunView {
+        views.push(with_defaults!(RunView {
             pipeline: job.map(|job| job.pipeline.clone()),
             log_link: registry.log_link_for(row.run_id),
             attempts: job.map_or(1, |job| i32::from(job.spec.policy.attempts)),
@@ -115,7 +116,7 @@ pub(crate) async fn unfinished(pool: &PgPool, registry: &Registry, rows: Vec<Run
             marked_at: None,
             note: None,
             detail: None,
-        });
+        }));
     }
     Ok(views)
 }
@@ -259,7 +260,12 @@ async fn active_pauses(
     .await?;
     Ok(rows
         .into_iter()
-        .map(|row| ((row.kind, row.name), PauseView { by: row.by, note: row.note, until: row.until, since: row.since }))
+        .map(|row| {
+            (
+                (row.kind, row.name),
+                with_defaults!(PauseView { by: row.by, note: row.note, until: row.until, since: row.since }),
+            )
+        })
         .collect())
 }
 
@@ -279,11 +285,22 @@ pub(crate) async fn detail(
     .fetch_all(pool)
     .await?;
     let call_log: Vec<CallView> = serde_json::from_value(call_log.clone()).unwrap_or_default();
-    Ok(RunDetail { error_chain: error_chain.unwrap_or_default(), stderr_tail, call_log, parents, children })
+    Ok(with_defaults!(RunDetail {
+        error_chain: error_chain.unwrap_or_default(),
+        stderr_tail,
+        call_log,
+        parents,
+        children
+    }))
 }
 
 pub(crate) fn summary(row: &HistoryRow) -> RunSummary {
-    RunSummary { run_id: row.run_id, status: row.status.clone(), reason: row.reason.clone(), at: row.finished_at }
+    with_defaults!(RunSummary {
+        run_id: row.run_id,
+        status: row.status.clone(),
+        reason: row.reason.clone(),
+        at: row.finished_at
+    })
 }
 
 fn since(at: DateTime<Utc>) -> String {

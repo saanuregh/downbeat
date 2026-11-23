@@ -7,6 +7,7 @@ use axum::extract::{Extension, Query, State as Extract};
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use downbeat_api::Scope;
 use downbeat_api::types::{DayReport, FailedRun, JobReport, Report};
+use downbeat_api::with_defaults;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -125,28 +126,32 @@ pub(crate) async fn report(
     names.sort_by_key(|name| std::cmp::Reverse(failed_on(name)));
     let jobs = names
         .iter()
-        .map(|job| JobReport {
-            job: job.clone(),
-            days: dates.iter().map(|date| day_report(*date, by_day.get(&(job.as_str(), *date)).copied())).collect(),
+        .map(|job| {
+            with_defaults!(JobReport {
+                job: job.clone(),
+                days: dates.iter().map(|date| day_report(*date, by_day.get(&(job.as_str(), *date)).copied())).collect(),
+            })
         })
         .collect();
     let failed_yesterday = failed
         .into_iter()
-        .map(|row| FailedRun {
-            log_link: state.registry.log_link_for(row.run_id),
-            run_id: row.run_id,
-            job: row.job_name,
-            failed_because: row.failed_because,
-            reason: row.reason,
-            finished_at: row.finished_at,
+        .map(|row| {
+            with_defaults!(FailedRun {
+                log_link: state.registry.log_link_for(row.run_id),
+                run_id: row.run_id,
+                job: row.job_name,
+                failed_because: row.failed_because,
+                reason: row.reason,
+                finished_at: row.finished_at,
+            })
         })
         .collect();
-    Ok(Json(Report { zone: zone.to_owned(), days: dates, jobs, failed_yesterday }))
+    Ok(Json(with_defaults!(Report { zone: zone.to_owned(), days: dates, jobs, failed_yesterday })))
 }
 
 fn day_report(date: NaiveDate, row: Option<&DayRow>) -> DayReport {
     let Some(row) = row else {
-        return DayReport {
+        return with_defaults!(DayReport {
             date,
             succeeded: 0,
             failed: 0,
@@ -157,12 +162,12 @@ fn day_report(date: NaiveDate, row: Option<&DayRow>) -> DayReport {
             median_seconds: None,
             p90_seconds: None,
             longest_seconds: None,
-        };
+        });
     };
     let decided = row.succeeded + row.failed;
     #[expect(clippy::cast_precision_loss, reason = "a day's run counts are far below 2^52")]
     let failure_rate = (decided > 0).then(|| row.failed as f64 / decided as f64);
-    DayReport {
+    with_defaults!(DayReport {
         date,
         succeeded: row.succeeded,
         failed: row.failed,
@@ -173,5 +178,5 @@ fn day_report(date: NaiveDate, row: Option<&DayRow>) -> DayReport {
         median_seconds: row.median_seconds,
         p90_seconds: row.p90_seconds,
         longest_seconds: row.longest_seconds,
-    }
+    })
 }

@@ -264,11 +264,7 @@ async fn a_list_says_why_each_unfinished_run_waits_and_agrees_with_the_single_ru
 
     client
         .as_caller()
-        .pause_everything(&downbeat_client::types::PauseRequest {
-            note: "all stop".into(),
-            until: None,
-            until_resumed: true,
-        })
+        .pause_everything(&downbeat_client::types::PauseRequest::new("all stop").until_resumed())
         .await
         .unwrap();
     let everything = "Held: paused by local until resumed (all stop).";

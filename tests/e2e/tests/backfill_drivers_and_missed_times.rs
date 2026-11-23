@@ -82,8 +82,7 @@ async fn missed_occurrences_under_ten_seconds_old_are_not_reported_dropped() {
 }
 
 async fn start_backfill(client: &downbeat_client::Client, job: &str, from: &str, to: &str) -> i64 {
-    let request =
-        BackfillRequest { job: job.into(), schedule: None, from: date(from), to: date(to), continue_on_failure: false };
+    let request = BackfillRequest::new(job, date(from), date(to));
     client.as_caller().start_backfill(&request).await.unwrap().id.expect("a backfill names its id")
 }
 

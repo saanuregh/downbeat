@@ -7,6 +7,7 @@ use downbeat_api::types::{
     OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, Report, RunView, ScheduleView,
     StartRequest, Version,
 };
+use downbeat_api::with_defaults;
 use downbeat_api::{
     API_VERSION, Claims, DEVELOPMENT_AUDIENCE, IDEMPOTENCY_HEADER, JobName, PrivateKey, RequestBinding, Scope,
     development_key, sign,
@@ -299,7 +300,7 @@ impl<'a> ActingClient<'a> {
     /// Start a job, as this actor.
     pub fn start<I: Serialize>(&self, job: &str, input: &I) -> Start<'a> {
         let request = serde_json::to_value(input)
-            .map(|input| StartRequest { input, ..StartRequest::default() })
+            .map(StartRequest::new)
             .map_err(|error| Error::Setup(format!("the input for {job} does not serialise to JSON: {error}")));
         Start { client: self.clone(), job: job.to_owned(), request, key: None }
     }
@@ -517,8 +518,9 @@ async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, E
         return Ok(response.json().await?);
     }
     let body = response.bytes().await?;
-    let error: ApiError = serde_json::from_slice(&body)
-        .unwrap_or_else(|_| ApiError { error: "unknown".into(), message: undecoded_message(status, &body) });
+    let error: ApiError = serde_json::from_slice(&body).unwrap_or_else(|_| {
+        with_defaults!(ApiError { error: "unknown".into(), message: undecoded_message(status, &body) })
+    });
     if status == StatusCode::UNAUTHORIZED && error.message.contains("expired") {
         return Err(Error::Api {
             status: status.as_u16(),

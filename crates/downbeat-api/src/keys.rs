@@ -15,6 +15,7 @@ pub struct PublicKey(VerifyingKey);
 
 /// Why a key could not be read.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum KeyError {
     #[error("the private key is not an Ed25519 key in PKCS#8 PEM: {0}")]
     BadPrivate(String),

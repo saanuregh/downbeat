@@ -10,7 +10,7 @@ use support::{Database, SOON, Signer, finished, finished_job, with_api, with_api
 
 /// Pauses a job until it is resumed, so the runs started after stay queued.
 async fn hold(client: &Client, job: &str) {
-    let pause = PauseRequest { note: "held by the test".into(), until: None, until_resumed: true };
+    let pause = PauseRequest::new("held by the test").until_resumed();
     client.as_caller().pause("job", job, &pause).await.unwrap();
 }
 
@@ -71,7 +71,7 @@ async fn starting_queued_work_again_joins_it_and_raises_its_priority() {
     let first: StartResponse = first.json().await.unwrap();
     let before = client.run(first.run_id).await.unwrap().priority;
 
-    let urgent = StartRequest { input, priority: Some(before + 10), ..StartRequest::default() };
+    let urgent = StartRequest::new(input).priority(before + 10);
     let again = Signer::local(&base).send("POST", "/v1/jobs/echo/runs", &serde_json::to_vec(&urgent).unwrap()).await;
     assert_eq!(again.status(), 200);
     let again: StartResponse = again.json().await.unwrap();
@@ -244,7 +244,7 @@ async fn an_after_any_child_follows_a_cancelled_parent_too() {
 async fn a_run_started_without_children_starts_none_when_it_ends() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
-    let alone = StartRequest { input: json!({ "text": "alone" }), without_children: true, ..StartRequest::default() };
+    let alone = StartRequest::new(json!({ "text": "alone" })).without_children();
     let alone: StartResponse = client.as_caller().post("/v1/jobs/echo/runs", Some(&alone), None).await.unwrap();
     assert_eq!(finished(&database.pool, alone.run_id, SOON).await.status, "succeeded");
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;

@@ -14,8 +14,7 @@ use uuid::Uuid;
 
 /// Starts a job with a `not_before` an hour from now.
 async fn start_later(client: &ActingClient<'_>, job: &str, input: serde_json::Value) -> Uuid {
-    let request =
-        StartRequest { input, not_before: Some(Utc::now() + chrono::TimeDelta::hours(1)), ..StartRequest::default() };
+    let request = StartRequest::new(input).not_before(Utc::now() + chrono::TimeDelta::hours(1));
     let started: StartResponse = client.post(&format!("/v1/jobs/{job}/runs"), Some(&request), None).await.unwrap();
     started.run_id
 }
@@ -29,7 +28,7 @@ async fn sql(database: &Database, statement: &'static str, run: Uuid) {
 }
 
 fn until_resumed() -> PauseRequest {
-    PauseRequest { note: "testing".into(), until: None, until_resumed: true }
+    PauseRequest::new("testing").until_resumed()
 }
 
 fn check_now_path(run: Uuid) -> String {
@@ -200,21 +199,9 @@ async fn every_preview_changes_nothing() {
         .await
         .unwrap();
     let day = NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
-    let off = |date| OverrideRequest {
-        schedules: vec!["report".into()],
-        date,
-        change: "off".into(),
-        times: vec![],
-        note: "holiday".into(),
-    };
+    let off = |date| OverrideRequest::new(["report"], date, "off", "holiday");
     let override_id = admin.add_override(&off(day)).await.unwrap().id.unwrap();
-    let backfill = BackfillRequest {
-        job: "dated".into(),
-        schedule: None,
-        from: day,
-        to: day.succ_opt().unwrap(),
-        continue_on_failure: false,
-    };
+    let backfill = BackfillRequest::new("dated", day, day.succ_opt().unwrap());
     let backfill_id = admin.start_backfill(&backfill).await.unwrap().id.unwrap();
     eventually(&database.pool, "SELECT EXISTS (SELECT 1 FROM downbeat.backfill WHERE current_chain IS NOT NULL)", SOON)
         .await;
@@ -249,8 +236,7 @@ async fn every_preview_changes_nothing() {
     post("/v1/pause".into(), pause.clone()).await;
     post("/v1/resume".into(), None).await;
     post("/v1/overrides".into(), Some(serde_json::to_value(off(day.succ_opt().unwrap())).unwrap())).await;
-    let backfill =
-        BackfillRequest { from: day + chrono::TimeDelta::days(7), to: day + chrono::TimeDelta::days(8), ..backfill };
+    let backfill = BackfillRequest::new("dated", day + chrono::TimeDelta::days(7), day + chrono::TimeDelta::days(8));
     post("/v1/backfills".into(), Some(serde_json::to_value(&backfill).unwrap())).await;
     post(format!("/v1/backfills/{backfill_id}/cancel"), None).await;
     let removal = admin.delete::<Preview>(&format!("/v1/overrides/{override_id}?preview=true")).await;
@@ -302,7 +288,7 @@ async fn audits_every_change(database: &Database, client: &ActingClient<'_>, act
     // A restart is recorded as the start it makes.
     audited("start").await;
     finished(&database.pool, restarted.run_id.unwrap(), SOON).await;
-    let note = MarkSucceededRequest { output: json!(null), note: "fixed by hand".into() };
+    let note = MarkSucceededRequest::new("fixed by hand");
     client.mark_succeeded(failed.run_id, &note).await.unwrap();
     audited("mark_succeeded").await;
 
@@ -342,13 +328,7 @@ async fn audits_every_change(database: &Database, client: &ActingClient<'_>, act
     client.resume_everything().await.unwrap();
     audited("resume_all").await;
 
-    let request = OverrideRequest {
-        schedules: vec!["report".into()],
-        date: NaiveDate::from_ymd_opt(2030, 1, 7).unwrap(),
-        change: "off".into(),
-        times: vec![],
-        note: "holiday".into(),
-    };
+    let request = OverrideRequest::new(["report"], NaiveDate::from_ymd_opt(2030, 1, 7).unwrap(), "off", "holiday");
     let added = client.add_override(&request).await.unwrap();
     audited("add_override").await;
     let _: Done = client.delete(&format!("/v1/overrides/{}", added.id.unwrap())).await.unwrap();
@@ -356,13 +336,11 @@ async fn audits_every_change(database: &Database, client: &ActingClient<'_>, act
 
     // Held, so the backfill is still running when it is cancelled.
     database.hold("dated").await;
-    let backfill = BackfillRequest {
-        job: "dated".into(),
-        schedule: None,
-        from: NaiveDate::from_ymd_opt(2030, 1, 7).unwrap(),
-        to: NaiveDate::from_ymd_opt(2030, 1, 8).unwrap(),
-        continue_on_failure: false,
-    };
+    let backfill = BackfillRequest::new(
+        "dated",
+        NaiveDate::from_ymd_opt(2030, 1, 7).unwrap(),
+        NaiveDate::from_ymd_opt(2030, 1, 8).unwrap(),
+    );
     let started = client.start_backfill(&backfill).await.unwrap();
     audited("start_backfill").await;
     let _: Done =

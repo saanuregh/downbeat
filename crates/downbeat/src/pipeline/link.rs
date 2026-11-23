@@ -16,6 +16,7 @@ use crate::job::{Job, JobData, Shape, decode};
 /// How a link's parent must have ended for the child to start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum LinkKind {
     /// `.after`: every parent succeeded.
     After,
@@ -120,6 +121,7 @@ tuple_map!(A, B, C, D);
 
 /// What an `.after_failure(…)` child receives: which run failed, how and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Failure {
     pub job: String,
     pub run_id: Uuid,
@@ -137,6 +139,7 @@ impl JobData for Failure {
 /// What an `.after_any(…)` child receives: how its parent ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "ended", content = "value", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Ended<T> {
     Succeeded(T),
     Skipped(String),

@@ -17,6 +17,7 @@ pub(crate) use start::start;
 use axum::Json;
 use axum::response::{IntoResponse, Response};
 use downbeat_api::types::{Done, Preview};
+use downbeat_api::with_defaults;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -37,12 +38,12 @@ type Acted = Result<Response, Failure>;
 
 #[allow(clippy::unnecessary_wraps)] // Each handler ends with one of these; returning `Acted` keeps them uniform.
 fn preview(effects: Vec<String>, false_conditions: Vec<String>) -> Acted {
-    Ok(Json(Preview { effects, false_conditions }).into_response())
+    Ok(Json(with_defaults!(Preview { effects, false_conditions })).into_response())
 }
 
 #[allow(clippy::unnecessary_wraps)]
 fn done(message: impl Into<String>, run_id: Option<Uuid>, id: Option<i64>) -> Acted {
-    Ok(Json(Done { message: message.into(), run_id, id }).into_response())
+    Ok(Json(with_defaults!(Done { message: message.into(), run_id, id })).into_response())
 }
 
 /// A service acting for itself is a program; anyone a caller vouches for is a person.

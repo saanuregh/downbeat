@@ -1,4 +1,8 @@
 //! What the control API's endpoints take and return.
+//!
+//! Every type is `#[non_exhaustive]`, so a later version can add a field without breaking a caller.
+//! A response can still be built, for a test or a fake scheduler, from `Default` by setting its
+//! fields; a request is built with its `new(…)` and setters.
 
 use std::collections::BTreeMap;
 
@@ -7,8 +11,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod requests;
+
+pub use requests::{BackfillRequest, MarkSucceededRequest, OverrideRequest, PauseRequest, StartRequest};
+
 /// One page of a list, and the cursor for the next.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Page<T> {
     pub items: Vec<T>,
     /// Pass as `cursor` for the next page; absent on the last.
@@ -16,22 +25,31 @@ pub struct Page<T> {
     pub next_cursor: Option<String>,
 }
 
+impl<T> Default for Page<T> {
+    fn default() -> Self {
+        Page { items: Vec::new(), next_cursor: None }
+    }
+}
+
 /// An error, with a sentence that says what to do.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ApiError {
     pub error: String,
     pub message: String,
 }
 
 /// The versions a scheduler speaks.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Version {
     pub api: u32,
     pub engine: String,
 }
 
 /// One run, queued, running or finished.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RunView {
     pub run_id: Uuid,
     pub job: String,
@@ -80,7 +98,8 @@ pub struct RunView {
 }
 
 /// What only the single-run view returns.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RunDetail {
     pub error_chain: Vec<String>,
     pub stderr_tail: Option<String>,
@@ -90,7 +109,8 @@ pub struct RunDetail {
 }
 
 /// One call of a run's function.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CallView {
     pub worker: String,
     pub build: String,
@@ -100,7 +120,8 @@ pub struct CallView {
 }
 
 /// A job: what it is, what starts it, how it runs, and how it has been doing.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct JobView {
     pub name: String,
     pub pipeline: String,
@@ -124,7 +145,8 @@ pub struct JobView {
 }
 
 /// A run in a few fields, for lists inside other views.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RunSummary {
     pub run_id: Uuid,
     pub status: String,
@@ -132,7 +154,8 @@ pub struct RunSummary {
     pub at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PauseView {
     pub by: String,
     pub note: String,
@@ -141,7 +164,8 @@ pub struct PauseView {
 }
 
 /// A pipeline: its jobs and links, and its recent chains.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PipelineView {
     pub name: String,
     pub jobs: Vec<PipelineNode>,
@@ -149,7 +173,8 @@ pub struct PipelineView {
     pub recent_chains: Vec<ChainSummary>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PipelineNode {
     pub job: String,
     /// `after`, `after_failure` or `after_any`, when the job is linked.
@@ -158,7 +183,8 @@ pub struct PipelineNode {
     pub schedules: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChainSummary {
     pub chain_id: Uuid,
     pub first_job: String,
@@ -169,7 +195,8 @@ pub struct ChainSummary {
 }
 
 /// One chain: every job it could reach, with its run, or why it did not run.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChainView {
     pub chain_id: Uuid,
     pub pipeline: String,
@@ -180,7 +207,8 @@ pub struct ChainView {
     pub nodes: Vec<ChainNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChainNode {
     pub job: String,
     pub parents: Vec<String>,
@@ -191,7 +219,8 @@ pub struct ChainNode {
 }
 
 /// A schedule: its times in words, its next occurrence, its pause.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScheduleView {
     pub name: String,
     pub job: String,
@@ -201,7 +230,8 @@ pub struct ScheduleView {
 }
 
 /// Every occurrence of every schedule on one date.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CalendarDay {
     pub date: NaiveDate,
     pub entries: Vec<CalendarEntry>,
@@ -209,7 +239,8 @@ pub struct CalendarDay {
     pub days_off: Vec<DayOff>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CalendarEntry {
     pub schedule: String,
     pub job: String,
@@ -222,14 +253,16 @@ pub struct CalendarEntry {
     pub run: Option<RunSummary>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DayOff {
     pub schedule: String,
     pub reason: String,
 }
 
 /// A queue: what is waiting and why, and who serves it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct QueueView {
     pub name: String,
     pub queued: i64,
@@ -240,7 +273,8 @@ pub struct QueueView {
     pub paused: Option<PauseView>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorkerView {
     pub worker_id: String,
     pub slots: i64,
@@ -248,7 +282,8 @@ pub struct WorkerView {
     pub last_seen_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BackfillView {
     pub backfill_id: i64,
     pub job: String,
@@ -264,7 +299,8 @@ pub struct BackfillView {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AuditEntry {
     pub audit_id: i64,
     pub at: DateTime<Utc>,
@@ -276,7 +312,8 @@ pub struct AuditEntry {
     pub detail: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OverrideView {
     pub override_id: i64,
     pub schedule: String,
@@ -287,32 +324,9 @@ pub struct OverrideView {
     pub created_by: String,
 }
 
-/// `POST /jobs/{name}/runs`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct StartRequest {
-    #[serde(default)]
-    pub input: Value,
-    #[serde(default)]
-    pub priority: Option<i16>,
-    #[serde(default)]
-    pub not_before: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default)]
-    pub without_children: bool,
-    #[serde(default)]
-    pub even_if_queued: bool,
-    #[serde(default)]
-    pub ignore_conditions: bool,
-    /// A timeout for this run only, in seconds; 0 for none. Needs `administer`.
-    #[serde(default)]
-    pub timeout_seconds: Option<u64>,
-}
-
 /// What a start did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct StartResponse {
     pub run_id: Uuid,
     pub status: String,
@@ -325,7 +339,8 @@ pub struct StartResponse {
 }
 
 /// What an action would do, from `?preview=true`. Nothing is changed.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Preview {
     /// One sentence per effect.
     pub effects: Vec<String>,
@@ -334,57 +349,9 @@ pub struct Preview {
     pub false_conditions: Vec<String>,
 }
 
-/// `POST …/pause`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PauseRequest {
-    pub note: String,
-    /// When the pause ends. Required unless `until_resumed`.
-    #[serde(default)]
-    pub until: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub until_resumed: bool,
-}
-
-/// `POST /runs/{id}/mark-succeeded`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MarkSucceededRequest {
-    #[serde(default)]
-    pub output: Value,
-    pub note: String,
-}
-
-/// `POST /overrides`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OverrideRequest {
-    pub schedules: Vec<String>,
-    pub date: NaiveDate,
-    /// `off`, `times` or `window`.
-    pub change: String,
-    /// For `times`: the day's times; for `window`: its start and end. `HH:MM`.
-    #[serde(default)]
-    pub times: Vec<String>,
-    pub note: String,
-}
-
-/// `POST /backfills`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BackfillRequest {
-    pub job: String,
-    /// Which of the job's schedules supplies the input; default the job's own.
-    #[serde(default)]
-    pub schedule: Option<String>,
-    pub from: NaiveDate,
-    pub to: NaiveDate,
-    #[serde(default)]
-    pub continue_on_failure: bool,
-}
-
 /// What a changing action did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Done {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -394,7 +361,8 @@ pub struct Done {
 }
 
 /// `/healthz` and `/readyz`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Health {
     pub ok: bool,
     pub api: u32,
@@ -402,7 +370,8 @@ pub struct Health {
 
 /// `GET /report`: each job's recent days, and yesterday's failures. Days are calendar days in the
 /// definition's zone.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Report {
     pub zone: String,
     /// Oldest first; the last is today, so far.
@@ -414,7 +383,8 @@ pub struct Report {
     pub failed_yesterday: Vec<FailedRun>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct JobReport {
     pub job: String,
     /// One per day of [`Report::days`], in the same order.
@@ -422,7 +392,8 @@ pub struct JobReport {
 }
 
 /// One job's runs that finished on one day. Dry runs and joined requests are not counted.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DayReport {
     pub date: NaiveDate,
     pub succeeded: i64,
@@ -439,7 +410,8 @@ pub struct DayReport {
     pub longest_seconds: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FailedRun {
     pub run_id: Uuid,
     pub job: String,

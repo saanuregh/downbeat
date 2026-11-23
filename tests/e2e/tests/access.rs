@@ -87,11 +87,11 @@ async fn a_caller_limited_to_some_jobs_sees_no_runs_of_other_jobs() {
     let database = Database::fresh().await;
     let (_app, admin, billing) = operator_and_billing(&database).await;
 
-    let pause = serde_json::to_value(PauseRequest { note: "hold".into(), until: None, until_resumed: true }).unwrap();
+    let pause = serde_json::to_value(PauseRequest::new("hold").until_resumed()).unwrap();
     for job in ["echo", "panics"] {
         let _: serde_json::Value = admin.post(&format!("/v1/jobs/{job}/pause"), &pause).await;
     }
-    let echo = serde_json::to_value(StartRequest { input: json!({ "text": "mine" }), ..StartRequest::default() });
+    let echo = serde_json::to_value(StartRequest::new(json!({ "text": "mine" })));
     let echo: StartResponse = admin.post("/v1/jobs/echo/runs", &echo.unwrap()).await;
     let other: StartResponse = admin.post("/v1/jobs/panics/runs", &json!({})).await;
 
@@ -141,7 +141,7 @@ async fn refused_requests_are_reported_at_most_once_a_minute() {
 async fn a_caller_limited_to_some_jobs_cannot_cancel_a_chain_that_reaches_others() {
     let database = Database::fresh().await;
     let (_app, admin, billing) = operator_and_billing(&database).await;
-    let pause = serde_json::to_value(PauseRequest { note: "hold".into(), until: None, until_resumed: true }).unwrap();
+    let pause = serde_json::to_value(PauseRequest::new("hold").until_resumed()).unwrap();
     let _: serde_json::Value = admin.post("/v1/jobs/shout/pause", &pause).await;
 
     let start = json!({ "input": { "text": "mine" } });
@@ -165,16 +165,9 @@ async fn a_caller_limited_to_some_jobs_sees_no_overrides_backfills_or_calendar_o
     let database = Database::fresh().await;
     let (_app, admin, billing) = operator_and_billing(&database).await;
     let day = chrono::NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
-    let off = OverrideRequest {
-        schedules: vec!["report".into()],
-        date: day,
-        change: "off".into(),
-        times: vec![],
-        note: "holiday".into(),
-    };
+    let off = OverrideRequest::new(["report"], day, "off", "holiday");
     let _: serde_json::Value = admin.post("/v1/overrides", &serde_json::to_value(off).unwrap()).await;
-    let backfill =
-        BackfillRequest { job: "dated".into(), schedule: None, from: day, to: day, continue_on_failure: false };
+    let backfill = BackfillRequest::new("dated", day, day);
     let _: serde_json::Value = admin.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
 
     let overrides: Vec<OverrideView> = admin.get("/v1/overrides").await;
@@ -213,11 +206,10 @@ async fn a_caller_limited_to_some_jobs_cannot_cancel_a_backfill_whose_chain_reac
     let scheduling = signer("scheduling", scheduling_key, Some(vec!["dated".into()]));
 
     // The backfill's date runs `dated`, then `files_dated`, which is held.
-    let pause = serde_json::to_value(PauseRequest { note: "hold".into(), until: None, until_resumed: true }).unwrap();
+    let pause = serde_json::to_value(PauseRequest::new("hold").until_resumed()).unwrap();
     let _: serde_json::Value = admin.post("/v1/jobs/files_dated/pause", &pause).await;
     let day = chrono::NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
-    let backfill =
-        BackfillRequest { job: "dated".into(), schedule: None, from: day, to: day, continue_on_failure: false };
+    let backfill = BackfillRequest::new("dated", day, day);
     let _: serde_json::Value = scheduling.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
     support::eventually(
         &database.pool,

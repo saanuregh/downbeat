@@ -24,6 +24,7 @@ pub const LEEWAY_SECONDS: i64 = 5;
 /// What a request may do. Each scope includes the ones before it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Scope {
     /// Every GET.
     Read,
@@ -148,6 +149,7 @@ pub fn sign(key: &PrivateKey, claims: &Claims) -> String {
 
 /// Why a token was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum TokenError {
     #[error("the token is not a compact JWS")]
     Malformed,

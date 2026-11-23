@@ -161,8 +161,7 @@ async fn a_backfill_starts_runs_as_backfill_and_never_joins_queued_work() {
     let day = NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
 
     let queued = client.start("dated", &day).send().await.unwrap();
-    let backfill =
-        BackfillRequest { job: "dated".into(), schedule: None, from: day, to: day, continue_on_failure: false };
+    let backfill = BackfillRequest::new("dated", day, day);
     client.as_caller().start_backfill(&backfill).await.unwrap();
     eventually(&database.pool, "SELECT count(*) = 2 FROM downbeat.run WHERE job_name = 'dated'", SOON).await;
 
@@ -236,7 +235,7 @@ async fn a_queued_run_says_whether_its_queue_is_paused_unserved_or_busy() {
     assert_eq!(view.queued_because.as_deref(), Some("no_free_worker"));
     assert!(view.reason.contains("no running worker serves queue nobody_serves"), "{}", view.reason);
 
-    let pause = PauseRequest { note: "testing".into(), until: None, until_resumed: true };
+    let pause = PauseRequest::new("testing").until_resumed();
     client.as_caller().pause("queue", "default", &pause).await.unwrap();
     let view = client.run(waiting.run_id).await.unwrap();
     assert_eq!(view.queued_because.as_deref(), Some("paused"), "{}", view.reason);

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 /// A finished run, as `on_finish` receives it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FinishedRun {
     /// The run's id; also the delivery's de-duplication key.
     pub run_id: Uuid,
@@ -43,6 +44,7 @@ impl FinishedRun {
 /// Something worth knowing about that is not a finished run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Event {
     /// A worker stopped responding while a run's function was executing.
     WorkerLost { run_id: Uuid, job: String, worker: String },
@@ -65,6 +67,7 @@ pub enum Event {
 
 /// One delivery of an event: the event and its de-duplication key.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct EventDelivery {
     pub id: i64,
     pub at: DateTime<Utc>,

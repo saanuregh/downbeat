@@ -5,6 +5,7 @@ use axum::extract::{Extension, Query, State as Extract};
 use chrono::{DateTime, NaiveDate, Utc};
 use downbeat_api::Scope;
 use downbeat_api::types::{CalendarDay, CalendarEntry, DayOff, OverrideView, ScheduleView};
+use downbeat_api::with_defaults;
 use serde::Deserialize;
 
 use crate::api::State;
@@ -42,8 +43,10 @@ pub(crate) async fn calendar(
         let (day_plan, source) = match plan::plan_for(registry, schedule, &overrides, date).await {
             Ok(planned) => planned,
             Err(error) => {
-                days_off
-                    .push(DayOff { schedule: schedule.name.clone(), reason: format!("Its day rule failed: {error}.") });
+                days_off.push(with_defaults!(DayOff {
+                    schedule: schedule.name.clone(),
+                    reason: format!("Its day rule failed: {error}.")
+                }));
                 continue;
             }
         };
@@ -54,7 +57,7 @@ pub(crate) async fn calendar(
                 PlanSource::Override { .. } => " (dated override)".to_owned(),
                 PlanSource::Normal => String::new(),
             };
-            days_off.push(DayOff { schedule: schedule.name.clone(), reason: format!("{reason}{by}") });
+            days_off.push(with_defaults!(DayOff { schedule: schedule.name.clone(), reason: format!("{reason}{by}") }));
             continue;
         }
         let occurrences = schedule.occurrences_on(date, &day_plan);
@@ -74,7 +77,7 @@ pub(crate) async fn calendar(
             PlanSource::Override { note } => ("override", Some(note.clone())),
         };
         for occurrence in occurrences {
-            entries.push(CalendarEntry {
+            entries.push(with_defaults!(CalendarEntry {
                 schedule: schedule.name.clone(),
                 job: schedule.job.to_owned(),
                 at: occurrence.at,
@@ -82,11 +85,11 @@ pub(crate) async fn calendar(
                 note: note.clone(),
                 paused,
                 run: runs.iter().find(|run| run.due_at == occurrence.at).map(views::summary),
-            });
+            }));
         }
     }
     entries.sort_by_key(|entry| entry.at);
-    Ok(Json(CalendarDay { date, entries, days_off }))
+    Ok(Json(with_defaults!(CalendarDay { date, entries, days_off })))
 }
 
 pub(crate) async fn schedules(
@@ -102,13 +105,13 @@ pub(crate) async fn schedules(
                 .fetch_optional(&state.pool)
                 .await?
                 .flatten();
-        views.push(ScheduleView {
+        views.push(with_defaults!(ScheduleView {
             name: schedule.name.clone(),
             job: schedule.job.to_owned(),
             times: crate::describe::schedule(schedule),
             next_occurrence: next,
             paused: views::pause_of(&state.pool, "schedule", &schedule.name).await?,
-        });
+        }));
     }
     Ok(Json(views))
 }
@@ -137,7 +140,7 @@ pub(crate) async fn overrides(
 }
 
 pub(crate) fn override_view(row: plan::OverrideRow) -> OverrideView {
-    OverrideView {
+    with_defaults!(OverrideView {
         override_id: row.override_id,
         schedule: row.schedule,
         date: row.on_date,
@@ -145,5 +148,5 @@ pub(crate) fn override_view(row: plan::OverrideRow) -> OverrideView {
         times: row.times.iter().map(|time| time.format("%H:%M").to_string()).collect(),
         note: row.note,
         created_by: row.created_by,
-    }
+    })
 }

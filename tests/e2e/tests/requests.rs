@@ -7,7 +7,7 @@ mod support;
 use downbeat_client::Error;
 use downbeat_client::types::{ApiError, MarkSucceededRequest, Preview, StartRequest, StartResponse};
 use downbeat_e2e::*;
-use serde_json::{Value, json};
+use serde_json::json;
 use support::{Database, SOON, Signer, finished, finished_job, with_api, with_api_at};
 
 async fn json_error(response: reqwest::Response) -> (u16, ApiError) {
@@ -89,7 +89,7 @@ async fn a_preview_lists_the_conditions_a_start_would_ignore() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
     let admin = client.as_caller();
-    let request = StartRequest { input: json!({ "n": -1 }), ignore_conditions: true, ..StartRequest::default() };
+    let request = StartRequest::new(json!({ "n": -1 })).ignore_conditions();
 
     let preview: Preview = admin.post("/v1/jobs/guarded/runs?preview=true", Some(&request), None).await.unwrap();
     assert_eq!(preview.false_conditions, vec!["only if 'positive'".to_owned()]);
@@ -118,9 +118,9 @@ async fn marking_as_succeeded_starts_children_unless_the_run_was_started_without
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
     let admin = client.as_caller();
-    let mark = MarkSucceededRequest { output: Value::Null, note: "fixed by hand".into() };
+    let mark = MarkSucceededRequest::new("fixed by hand");
 
-    let alone = StartRequest { without_children: true, ..StartRequest::default() };
+    let alone = StartRequest::default().without_children();
     let alone: StartResponse = admin.post("/v1/jobs/panics/runs", Some(&alone), None).await.unwrap();
     assert_eq!(finished(&database.pool, alone.run_id, SOON).await.status, "failed");
     admin.mark_succeeded(alone.run_id, &mark).await.unwrap();
@@ -195,7 +195,7 @@ async fn on_finish_hears_of_a_run_marked_as_succeeded_long_after_it_failed() {
         .execute(&database.pool)
         .await
         .unwrap();
-    let mark = MarkSucceededRequest { output: Value::Null, note: "fixed by hand".into() };
+    let mark = MarkSucceededRequest::new("fixed by hand");
     client.as_caller().mark_succeeded(failed.run_id, &mark).await.unwrap();
     read_when("succeeded").await;
 }

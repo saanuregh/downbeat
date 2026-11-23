@@ -2,6 +2,7 @@
 
 /// An error from the client, with enough said to act on it.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("the client is not set up: {0}")]
     Setup(String),

@@ -105,7 +105,7 @@ async fn marking_a_failed_run_as_succeeded_clears_why_it_failed_and_keeps_the_no
     let failed = finished(&database.pool, started.run_id, SOON).await;
     assert_eq!(failed.failed_because.as_deref(), Some("error"));
 
-    let mark = MarkSucceededRequest { output: json!({ "text": "fixed" }), note: "repaired the rows by hand".into() };
+    let mark = MarkSucceededRequest::new("repaired the rows by hand").output(json!({ "text": "fixed" }));
     client.as_caller().mark_succeeded(started.run_id, &mark).await.unwrap();
 
     let marked: (String, Option<String>, Option<String>, Option<Value>) =

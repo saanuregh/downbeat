@@ -93,14 +93,7 @@ async fn a_paused_job_holds_its_runs_until_resumed() {
     let (_app, client) = with_api(&database).await;
     let admin = client.as_caller();
     let until = chrono::Utc::now() + chrono::TimeDelta::hours(1);
-    admin
-        .pause(
-            "job",
-            "echo",
-            &PauseRequest { note: "bad upstream data".into(), until: Some(until), until_resumed: false },
-        )
-        .await
-        .unwrap();
+    admin.pause("job", "echo", &PauseRequest::new("bad upstream data").until(until)).await.unwrap();
 
     let started = client.start("echo", &Text { text: "held".into() }).send().await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -116,11 +109,7 @@ async fn a_paused_job_holds_its_runs_until_resumed() {
 async fn a_pause_needs_an_end_or_an_explicit_until_resumed() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
-    let refused = client
-        .as_caller()
-        .pause("job", "echo", &PauseRequest { note: "why".into(), until: None, until_resumed: false })
-        .await
-        .unwrap_err();
+    let refused = client.as_caller().pause("job", "echo", &PauseRequest::new("why")).await.unwrap_err();
     assert!(matches!(refused, Error::Api { status: 400, .. }), "{refused}");
 }
 
@@ -137,7 +126,7 @@ async fn a_failed_step_can_be_retried_in_its_chain_or_marked_as_succeeded() {
     let retry = finished(&database.pool, retried.run_id.unwrap(), SOON).await;
     assert_eq!(retry.chain_id, failed_run.chain_id);
 
-    let note = MarkSucceededRequest { output: json!(null), note: "fixed by hand".into() };
+    let note = MarkSucceededRequest::new("fixed by hand");
     admin.mark_succeeded(failed.run_id, &note).await.unwrap();
     let marked = client.run(failed.run_id).await.unwrap();
     assert_eq!(marked.status, "succeeded");
@@ -154,13 +143,7 @@ async fn an_override_turns_a_day_off_and_the_calendar_shows_it() {
     let normal = client.calendar(day).await.unwrap();
     assert_eq!(normal.entries.iter().filter(|entry| entry.schedule == "report").count(), 2);
 
-    let request = OverrideRequest {
-        schedules: vec!["report".into()],
-        date: day,
-        change: "off".into(),
-        times: vec![],
-        note: "exchange holiday".into(),
-    };
+    let request = OverrideRequest::new(["report"], day, "off", "exchange holiday");
     let preview = admin.preview_override(&request).await.unwrap();
     assert_eq!(preview.effects, ["report on 2030-01-07: 0 occurrence(s) instead of 2."]);
     admin.add_override(&request).await.unwrap();
@@ -175,13 +158,11 @@ async fn a_backfill_runs_each_weekday_in_the_range_in_order() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
     // 2030-01-04 is a Friday; the 5th and 6th are a weekend the schedule skips.
-    let request = BackfillRequest {
-        job: "dated".into(),
-        schedule: None,
-        from: NaiveDate::from_ymd_opt(2030, 1, 4).unwrap(),
-        to: NaiveDate::from_ymd_opt(2030, 1, 7).unwrap(),
-        continue_on_failure: false,
-    };
+    let request = BackfillRequest::new(
+        "dated",
+        NaiveDate::from_ymd_opt(2030, 1, 4).unwrap(),
+        NaiveDate::from_ymd_opt(2030, 1, 7).unwrap(),
+    );
     client.as_caller().start_backfill(&request).await.unwrap();
     eventually(
         &database.pool,
@@ -249,7 +230,7 @@ async fn a_caller_limited_to_some_jobs_sees_and_does_nothing_else() {
     let other = service.as_caller().start("panics", &()).send().await.unwrap_err();
     assert!(matches!(other, Error::Api { status: 403, .. }), "{other}");
 
-    let pause = PauseRequest { note: "maintenance".into(), until: None, until_resumed: true };
+    let pause = PauseRequest::new("maintenance").until_resumed();
     let queue = service.as_caller().pause("queue", "default", &pause).await.unwrap_err();
     assert!(matches!(queue, Error::Api { status: 403, .. }), "{queue}");
 
@@ -298,10 +279,7 @@ async fn pausing_everything_holds_every_job_until_resumed() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
     let admin = client.as_caller();
-    admin
-        .pause_everything(&PauseRequest { note: "database maintenance".into(), until: None, until_resumed: true })
-        .await
-        .unwrap();
+    admin.pause_everything(&PauseRequest::new("database maintenance").until_resumed()).await.unwrap();
 
     let started = client.start("echo", &Text { text: "held".into() }).send().await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;

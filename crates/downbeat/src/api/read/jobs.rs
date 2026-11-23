@@ -7,6 +7,7 @@ use axum::extract::{Extension, Path, State as Extract};
 use chrono::{DateTime, Utc};
 use downbeat_api::Scope;
 use downbeat_api::types::{ChainNode, ChainSummary, ChainView, JobView, PipelineNode, PipelineView, RunSummary};
+use downbeat_api::with_defaults;
 use uuid::Uuid;
 
 use crate::api::State;
@@ -70,7 +71,7 @@ async fn job_view(state: &State, job: &RegisteredJob) -> Result<JobView, Failure
         Some(every) => history::wait_for_success(&state.pool, name, every).await?.is_some_and(|wait| wait.overdue),
         None => false,
     };
-    Ok(JobView {
+    Ok(with_defaults!(JobView {
         name: name.to_owned(),
         pipeline: job.pipeline.clone(),
         kind: if job.spec.is_command() { "command" } else { "function" }.to_owned(),
@@ -86,7 +87,7 @@ async fn job_view(state: &State, job: &RegisteredJob) -> Result<JobView, Failure
         expected_seconds: expected.map(|(median, _)| i64::try_from(median.as_secs()).unwrap_or(i64::MAX)),
         paused: views::pause_of(&state.pool, "job", name).await?,
         overdue,
-    })
+    }))
 }
 
 pub(crate) async fn pipelines(
@@ -173,13 +174,13 @@ async fn recent_chains(
             .filter(|(id, job, _)| *id == chain_id && caller.covers(job))
             .map(|(_, job, status)| (job.clone(), status.clone()))
             .collect();
-        by_pipeline.entry(pipeline).or_default().push(ChainSummary {
+        by_pipeline.entry(pipeline).or_default().push(with_defaults!(ChainSummary {
             chain_id,
             first_job,
             started_at,
             statuses,
             cancelled: cancelled_at.is_some(),
-        });
+        }));
     }
     Ok(by_pipeline)
 }
@@ -191,17 +192,20 @@ fn pipeline_view(state: &State, caller: &Caller, name: &str) -> PipelineView {
         .iter()
         .filter(|job| caller.covers(job))
         .filter_map(|job| state.registry.job(job))
-        .map(|job| PipelineNode {
-            job: job.spec.name.to_owned(),
-            link: job.link.as_ref().map(|link| link_name(link.kind).to_owned()),
-            parents: job
-                .link
-                .as_ref()
-                .map_or_default(|link| link.parents.iter().map(|parent| (*parent).to_owned()).collect()),
-            schedules: job.schedules.clone(),
+        .map(|job| {
+            with_defaults!(PipelineNode {
+                job: job.spec.name.to_owned(),
+                link: job.link.as_ref().map(|link| link_name(link.kind).to_owned()),
+                parents: job.link.as_ref().map_or_default(|link| link
+                    .parents
+                    .iter()
+                    .map(|parent| (*parent).to_owned())
+                    .collect()),
+                schedules: job.schedules.clone(),
+            })
         })
         .collect();
-    PipelineView { name: name.to_owned(), jobs: nodes, recent_chains: Vec::new() }
+    with_defaults!(PipelineView { name: name.to_owned(), jobs: nodes, recent_chains: Vec::new() })
 }
 
 fn link_name(kind: LinkKind) -> &'static str {
@@ -249,11 +253,13 @@ pub(crate) async fn chain(
         let mut runs: Vec<RunSummary> = unfinished
             .iter()
             .filter(|run| &run.job_name == job)
-            .map(|run| RunSummary {
-                run_id: run.run_id,
-                status: run.state.clone(),
-                reason: run.queued_reason.clone().unwrap_or_default(),
-                at: run.created_at,
+            .map(|run| {
+                with_defaults!(RunSummary {
+                    run_id: run.run_id,
+                    status: run.state.clone(),
+                    reason: run.queued_reason.clone().unwrap_or_default(),
+                    at: run.created_at,
+                })
             })
             .collect();
         runs.extend(ended.iter().filter(|row| &row.job_name == job).map(views::summary));
@@ -264,9 +270,17 @@ pub(crate) async fn chain(
             .map_or_default(|link| link.parents.iter().map(|p| (*p).to_owned()).collect());
         let why_not =
             runs.is_empty().then(|| why_not(&state, job, &parents, &ended, &unfinished, cancelled_at.is_some()));
-        nodes.push(ChainNode { job: job.clone(), parents, runs, why_not });
+        nodes.push(with_defaults!(ChainNode { job: job.clone(), parents, runs, why_not }));
     }
-    Ok(Json(ChainView { chain_id: id, pipeline, first_job, started_at, cancelled_at, cancelled_by, nodes }))
+    Ok(Json(with_defaults!(ChainView {
+        chain_id: id,
+        pipeline,
+        first_job,
+        started_at,
+        cancelled_at,
+        cancelled_by,
+        nodes
+    })))
 }
 
 /// Why a job the chain could reach has no run in it.

@@ -6,6 +6,7 @@ use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use downbeat_api::types::ApiError;
+use downbeat_api::with_defaults;
 use sqlx::postgres::{PgDatabaseError, PgSeverity};
 
 #[derive(Debug)]
@@ -93,7 +94,8 @@ fn is_passing(error: &sqlx::Error) -> bool {
 
 impl IntoResponse for Failure {
     fn into_response(self) -> Response {
-        (self.status, Json(ApiError { error: self.code.to_owned(), message: self.message })).into_response()
+        (self.status, Json(with_defaults!(ApiError { error: self.code.to_owned(), message: self.message })))
+            .into_response()
     }
 }
 

@@ -8,6 +8,7 @@ use axum::extract::{Extension, Path, Query, State as Extract};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use downbeat_api::types::{StartRequest, StartResponse};
+use downbeat_api::with_defaults;
 use downbeat_api::{IDEMPOTENCY_HEADER, Scope};
 use serde_json::Value;
 use uuid::Uuid;
@@ -79,12 +80,12 @@ pub(crate) async fn start(
         Started::New(_) => (StatusCode::OK, false),
         Started::Joined(_) => (StatusCode::OK, true),
     };
-    let response = StartResponse {
+    let response = with_defaults!(StartResponse {
         run_id: result.started.run_id(),
         status: "queued".to_owned(),
         joined,
         repeated: result.repeated,
-    };
+    });
     Ok((status, Json(response)).into_response())
 }
 

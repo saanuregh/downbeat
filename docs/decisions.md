@@ -535,3 +535,25 @@ shadowed the standard library's `Result`. `#[job]` requires the return type to b
 - **Sweeps isolate failures and run beside pruning.** A run a sweep cannot handle is logged and
   passed over, and every duty runs every five seconds whatever an earlier one hit. Pruning runs on
   its own clock, and both delay their next turn after an overrun instead of bursting to catch up.
+
+## 72. The public API can grow after 0.1
+
+Before 0.1, every public shape that a later addition would break is closed, so that adding a field,
+a status or an error is a minor version, not a major one.
+
+- **Types a caller reads are `#[non_exhaustive]`.** Every request, answer and error type in
+  `downbeat-api` and `downbeat-client`, and the engine's output types (`FinishedRun`, `Event`,
+  `EventDelivery`, `Started`, `Failure`, `Ended`, `LinkKind`, `Outcome`, `Occurrence`, `Day`,
+  `RetryOn`, `Turn`, `WhenUnmet`). A product still writes the variants it constructs, such as
+  `Day::Off(…)` and `retry_on = [Error, Timeout]`; only its matches need a `_` arm. `Scope` is
+  included because a narrower or a split scope is a plausible addition and a caller rarely matches
+  on it. Configuration a product builds (`Policy`, `Settings`, `QueueTimings`) is left open.
+- **Requests are built with `new(…)` and setters.** `new` takes the required fields; each
+  optional field has a chainable setter, as the client's `Start` builder already had. A boolean
+  option's setter takes no argument and turns it on.
+- **Answers are built from `Default`.** The scheduler, the console and the client build the
+  answer types outside `downbeat-api`, which `#[non_exhaustive]` forbids as a literal. Each answer
+  derives `Default`, and the hidden `downbeat_api::with_defaults!` macro writes "start from the
+  default and set these fields" like a struct literal. The compiler no longer checks that the
+  scheduler sets every field of an answer; the end-to-end tests read them. A product's tests can
+  build an answer the same way.

@@ -35,6 +35,21 @@ macro_rules! job_name {
     };
 }
 
+/// Builds one of the `#[non_exhaustive]` [`types`] outside this crate, written like a struct
+/// literal (`with_defaults!(DayOff { schedule, reason: text })`): it starts from `Default` and sets
+/// each named field, so the fields not named keep their defaults.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! with_defaults {
+    ($type:ident { $($field:ident $(: $value:expr)?),* $(,)? }) => {{
+        let mut built = $type::default();
+        $( built.$field = $crate::with_defaults!(@value $field $(: $value)?); )*
+        built
+    }};
+    (@value $field:ident : $value:expr) => { $value };
+    (@value $field:ident) => { $field };
+}
+
 /// The version of the control API this crate speaks. A console supports this one and the one before.
 pub const API_VERSION: u32 = 1;
 

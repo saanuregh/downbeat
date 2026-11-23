@@ -123,7 +123,9 @@ first). `joined` rows are never listed. Unknown query parameters are refused (40
 
 ## Types
 
-All in `downbeat_api::types`. Optional fields are `null` when absent, unless noted.
+All in `downbeat_api::types`. Optional fields are `null` when absent, unless noted. In Rust every
+type is `#[non_exhaustive]`: a request is built with `new(…)` from its required fields and a
+setter for each optional one, and an answer can be built for a test from `Default`.
 
 | Type | Fields |
 | --- | --- |

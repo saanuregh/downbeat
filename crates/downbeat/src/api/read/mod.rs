@@ -16,6 +16,7 @@ use axum::Json;
 use axum::extract::State as Extract;
 use downbeat_api::API_VERSION;
 use downbeat_api::types::{Health, Version};
+use downbeat_api::with_defaults;
 
 use crate::api::State;
 use crate::api::error::Failure;
@@ -24,16 +25,16 @@ use crate::api::error::Failure;
 const MAX_PAGE: i64 = 200;
 
 pub(crate) async fn healthz() -> Json<Health> {
-    Json(Health { ok: true, api: API_VERSION })
+    Json(with_defaults!(Health { ok: true, api: API_VERSION }))
 }
 
 pub(crate) async fn readyz(Extract(state): Extract<State>) -> Result<Json<Health>, Failure> {
     sqlx::query("SELECT 1").execute(&state.pool).await?;
-    Ok(Json(Health { ok: true, api: API_VERSION }))
+    Ok(Json(with_defaults!(Health { ok: true, api: API_VERSION })))
 }
 
 pub(crate) async fn version() -> Json<Version> {
-    Json(Version { api: API_VERSION, engine: env!("CARGO_PKG_VERSION").to_owned() })
+    Json(with_defaults!(Version { api: API_VERSION, engine: env!("CARGO_PKG_VERSION").to_owned() }))
 }
 
 /// `GET /pause`: the pause of everything, if there is one.

@@ -150,7 +150,7 @@ async fn cancel_retry_and_mark_as_succeeded_wait_for_the_chain_lock() {
     let retried = waits_for_the_chain_lock(&database, chain, retry).await;
     finished(&database.pool, retried.run_id.unwrap(), SOON).await;
 
-    let note = MarkSucceededRequest { output: json!(null), note: "fixed by hand".into() };
+    let note = MarkSucceededRequest::new("fixed by hand");
     let mark = admin.mark_succeeded(failed, &note);
     waits_for_the_chain_lock(&database, chain, mark).await;
     let status: String = sqlx::query_scalar("SELECT status FROM downbeat.run_history WHERE run_id = $1")
@@ -263,7 +263,7 @@ async fn pausing_and_resuming_a_queue_and_a_schedule_is_audited() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
     let admin = client.as_caller();
-    let pause = PauseRequest { note: "testing".into(), until: None, until_resumed: true };
+    let pause = PauseRequest::new("testing").until_resumed();
 
     admin.pause("queue", "default", &pause).await.unwrap();
     admin.resume("queue", "default").await.unwrap();
