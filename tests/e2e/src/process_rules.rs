@@ -208,8 +208,8 @@ pub fn reports_its_output_file_mode() -> Program<Text> {
 /// More than the four MiB a message from the child may hold.
 const OVER_A_MESSAGE: usize = 5 * 1024 * 1024;
 
-/// Names a program with an argument too large for one message from the child, so the worker
-/// cannot read it while the child lives on.
+/// Names a program with an argument too large for one message from the child; the child refuses
+/// it before sending.
 #[command]
 pub fn names_a_huge_program() -> Program<()> {
     Program::new("/bin/true").args(["x".repeat(OVER_A_MESSAGE)])

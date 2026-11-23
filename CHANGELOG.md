@@ -61,6 +61,8 @@ The first version.
   sweeps; a run a sweep cannot handle is logged and passed over.
 - Progress text and the reasons of errors, panics, skips and not-ready are cut at 64 KiB; a child
   that sends a message the worker cannot read is killed and counted as a crash.
+- A command whose program, arguments and environment exceed 1 MiB as JSON fails as `bad_input`, naming
+  the limit, instead of crashing.
 - The `check`, `run-once` and `health` commands, and schedule snapshots for CI.
 - `InAppClient` for starting jobs from inside the product. It and `migrate` return a typed
   `downbeat::Error`.

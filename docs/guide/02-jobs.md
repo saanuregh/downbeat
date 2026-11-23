@@ -196,7 +196,7 @@ program to start.
 
 | Rule | Detail |
 | --- | --- |
-| Fixed words and values | `.args([…])` takes the command's own fixed words and options. `.arg(value)` takes exactly one value, whatever it contains. There is no shell. A value that begins with `-` fails the run (`bad_input`), unless the command calls `.values_may_be_options()`. |
+| Fixed words and values | `.args([…])` takes the command's own fixed words and options. `.arg(value)` takes exactly one value, whatever it contains. There is no shell. A value that begins with `-` fails the run (`bad_input`), unless the command calls `.values_may_be_options()`. The program, its arguments, environment, passed variable names and directory may total 1 MiB as JSON; more fails the run (`bad_input`) before the program starts. |
 | Environment | The program gets only the variables named in `.pass_env([…])` (copied from the worker when set there) and `.env(name, value)`, plus `JOB_RUN_ID`, `JOB_ATTEMPT`, `JOB_DRY_RUN` (`1` or `0`) and `JOB_OUTPUT_FILE`, an empty file readable only by the worker's user, made before the program starts. |
 | Input | The whole input is also written as JSON to its standard input. |
 | Ending | Exit status 0 is success. Status 75 (`EXIT_NOT_READY`) means "not ready"; the last line of standard error becomes the reason. Anything else fails the run as `exit_code`, or `signal` when a signal killed it. A program that cannot be started at all fails as `error`, with the reason naming why. Each of these is retried like an `Error`. |

@@ -520,6 +520,12 @@ shadowed the standard library's `Result`. `#[job]` requires the return type to b
 - **Product text is cut, not refused.** Progress has no way to report an error, so progress and the
   text of an error, panic, skip or not-ready reason are cut in the child to `MAX_VALUE_BYTES`, ending
   in ` [cut]`. Values (inputs, outputs, checkpoints) are still refused over the limit.
+- **A command's program is refused over 1 MiB.** The child measures the program it would send
+  (name, arguments, environment, passed variable names and directory) as JSON, and over
+  `MAX_PROGRAM_BYTES` ends the run as `bad_input` naming the limit, instead of sending a message
+  the worker cannot read. Measuring the JSON counts escaping exactly. `MAX_VALUE_BYTES` would be
+  too tight for fixed arguments; 1 MiB leaves the message limit room and is within what Linux
+  accepts for arguments and environment.
 - **An expiry or a day rule's shift too large for the calendar is none.** `expire_after` beyond the
   calendar's range means no expiry; a shift that moves a time out of range skips that date.
 - **Pruning keeps the latest success that overdue checks read** (decision 61): a dry run is not a

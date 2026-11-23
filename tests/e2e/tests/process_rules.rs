@@ -203,14 +203,20 @@ async fn every_process_is_started_from_one_dedicated_thread() {
 }
 
 #[tokio::test]
-async fn a_message_the_worker_cannot_read_ends_the_run_as_a_crash() {
+async fn a_program_too_large_to_send_fails_as_bad_input() {
     let database = Database::fresh().await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();
     let _app = one_slot(&database);
 
     let run = client.start(names_a_huge_program, ()).await.unwrap().run_id();
     let done = finished(&database.pool, run, SOON).await;
-    assert_eq!((done.status.as_str(), done.failed_because.as_deref()), ("failed", Some("crash")), "{}", done.reason);
+    assert_eq!(
+        (done.status.as_str(), done.failed_because.as_deref()),
+        ("failed", Some("bad_input")),
+        "{}",
+        done.reason
+    );
+    assert!(done.reason.contains("the limit is 1048576"), "{}", done.reason);
 
     let next = client.start(child_pid, Number { n: 1 }).await.unwrap().run_id();
     assert_eq!(finished(&database.pool, next, SOON).await.status, "succeeded", "the slot is free again");

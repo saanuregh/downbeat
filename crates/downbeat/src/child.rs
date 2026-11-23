@@ -21,7 +21,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::definition::Definition;
-use crate::job::{Body, JobError, MAX_VALUE_BYTES, Run, RunLink, StartRequest, Started, Stop};
+use crate::job::{Body, JobError, MAX_PROGRAM_BYTES, MAX_VALUE_BYTES, Run, RunLink, StartRequest, Started, Stop};
 use crate::pipeline::NeedTest;
 use crate::protocol::{self, ChildEnding, ChildStart, FromChild, Prepared, RunInfo, ToChild};
 use crate::registry::Registry;
@@ -189,11 +189,19 @@ fn go(
     };
     match &job.spec.body {
         Body::Command { program, .. } => {
-            let result = program(input).and_then(|spec| match spec.smuggled_option() {
-                Some(argument) => Err(format!(
-                    "the argument '{argument}' came from a value but looks like an option; use .values_may_be_options() if that is intended"
-                )),
-                None => Ok(spec),
+            let result = program(input).and_then(|spec| {
+                if let Some(argument) = spec.smuggled_option() {
+                    return Err(format!(
+                        "the argument '{argument}' came from a value but looks like an option; use .values_may_be_options() if that is intended"
+                    ));
+                }
+                let size = spec.size()?;
+                if size > MAX_PROGRAM_BYTES {
+                    return Err(format!(
+                        "the program, its arguments and environment are {size} bytes as JSON; the limit is {MAX_PROGRAM_BYTES}"
+                    ));
+                }
+                Ok(spec)
             });
             let _ = outgoing.send(FromChild::Program { run_id, result });
         }

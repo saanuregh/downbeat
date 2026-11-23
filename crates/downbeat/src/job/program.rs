@@ -43,6 +43,13 @@ impl ProgramSpec {
         }
         self.from_values.iter().map(|index| self.args[*index].as_str()).find(|arg| arg.starts_with('-'))
     }
+
+    /// The size in bytes of the spec as JSON, as it is sent to the worker.
+    pub(crate) fn size(&self) -> Result<usize, String> {
+        serde_json::to_string(self)
+            .map(|json| json.len())
+            .map_err(|error| format!("the program could not be encoded: {error}"))
+    }
 }
 
 impl<Out> Program<Out> {

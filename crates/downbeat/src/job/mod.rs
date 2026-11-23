@@ -25,8 +25,8 @@ pub use outcome::{JobError, JobResult, Outcome, not_ready, skip};
 pub use policy::{Backoff, Policy, RetryOn, RetryOnSet, Turn, presets};
 pub(crate) use program::env_names;
 pub use program::{EXIT_NOT_READY, Program, ProgramSpec};
+pub(crate) use run::{MAX_PROGRAM_BYTES, RunLink, StartRequest, decode};
 pub use run::{MAX_VALUE_BYTES, Run, Start, Started};
-pub(crate) use run::{RunLink, StartRequest, decode};
 
 use crate::dependencies::{Dependencies, Dependency};
 

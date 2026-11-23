@@ -88,6 +88,11 @@ impl Started {
 /// The largest input, output or checkpoint the engine stores, in bytes.
 pub const MAX_VALUE_BYTES: usize = 64 * 1024;
 
+/// The largest program a command may name, in bytes as JSON: its program, arguments, environment,
+/// passed variable names and directory together. Well under the four MiB a message from the child
+/// may hold.
+pub(crate) const MAX_PROGRAM_BYTES: usize = 1024 * 1024;
+
 impl Run {
     /// True once this run has been asked to stop: a timeout, a cancel, a lost lease or shutdown.
     pub fn is_cancelled(&self) -> bool {

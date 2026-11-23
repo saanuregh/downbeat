@@ -413,7 +413,9 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
    empty first, readable only by its user (a program that cannot have it fails as not started);
    its input as JSON on standard
    input; and arguments passed directly, without a shell. An argument from `.arg(…)` that begins
-   with `-` must fail the run as `bad_input` unless the command allows options. When the program
+   with `-` must fail the run as `bad_input` unless the command allows options. A program whose
+   name, arguments, environment, passed variable names and directory together exceed 1 MiB as
+   JSON (`MAX_PROGRAM_BYTES`) must fail the run as `bad_input` before it starts. When the program
    exits, its process group must be killed. At a stop, the group gets SIGTERM, then SIGKILL after
    `kill_grace`.
 8. A command's exit status 0 means success: an empty output file is `null`, a JSON object with a
