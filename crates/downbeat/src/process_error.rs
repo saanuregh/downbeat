@@ -43,6 +43,6 @@ impl ProcessError {
 
 impl From<sqlx::Error> for ProcessError {
     fn from(error: sqlx::Error) -> ProcessError {
-        ProcessError::Engine(crate::Error::Database(error))
+        ProcessError::Engine(crate::Error::database(error))
     }
 }

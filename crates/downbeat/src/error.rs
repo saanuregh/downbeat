@@ -9,7 +9,7 @@ pub enum Error {
     Definition { problems: Vec<String> },
     /// The database could not be reached, or a statement failed.
     #[error(transparent)]
-    Database(#[from] sqlx::Error),
+    Database(DatabaseError),
     /// The schema has a breaking migration newer than this engine knows.
     #[error(
         "the database's downbeat schema is at version {found}, which this engine (schema {known}) cannot use; deploy a newer build"
@@ -31,7 +31,32 @@ impl From<crate::starting::StartError> for Error {
         match error {
             crate::starting::StartError::UnknownJob(job) => Error::UnknownJob(job),
             crate::starting::StartError::NoDryRun(job) => Error::NoDryRun(job),
-            crate::starting::StartError::Database(error) => Error::Database(error),
+            crate::starting::StartError::Database(error) => Error::database(error),
         }
+    }
+}
+
+impl Error {
+    /// The database could not be reached, or a statement failed.
+    pub(crate) fn database(error: sqlx::Error) -> Error {
+        Error::Database(DatabaseError(error))
+    }
+}
+
+/// Why the database could not be reached, or a statement failed. The database library's own error
+/// is its [`source`](std::error::Error::source), so this crate can change that library without
+/// breaking callers.
+#[derive(Debug)]
+pub struct DatabaseError(sqlx::Error);
+
+impl std::fmt::Display for DatabaseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for DatabaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
     }
 }

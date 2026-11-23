@@ -40,8 +40,12 @@ const MIGRATIONS: &[Migration] = &[
 const MIGRATION_LOCK: i64 = 0x646f_776e_6265_6174; // "downbeat"
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), crate::Error> {
-    let mut connection = pool.acquire().await?;
-    sqlx::query("SELECT pg_advisory_lock($1)").bind(MIGRATION_LOCK).execute(&mut *connection).await?;
+    let mut connection = pool.acquire().await.map_err(crate::Error::database)?;
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(MIGRATION_LOCK)
+        .execute(&mut *connection)
+        .await
+        .map_err(crate::Error::database)?;
     let applied = apply(&mut connection).await;
     let unlocked = sqlx::query("SELECT pg_advisory_unlock($1)").bind(MIGRATION_LOCK).execute(&mut *connection).await;
     if let Err(error) = &unlocked {
@@ -53,12 +57,15 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), crate::Error> {
         }
     }
     applied?;
-    unlocked?;
+    unlocked.map_err(crate::Error::database)?;
     Ok(())
 }
 
 async fn apply(connection: &mut sqlx::PgConnection) -> Result<(), crate::Error> {
-    sqlx::query("CREATE SCHEMA IF NOT EXISTS downbeat").execute(&mut *connection).await?;
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS downbeat")
+        .execute(&mut *connection)
+        .await
+        .map_err(crate::Error::database)?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS downbeat.migration (
             version integer PRIMARY KEY,
@@ -68,10 +75,13 @@ async fn apply(connection: &mut sqlx::PgConnection) -> Result<(), crate::Error> 
         )",
     )
     .execute(&mut *connection)
-    .await?;
+    .await
+    .map_err(crate::Error::database)?;
 
-    let applied: Vec<(i32, bool)> =
-        sqlx::query_as("SELECT version, breaking FROM downbeat.migration").fetch_all(&mut *connection).await?;
+    let applied: Vec<(i32, bool)> = sqlx::query_as("SELECT version, breaking FROM downbeat.migration")
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(crate::Error::database)?;
     let known_newest = MIGRATIONS.last().map_or(0, |migration| migration.version);
     if let Some((version, _)) = applied.iter().find(|(version, breaking)| *version > known_newest && *breaking) {
         return Err(crate::Error::NewerSchema { found: *version, known: known_newest });
@@ -80,15 +90,16 @@ async fn apply(connection: &mut sqlx::PgConnection) -> Result<(), crate::Error> 
     for migration in
         MIGRATIONS.iter().filter(|migration| !applied.iter().any(|(version, _)| *version == migration.version))
     {
-        let mut transaction = sqlx::Connection::begin(&mut *connection).await?;
-        sqlx::raw_sql(migration.sql).execute(&mut *transaction).await?;
+        let mut transaction = sqlx::Connection::begin(&mut *connection).await.map_err(crate::Error::database)?;
+        sqlx::raw_sql(migration.sql).execute(&mut *transaction).await.map_err(crate::Error::database)?;
         sqlx::query("INSERT INTO downbeat.migration (version, name, breaking) VALUES ($1, $2, $3)")
             .bind(migration.version)
             .bind(migration.name)
             .bind(migration.breaking)
             .execute(&mut *transaction)
-            .await?;
-        transaction.commit().await?;
+            .await
+            .map_err(crate::Error::database)?;
+        transaction.commit().await.map_err(crate::Error::database)?;
         tracing::info!(version = migration.version, name = migration.name, "applied a downbeat migration");
     }
     Ok(())

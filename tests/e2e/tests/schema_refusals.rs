@@ -23,5 +23,7 @@ async fn migrate_refuses_a_schema_with_a_newer_breaking_migration() {
 #[tokio::test]
 async fn migrate_reports_a_database_it_cannot_reach() {
     let error = downbeat::migrate("postgres://nobody@127.0.0.1:1/nothing").await.unwrap_err();
-    assert!(matches!(error, downbeat::Error::Database(_)), "{error}");
+    let downbeat::Error::Database(database) = &error else { panic!("not a database error: {error}") };
+    let source = std::error::Error::source(database).expect("the database library's error is kept");
+    assert_eq!(source.to_string(), database.to_string());
 }

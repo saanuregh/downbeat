@@ -37,7 +37,7 @@ mod worker;
 pub use client::{InAppClient, InAppStart};
 pub use definition::{Definition, QueueTimings, Settings};
 pub use dependencies::{Dependencies, Dependency};
-pub use error::Error;
+pub use error::{DatabaseError, Error};
 pub use events::{Event, EventDelivery, FinishedRun};
 pub use job::{
     Backoff, EXIT_NOT_READY, FieldShape, FunctionBody, Job, JobData, JobError, JobResult, JobSpec, MAX_VALUE_BYTES,
