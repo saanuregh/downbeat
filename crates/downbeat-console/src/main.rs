@@ -17,6 +17,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Router;
 use axum::http::{HeaderValue, header};
 use axum::routing::{any, delete, get, post};
@@ -121,9 +122,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         config,
     });
     tokio::spawn(prune(Arc::clone(&state)));
-    let listener = tokio::net::TcpListener::bind(listen)
-        .await
-        .map_err(|error| anyhow::anyhow!("listening on {listen}: {error}"))?;
+    let listener = tokio::net::TcpListener::bind(listen).await.with_context(|| format!("listening on {listen}"))?;
     tracing::info!(%listen, local = state.config.local, "console listening");
     axum::serve(listener, router(state)).with_graceful_shutdown(shutdown()).await?;
     Ok(())
@@ -186,7 +185,7 @@ fn keygen(path: &std::path::Path) -> anyhow::Result<()> {
         .create_new(true)
         .mode(0o600)
         .open(path)
-        .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+        .with_context(|| path.display().to_string())?;
     file.write_all(key.to_pem().as_bytes())?;
     println!("{}", key.public().to_base64());
     eprintln!("Wrote the private key to {}. Put the public key above in the scheduler's callers file.", path.display());

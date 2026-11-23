@@ -90,8 +90,8 @@ pub(crate) async fn verify(Extract(state): Extract<State>, request: Request, nex
     match check(&state, request).await {
         Ok(request) => next.run(request).await,
         Err((failure, caller)) => {
-            // A database that cannot be reached is not a refused request (spec 14.12).
-            if failure.status() != StatusCode::SERVICE_UNAVAILABLE {
+            // A database that cannot be reached or fails is not a refused request (spec 14.12).
+            if !failure.status().is_server_error() {
                 refused(&state, caller, &failure).await;
             }
             failure.into_response()

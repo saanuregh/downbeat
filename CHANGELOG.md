@@ -16,6 +16,8 @@ The first version.
 - `#[derive(JobData)]` for inputs and outputs, with `#[job_data(not_compared)]` fields and a
   canonical identity hash.
 - Jobs return `JobResult<T>`; `skip(…)`, `not_ready(…)` and `?` on any printable error.
+- Attributes on a job function stay on the function; a `#[cfg]` after `#[job]` removes the job
+  and everything generated for it.
 - Policies on the job: queue, priority, timeout, attempts, backoff, `retry_on`, `recheck_every`,
   `give_up_after`, `one_at_a_time`, `one_per`, `fresh_process`, `max_memory`, `keep_runs_for`,
   `keep_runs_at_most`, `expect_success_every`, `supports_dry_run`, `name`; presets `frequent`,
@@ -55,7 +57,10 @@ The first version.
 - Graceful shutdown that releases runs, with timings checked against `stop_within`.
 - `on_finish` and `on_event` callbacks delivered at least once from the database; `log_link` and
   `redact`.
-- History pruning by chain, batch after batch within a budget.
+- History pruning by chain, batch after batch within a budget, on a clock of its own beside the
+  sweeps; a run a sweep cannot handle is logged and passed over.
+- Progress text and the reasons of errors, panics, skips and not-ready are cut at 64 KiB; a child
+  that sends a message the worker cannot read is killed and counted as a crash.
 - The `check`, `run-once` and `health` commands, and schedule snapshots for CI.
 - `InAppClient` for starting jobs from inside the product. It and `migrate` return a typed
   `downbeat::Error`.
@@ -65,6 +70,8 @@ The first version.
 
 - Versioned HTTP API for every read and action, with a reason on every state and a preview of
   every action, including pausing everything for an outage.
+- A database that cannot answer just now (unreachable, a deadlock, a timeout, a read-only server)
+  answers 503; any other database failure answers 500, which `downbeat-client` does not retry.
 - Per-request Ed25519 tokens bound to the request, a callers file with scopes and job limits,
   replay protection, idempotency keys, and a rate limit per caller and actor.
 - `downbeat-api` crate with the wire types and token signing; `downbeat-client` crate for Rust

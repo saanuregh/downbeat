@@ -170,8 +170,10 @@ pub enum RetryOn {
 pub struct RetryOnSet(u8);
 
 impl RetryOnSet {
+    /// Retry on [`RetryOn::Error`] only: the default.
     pub const ERROR: RetryOnSet = RetryOnSet::of(&[RetryOn::Error]);
 
+    /// The set of these kinds.
     pub const fn of(kinds: &[RetryOn]) -> Self {
         let mut bits = 0;
         let mut index = 0;
@@ -182,6 +184,7 @@ impl RetryOnSet {
         RetryOnSet(bits)
     }
 
+    /// Whether a failure of this kind is retried.
     pub const fn contains(self, kind: RetryOn) -> bool {
         self.0 & (1 << kind as u8) != 0
     }

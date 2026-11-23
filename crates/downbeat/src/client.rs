@@ -31,6 +31,11 @@ impl fmt::Debug for InAppClient {
 
 impl InAppClient {
     /// Connects to the product's database, where the engine's tables are.
+    ///
+    /// # Errors
+    ///
+    /// When the definition has problems `check` would report, the URL is not a Postgres URL, the
+    /// database cannot be reached, or its `downbeat` schema cannot be brought up to date.
     pub async fn connect(definition: fn() -> Definition, database_url: &str) -> Result<InAppClient, Error> {
         let environment = std::env::var(crate::child::ENVIRONMENT).ok();
         let registry = Registry::build_or_explain(definition(), environment.as_deref())?;
@@ -71,6 +76,9 @@ impl fmt::Debug for InAppStart<'_> {
 }
 
 impl InAppStart<'_> {
+    /// The run's priority, any `i16`, in place of the job's policy (default `0`). Within a queue a
+    /// worker claims the due run with the highest priority first. If the same work is already
+    /// queued, that run keeps the higher of the two.
     pub fn priority(mut self, priority: i16) -> Self {
         self.options.priority = Some(priority);
         self

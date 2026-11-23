@@ -42,9 +42,19 @@ const MIGRATION_LOCK: i64 = 0x646f_776e_6265_6174; // "downbeat"
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), crate::Error> {
     let mut connection = pool.acquire().await?;
     sqlx::query("SELECT pg_advisory_lock($1)").bind(MIGRATION_LOCK).execute(&mut *connection).await?;
-    let result = apply(&mut connection).await;
-    sqlx::query("SELECT pg_advisory_unlock($1)").bind(MIGRATION_LOCK).execute(&mut *connection).await?;
-    result
+    let applied = apply(&mut connection).await;
+    let unlocked = sqlx::query("SELECT pg_advisory_unlock($1)").bind(MIGRATION_LOCK).execute(&mut *connection).await;
+    if let Err(error) = &unlocked {
+        // Closing the session releases its lock, so a connection still holding it never returns
+        // to the pool.
+        connection.close_on_drop();
+        if applied.is_err() {
+            tracing::warn!(%error, "the migration lock could not be released after a migration failed");
+        }
+    }
+    applied?;
+    unlocked?;
+    Ok(())
 }
 
 async fn apply(connection: &mut sqlx::PgConnection) -> Result<(), crate::Error> {

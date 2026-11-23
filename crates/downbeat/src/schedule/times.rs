@@ -63,9 +63,12 @@ impl CompiledSchedule {
         let instants: Vec<DateTime<Utc>> = match (&self.times, plan) {
             (_, DayPlan::Off(_)) => Vec::new(),
             (Times::DailyAt(_), DayPlan::Times(times)) => {
-                times.iter().map(|time| self.instant(date, *time, TimeDelta::zero())).collect()
+                times.iter().filter_map(|time| self.instant(date, *time, TimeDelta::zero())).collect()
             }
-            (Times::DailyAt(times), _) => times.iter().map(|time| self.instant(date, *time, shift)).collect(),
+            // A day rule's shift too large to apply skips the date rather than part of it.
+            (Times::DailyAt(times), _) => {
+                times.iter().map(|time| self.instant(date, *time, shift)).collect::<Option<_>>().unwrap_or_default()
+            }
             (Times::Every { interval, window: Some(_) }, DayPlan::Window(start, end)) => {
                 self.window(date, *interval, *start, *end, TimeDelta::zero())
             }
@@ -88,8 +91,10 @@ impl CompiledSchedule {
             && self.month_days.as_ref().is_none_or(|days| days.contains(&date.day()))
     }
 
-    fn instant(&self, date: NaiveDate, time: NaiveTime, shift: TimeDelta) -> DateTime<Utc> {
-        resolve(self.zone, date.and_time(time) + shift)
+    /// The instant of a local time on a date, moved by `shift`; `None` when the shift moves it out
+    /// of the calendar's range.
+    fn instant(&self, date: NaiveDate, time: NaiveTime, shift: TimeDelta) -> Option<DateTime<Utc>> {
+        date.and_time(time).checked_add_signed(shift).map(|local| resolve(self.zone, local))
     }
 
     fn window(
@@ -100,9 +105,10 @@ impl CompiledSchedule {
         end: NaiveTime,
         shift: TimeDelta,
     ) -> Vec<DateTime<Utc>> {
-        let first = self.instant(date, start, shift);
         let end_date = if end < start { date.succ_opt().unwrap_or(date) } else { date };
-        let last = self.instant(end_date, end, shift);
+        let (Some(first), Some(last)) = (self.instant(date, start, shift), self.instant(end_date, end, shift)) else {
+            return Vec::new();
+        };
         steps(first, interval).take_while(|at| *at <= last).collect()
     }
 
@@ -263,6 +269,33 @@ mod tests {
         by_day.month_days = Some(vec![20]);
         assert!(by_day.occurrences_on(date("2026-11-21"), &shift).is_empty());
         assert_eq!(local_times(&by_day.occurrences_on(date("2026-11-20"), &shift)), ["11-20 09:30", "11-20 10:30"]);
+    }
+
+    #[test]
+    fn a_shift_too_large_to_apply_skips_the_date() {
+        let daily = schedule(Times::DailyAt(vec![parse_time("09:00").unwrap()]), chrono_tz::UTC);
+        let window = Some((parse_time("09:00").unwrap(), parse_time("10:00").unwrap()));
+        let every = schedule(Times::Every { interval: 1.hours(), window }, chrono_tz::UTC);
+        for s in [daily, every] {
+            assert!(s.occurrences_on(date("2026-11-20"), &DayPlan::Shifted(TimeDelta::MAX)).is_empty());
+            assert!(s.occurrences_on(date("2026-11-20"), &DayPlan::Shifted(TimeDelta::MIN)).is_empty());
+        }
+    }
+
+    #[test]
+    fn an_expiry_too_large_to_add_means_no_expiry() {
+        use crate::scheduler::plan::expires_at;
+        let from = "2026-11-20T09:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let mut s = schedule(Times::DailyAt(vec![parse_time("09:00").unwrap()]), chrono_tz::UTC);
+        assert_eq!(expires_at(&s, from), None, "a daily schedule has no expiry of its own");
+        s.expire_after = Some(2.hours());
+        assert_eq!(expires_at(&s, from), Some(from + TimeDelta::hours(2)));
+        s.expire_after = Some(Duration::MAX);
+        assert_eq!(expires_at(&s, from), None);
+        s.expire_after = Some(Duration::from_secs(i64::MAX.unsigned_abs() / 1000));
+        assert_eq!(expires_at(&s, from), None);
+        let every = schedule(Times::Every { interval: 30.minutes(), window: None }, chrono_tz::UTC);
+        assert_eq!(expires_at(&every, from), Some(from + TimeDelta::minutes(30)), "every expires after one interval");
     }
 
     // Spec 8.15: the digest covers the weekdays, the days of the month and the zone.

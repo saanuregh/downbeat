@@ -68,6 +68,81 @@ async fn old_chains_go_unless_they_are_unfinished_awaiting_a_callback_or_a_lates
     assert_eq!(first_rows, 0, "a pruned chain's history goes with it");
 }
 
+// Decision 61: the latest success is dated by when it was marked, if later, and a dry run is none.
+#[tokio::test]
+async fn the_latest_success_kept_is_the_one_overdue_checks_read() {
+    let database = Database::fresh().await;
+    let runs = successes_in_their_own_chains(&database, 3).await;
+    let [marked, older, dry] =
+        [chain_of(&database, runs[0]).await, chain_of(&database, runs[1]).await, chain_of(&database, runs[2]).await];
+    sqlx::query("UPDATE downbeat.run_history SET marked_at = now() + interval '1 minute' WHERE run_id = $1")
+        .bind(runs[0])
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE downbeat.run_history SET dry_run = true WHERE run_id = $1")
+        .bind(runs[2])
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE downbeat.chain SET started_at = now() - interval '10 years'")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    downbeat::measure::prune(&database.pool, definition()).await.unwrap();
+
+    let kept: Vec<Uuid> =
+        sqlx::query_scalar("SELECT chain_id FROM downbeat.chain").fetch_all(&database.pool).await.unwrap();
+    assert!(kept.contains(&marked), "the success marked last stays");
+    assert!(!kept.contains(&older), "an older success goes");
+    assert!(!kept.contains(&dry), "a dry run that finished last goes: it is not a success");
+}
+
+#[tokio::test]
+async fn a_dry_run_that_ended_last_does_not_replace_the_latest_success() {
+    let database = Database::fresh().await;
+    let runs = successes_in_their_own_chains(&database, 2).await;
+    let [real, dry] = [chain_of(&database, runs[0]).await, chain_of(&database, runs[1]).await];
+    sqlx::query("UPDATE downbeat.run_history SET dry_run = true WHERE run_id = $1")
+        .bind(runs[1])
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE downbeat.chain SET started_at = now() - interval '10 years'")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+
+    downbeat::measure::prune(&database.pool, definition()).await.unwrap();
+
+    let kept: Vec<Uuid> =
+        sqlx::query_scalar("SELECT chain_id FROM downbeat.chain").fetch_all(&database.pool).await.unwrap();
+    assert!(kept.contains(&real), "the last real success stays");
+    assert!(!kept.contains(&dry), "the dry run goes");
+}
+
+/// Runs `child_pid`, which starts nothing after it, `count` times one after the other, so each
+/// chain holds one succeeded run, and waits until every callback is delivered.
+async fn successes_in_their_own_chains(database: &Database, count: i64) -> Vec<Uuid> {
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let app = App::start(database);
+    let mut runs = Vec::new();
+    for n in 1..=count {
+        let run = client.start(child_pid, Number { n }).await.unwrap().run_id();
+        finished(&database.pool, run, SOON).await;
+        runs.push(run);
+    }
+    eventually(
+        &database.pool,
+        "SELECT NOT EXISTS (SELECT 1 FROM downbeat.run_history WHERE notify_after IS NOT NULL)",
+        SOON,
+    )
+    .await;
+    app.stop();
+    runs
+}
+
 async fn chain_of(database: &Database, run: Uuid) -> Uuid {
     sqlx::query_scalar(
         "SELECT chain_id FROM downbeat.run_history WHERE run_id = $1

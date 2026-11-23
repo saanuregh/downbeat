@@ -34,6 +34,7 @@ pub struct FinishedRun {
 }
 
 impl FinishedRun {
+    /// Whether the run's status is `failed`.
     pub fn failed(&self) -> bool {
         self.status == "failed"
     }

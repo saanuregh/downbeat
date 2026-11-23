@@ -239,3 +239,49 @@ async fn keep_runs_at_most_counts_only_chains_the_job_started() {
     .unwrap();
     assert_eq!(orphans, 0, "the pruned chain's echo run went with it");
 }
+
+// 9.5: a run the reaper cannot end holds up neither the other runs of its step nor the later steps.
+#[tokio::test]
+async fn a_run_that_cannot_be_ended_holds_up_no_other_sweep() {
+    let database = Database::fresh().await;
+    let pool = &database.pool;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let stuck = client.start(echo, Text { text: "stuck".into() }).await.unwrap().run_id();
+    let cancelled = client.start(echo, Text { text: "cancelled".into() }).await.unwrap().run_id();
+    let expired = client.start(echo, Text { text: "expired".into() }).await.unwrap().run_id();
+    sqlx::query("UPDATE downbeat.run SET cancel_requested_by = 'tester' WHERE run_id = ANY($1)")
+        .bind([stuck, cancelled])
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE downbeat.run SET expires_at = now() - interval '1 minute' WHERE run_id = $1")
+        .bind(expired)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE FUNCTION refuse() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN RAISE EXCEPTION 'this run cannot end, on purpose'; END $$",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE TRIGGER refuse BEFORE INSERT ON downbeat.run_history
+         FOR EACH ROW WHEN (NEW.run_id = '{stuck}') EXECUTE FUNCTION refuse()"
+    )))
+    .execute(pool)
+    .await
+    .unwrap();
+
+    // A scheduler alone runs the reaper and claims nothing.
+    let _reaper = App::with(&database, &["scheduler"], "test");
+    assert_eq!(finished(pool, cancelled, SOON).await.status, "cancelled");
+    assert_eq!(finished(pool, expired, SOON).await.status, "expired");
+    let left: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM downbeat.run WHERE run_id = $1)")
+        .bind(stuck)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert!(left, "the run that cannot end is still there");
+}

@@ -225,7 +225,7 @@ fn go(
                 let _ = outgoing.send(FromChild::Started { run_id });
                 let ending = match tokio::spawn(future.instrument(span)).await {
                     Ok(result) => ending_of(result),
-                    Err(join) => ChildEnding::Panic(panic_message(join)),
+                    Err(join) => ChildEnding::Panic(cap_text(panic_message(join))),
                 };
                 // This wrapper task is still alive; anything more was spawned by the function and
                 // has outlived it. The worker then replaces this child, so it cannot touch the next run.
@@ -245,12 +245,25 @@ fn ending_of(result: Result<Value, JobError>) -> ChildEnding {
             let size = output.to_string().len();
             if size > MAX_VALUE_BYTES { ChildEnding::OutputTooLarge(size) } else { ChildEnding::Output(output) }
         }
-        Err(JobError(Stop::Skip(reason))) => ChildEnding::Skip(reason),
-        Err(JobError(Stop::NotReady(reason))) => ChildEnding::NotReady(reason),
-        Err(JobError(Stop::BadInput(error))) => ChildEnding::BadInput(error),
-        Err(JobError(Stop::Error(error))) => ChildEnding::Error(error),
+        Err(JobError(Stop::Skip(reason))) => ChildEnding::Skip(cap_text(reason)),
+        Err(JobError(Stop::NotReady(reason))) => ChildEnding::NotReady(cap_text(reason)),
+        Err(JobError(Stop::BadInput(error))) => ChildEnding::BadInput(cap_text(error)),
+        Err(JobError(Stop::Error(error))) => ChildEnding::Error(cap_text(error)),
     }
 }
+
+/// Cuts text from product code to the size of a stored value, so it always fits in a message to
+/// the worker.
+fn cap_text(mut text: String) -> String {
+    if text.len() > MAX_VALUE_BYTES {
+        text.truncate(text.floor_char_boundary(MAX_VALUE_BYTES - CUT.len()));
+        text.push_str(CUT);
+    }
+    text
+}
+
+/// Marks text that [`cap_text`] cut.
+const CUT: &str = " [cut]";
 
 fn panic_message(join: tokio::task::JoinError) -> String {
     match join.try_into_panic() {
@@ -287,7 +300,7 @@ impl ChildLink {
 
 impl RunLink for ChildLink {
     fn progress(&self, text: String) {
-        let _ = self.outgoing.send(FromChild::Progress { run_id: self.run_id, text });
+        let _ = self.outgoing.send(FromChild::Progress { run_id: self.run_id, text: cap_text(text) });
     }
 
     fn checkpoint(&self, state: Value) {

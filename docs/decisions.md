@@ -511,3 +511,21 @@ A job function returns `JobResult<T>`, an alias for `Result<T, JobError>`, inste
 whose error was not `downbeat::Error` misled readers, and a product's glob import of the prelude
 shadowed the standard library's `Result`. `#[job]` requires the return type to be written
 `JobResult<…>`.
+
+## 71. Runtime limits found by review
+
+- **A child whose messages stop is killed after a second.** The worker's reader also stops on a
+  message it cannot read (one over 4 MiB) while the child lives on. The worker gives the child a
+  second to exit, so a real crash keeps its exit status, then kills it and records a crash.
+- **Product text is cut, not refused.** Progress has no way to report an error, so progress and the
+  text of an error, panic, skip or not-ready reason are cut in the child to `MAX_VALUE_BYTES`, ending
+  in ` [cut]`. Values (inputs, outputs, checkpoints) are still refused over the limit.
+- **An expiry or a day rule's shift too large for the calendar is none.** `expire_after` beyond the
+  calendar's range means no expiry; a shift that moves a time out of range skips that date.
+- **Pruning keeps the latest success that overdue checks read** (decision 61): a dry run is not a
+  success, and a marked run counts from when it was marked. `if_changed` reads the latest success by
+  end, dry runs included; when that one is past its retention and is a dry run, or ended before a
+  run marked later, pruning may now remove it, and `if_changed` compares with the success before.
+- **Sweeps isolate failures and run beside pruning.** A run a sweep cannot handle is logged and
+  passed over, and every duty runs every five seconds whatever an earlier one hit. Pruning runs on
+  its own clock, and both delay their next turn after an overrun instead of bursting to catch up.

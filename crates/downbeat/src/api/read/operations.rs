@@ -104,10 +104,14 @@ pub(crate) async fn backfills(
     Extension(caller): Extension<Caller>,
 ) -> Answer<Vec<BackfillView>> {
     caller.require(Scope::Read)?;
-    let rows: Vec<BackfillRow> = sqlx::query_as("SELECT * FROM downbeat.backfill ORDER BY created_at DESC LIMIT 200")
-        .fetch_all(&state.pool)
-        .await?;
-    Ok(Json(rows.into_iter().filter(|row| caller.covers(&row.job_name)).map(backfill_view).collect()))
+    let rows: Vec<BackfillRow> = sqlx::query_as(
+        "SELECT * FROM downbeat.backfill WHERE ($1::text[] IS NULL OR job_name = ANY($1))
+          ORDER BY created_at DESC LIMIT 200",
+    )
+    .bind(&caller.jobs)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows.into_iter().map(backfill_view).collect()))
 }
 
 pub(crate) fn backfill_view(row: BackfillRow) -> BackfillView {

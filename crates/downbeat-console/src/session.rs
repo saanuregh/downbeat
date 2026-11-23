@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::extract::{Query, Request, State as Extract};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
@@ -54,9 +55,8 @@ impl Provider {
         let issuer = IssuerUrl::new(sign_in.issuer.clone())?;
         let metadata = CoreProviderMetadata::discover_async(issuer, &http)
             .await
-            .map_err(|error| anyhow::anyhow!("discovering {}: {error}", sign_in.issuer))?;
-        let client_secret = std::env::var(&sign_in.client_secret_env)
-            .map_err(|_| anyhow::anyhow!("{} is not set", sign_in.client_secret_env))?;
+            .with_context(|| format!("discovering {}", sign_in.issuer))?;
+        let client_secret = crate::config::secret_from_env(&sign_in.client_secret_env)?;
         let algorithms: Vec<CoreJwsSigningAlgorithm> = metadata
             .id_token_signing_alg_values_supported()
             .iter()

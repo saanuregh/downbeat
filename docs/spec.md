@@ -34,6 +34,8 @@ Modules: `job/`, `definition.rs`, `registry.rs`, `check.rs`, `downbeat-macros`.
 5. A dependency must be built at most once per process, on first use, by the definition's
    builder. A failed build must fail the call that needed it, as an `error`.
 6. A value (input, output, checkpoint) must be at most 64 KiB as JSON (`MAX_VALUE_BYTES`).
+   Progress text, and the text of an error, panic, skip or not-ready reason, is cut to 64 KiB in
+   the child, ending in ` [cut]`.
 7. The identity of a value is its `JobData::identity()`: the serialized value without its
    `not_compared` fields. The *input hash* is the SHA-256 of the identity as canonical JSON:
    object keys sorted, keys whose value is `null` left out. Two inputs are *equal* when their
@@ -103,7 +105,7 @@ Modules: `worker/mod.rs`, `worker/prepare.rs`, `worker/call.rs`, `store/runs.rs`
    | Panic | `failed` (`panic`) |
    | Output over 64 KiB | `failed` (`output_too_large`) |
    | Input did not decode | `failed` (`bad_input`) |
-   | Child exited or was killed by a signal the worker did not send | `crash`: another attempt or `failed` |
+   | Child exited or was killed by a signal the worker did not send, or sent a message the worker could not read | `crash`: another attempt or `failed` |
    | Over `max_memory` | `out_of_memory`: another attempt or `failed` |
    | Past the timeout | `timeout`: another attempt or `failed` |
    | Cancel requested | `cancelled`, naming who asked |
@@ -367,7 +369,11 @@ Modules: `worker/lease.rs`, `reaper.rs`, `definition.rs` (`Settings`).
    queued runs created more than an hour ago whose job is in the build of no worker seen in the
    last hour, when at least one row of a process in the worker role exists
    (`job_not_registered`). It must delete expired
-   used-token records.
+   used-token records. Every duty runs on every sweep, and a run that cannot be handled is logged
+   and passed over, so a failing run holds up neither the other runs of its batch nor the other
+   duties. Pruning (section 13) runs beside
+   the sweeps, so a long pass delays none, and a sweep or a prune that overruns its period delays
+   the next rather than making up the missed ones.
 7. A run whose function has been called at least once must never be expired.
 
 ## 10. Child processes and limits
@@ -389,7 +395,9 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
    the worker died before the signal was set.
 3. A child must report ready within 60 seconds, and runs one function at a time. Messages are
    length-framed JSON over a Unix socket; after the opening `Ready`, each carries its run id, and
-   a message for another run must be ignored. A child must not touch the engine's tables.
+   a message for another run must be ignored. A child must not touch the engine's tables. When
+   the worker can no longer read the child's messages (it exited, or sent one over 4 MiB), a child
+   that has not exited within a second is killed, so the slot never waits on it.
 4. A reused child must be replaced after `recycle_child_after` runs whose function it called (a run
    that ends while it is prepared does not count), after any call that ended
    in a panic, crash, timeout, memory kill, stop or shutdown, and after a function that returned
@@ -401,7 +409,9 @@ Modules: `worker/process.rs`, `worker/child.rs`, `worker/call.rs`, `child.rs`, `
 6. With `max_memory`, the resident memory of the child (or the command's program) must be sampled
    every two seconds from `/proc`, and the process group killed above the limit.
 7. A command's program must get a cleared environment plus its `pass_env` and `env` variables,
-   `JOB_RUN_ID`, `JOB_ATTEMPT`, `JOB_DRY_RUN` and `JOB_OUTPUT_FILE`; its input as JSON on standard
+   `JOB_RUN_ID`, `JOB_ATTEMPT`, `JOB_DRY_RUN` and `JOB_OUTPUT_FILE`, a file the worker creates
+   empty first, readable only by its user (a program that cannot have it fails as not started);
+   its input as JSON on standard
    input; and arguments passed directly, without a shell. An argument from `.arg(…)` that begins
    with `-` must fail the run as `bad_input` unless the command allows options. When the program
    exits, its process group must be killed. At a stop, the group gets SIGTERM, then SIGKILL after
@@ -465,9 +475,10 @@ Modules: `pruning.rs`.
      did not join. Each chain counts once, by its first run of that job, and a chain that may not
      be pruned (rule 3) still counts toward the `n`.
 3. A chain must not be pruned while it has an unfinished run, a history row waiting for its
-   callback, or a row that is its job's latest success. Pruning must take the chain's lock without
-   waiting, pass over a chain whose lock is held, and check these conditions again after the lock
-   is held, in a statement that sees the data as it is then.
+   callback, or a row that is its job's latest success, by the rule of 16.4 (a dry run is not a
+   success, and a run marked as succeeded counts from when it was marked). Pruning must take the
+   chain's lock without waiting, pass over a chain whose lock is held, and check these conditions
+   again after the lock is held, in a statement that sees the data as it is then.
 4. The statement that removes chains must, in the same statement, add their runs (not dry runs,
    not `joined` rows) to `downbeat.day_totals`: per job and calendar day in the definition's zone,
    the count of each final status and the longest succeeded run. The report reads them with the
@@ -516,7 +527,8 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
     `RequestRefused` event, carrying the count since the last one, is recorded at most once a
     minute per caller and status. A token that does not verify names no trusted caller, so its
     refusals are reported with no caller. Refusals by an endpoint (403 for scope, 404, 409, 422) are
-    answers, not attacks, and are not counted; nor is a 503 because the database cannot be reached.
+    answers, not attacks, and are not counted; nor is a 5xx because the database cannot be reached
+    or failed.
 
 **Authorization.**
 

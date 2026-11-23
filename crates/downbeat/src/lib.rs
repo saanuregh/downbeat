@@ -89,6 +89,10 @@ pub fn child_process(definition: fn() -> Definition) -> Option<std::process::Exi
 
 /// Brings the engine's tables in the `downbeat` schema up to date. Every role does this at start;
 /// call it yourself to migrate as a separate deploy step.
+///
+/// # Errors
+///
+/// When the URL is not a Postgres URL, the database cannot be reached, or a migration fails.
 pub async fn migrate(database_url: &str) -> std::result::Result<(), Error> {
     store::Store::connect(database_url, 1).await.map(|_| ())
 }

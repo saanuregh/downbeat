@@ -8,6 +8,7 @@ use std::path::Path;
 
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    println!("cargo::rerun-if-changed={}", root.join("docs/guide").display());
     let mut files = vec![root.join("README.md")];
     let mut guide: Vec<_> =
         std::fs::read_dir(root.join("docs/guide")).unwrap().map(|entry| entry.unwrap().path()).collect();

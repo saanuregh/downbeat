@@ -118,13 +118,22 @@ pub(crate) async fn overrides(
     Extension(caller): Extension<Caller>,
 ) -> Answer<Vec<OverrideView>> {
     caller.require(Scope::Read)?;
-    let rows: Vec<plan::OverrideRow> = sqlx::query_as("SELECT * FROM downbeat.schedule_override WHERE on_date >= (now() - interval '30 days')::date ORDER BY on_date, schedule LIMIT 500")
-        .fetch_all(&state.pool)
-        .await?;
-    let visible = |row: &plan::OverrideRow| {
-        state.registry.schedules.get(&row.schedule).is_some_and(|schedule| caller.covers(schedule.job))
-    };
-    Ok(Json(rows.into_iter().filter(|row| visible(row)).map(override_view).collect()))
+    let visible: Vec<&str> = state
+        .registry
+        .schedules
+        .values()
+        .filter(|schedule| caller.covers(schedule.job))
+        .map(|schedule| schedule.name.as_str())
+        .collect();
+    let rows: Vec<plan::OverrideRow> = sqlx::query_as(
+        "SELECT * FROM downbeat.schedule_override
+          WHERE on_date >= (now() - interval '30 days')::date AND schedule = ANY($1)
+          ORDER BY on_date, schedule LIMIT 500",
+    )
+    .bind(&visible)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows.into_iter().map(override_view).collect()))
 }
 
 pub(crate) fn override_view(row: plan::OverrideRow) -> OverrideView {

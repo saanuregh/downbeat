@@ -119,24 +119,31 @@ async fn beat(
             runs::heartbeat(&pool, held, length, progress.as_deref(), checkpoint.as_ref()),
         )
         .await;
-        let sent_heartbeat = sent_heartbeat.unwrap_or_else(|_| Err(sqlx::Error::PoolTimedOut));
-        match sent_heartbeat {
-            Ok(Some(cancel)) => {
+        let failed = match sent_heartbeat {
+            Ok(Ok(Some(cancel))) => {
                 last_good_send = sent;
                 if let Some(by) = cancel {
                     let _ = signal.send(Some(StopReason::CancelRequested(by)));
                 }
+                false
             }
-            Ok(None) => {
+            Ok(Ok(None)) => {
                 let _ = signal.send(Some(StopReason::Lost));
                 return;
             }
-            Err(error) => {
+            Ok(Err(error)) => {
                 tracing::warn!(%run_id, %error, "a heartbeat failed; trying again");
-                let mut pending = pending.lock().expect("lease state");
-                pending.progress = pending.progress.take().or(progress);
-                pending.checkpoint = pending.checkpoint.take().or(checkpoint);
+                true
             }
+            Err(_) => {
+                tracing::warn!(%run_id, within = ?within, "a heartbeat got no answer within the lease; trying again");
+                true
+            }
+        };
+        if failed {
+            let mut pending = pending.lock().expect("lease state");
+            pending.progress = pending.progress.take().or(progress);
+            pending.checkpoint = pending.checkpoint.take().or(checkpoint);
         }
     }
 }

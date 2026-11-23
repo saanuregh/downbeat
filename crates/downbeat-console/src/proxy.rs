@@ -163,11 +163,19 @@ async fn jobs_of(state: &State, scheduler: &Scheduler, pipelines: &[String]) -> 
             let response =
                 send(state, scheduler, &scheduler.caller, Scope::Read, None, Method::GET, "/v1/pipelines", &[], None)
                     .await?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(Failure::unavailable(format!(
+                    "{} answered {status} when asked for its pipelines",
+                    scheduler.label
+                )));
+            }
             let bytes = axum::body::to_bytes(response.into_body(), 4 << 20)
                 .await
                 .map_err(|error| Failure::unavailable(error.to_string()))?;
-            let views: Vec<PipelineView> = serde_json::from_slice(&bytes)
-                .map_err(|_| Failure::unavailable("the scheduler's pipelines could not be read"))?;
+            let views: Vec<PipelineView> = serde_json::from_slice(&bytes).map_err(|error| {
+                Failure::unavailable(format!("the scheduler's pipelines could not be read: {error}"))
+            })?;
             let map: JobsByPipeline = views
                 .into_iter()
                 .map(|view| (view.name, view.jobs.into_iter().map(|node| node.job).collect()))

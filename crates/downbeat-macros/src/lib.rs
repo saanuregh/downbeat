@@ -13,7 +13,7 @@ use proc_macro::TokenStream;
 ///
 /// ```ignore
 /// #[job(queue = "heavy", timeout = 2.hours(), attempts = 3)]
-/// async fn build_candles(run: Run, prices: Prices, pools: &Pools) -> Result<Candles> { todo!() }
+/// async fn build_candles(run: Run, prices: Prices, pools: &Pools) -> JobResult<Candles> { todo!() }
 /// ```
 #[proc_macro_attribute]
 pub fn job(attribute: TokenStream, item: TokenStream) -> TokenStream {

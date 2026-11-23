@@ -157,8 +157,8 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
   `start(name, &input)` does the same by name, for when there is no shared crate. Either way the
   scheduler checks the input against the job's real type and answers 422 when it does not fit.
 - **Retries are safe.** `send` gives every start an idempotency key (yours, or a generated one)
-  and retries with the same key after a connection error, a timeout, a 429 or a 5xx, up to four
-  tries. A refused request (401, 403, 422) is not retried.
+  and retries with the same key after a connection error, a timeout, a 429, 502, 503 or 504, up to
+  four tries. A refused request (401, 403, 422) or a 500 is not retried.
 - **Keys rotate by overlap.** Add several keys with `.key(…)`; the last one added signs.
 - **Other builder options**: `.scope(Scope::Administer)` (default `operate`),
   `.certificate_authority(pem)?` to trust your own CA, `.timeout(duration)` (default 30 seconds),

@@ -6,6 +6,7 @@ use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use downbeat_api::types::ApiError;
+use sqlx::postgres::{PgDatabaseError, PgSeverity};
 
 #[derive(Debug)]
 pub(crate) struct Failure {
@@ -53,11 +54,40 @@ impl Failure {
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Failure {
         tracing::error!(%error, "a database error in the control API");
-        Failure::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "database",
-            "the scheduler could not reach its database; try again",
-        )
+        if is_passing(&error) {
+            Failure::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "database",
+                "the scheduler's database could not answer just now; try again",
+            )
+        } else {
+            Failure::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", "the scheduler failed to answer this request")
+        }
+    }
+}
+
+/// Whether the same request could succeed later: the database could not be reached, or refused
+/// this statement for a passing reason, as opposed to failing it for good.
+fn is_passing(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::PoolTimedOut
+        | sqlx::Error::PoolClosed
+        | sqlx::Error::Io(_)
+        | sqlx::Error::Tls(_)
+        | sqlx::Error::Protocol(_)
+        | sqlx::Error::WorkerCrashed => true,
+        // FATAL or PANIC: Postgres refused or dropped the connection (not accepting connections, a
+        // shutdown, too many clients). Class 08: connection exceptions; class 40: deadlock and
+        // serialisation failures; 57014: the statement timeout; 55P03: a lock not available;
+        // 25006: a read-only server, as after a failover.
+        sqlx::Error::Database(error) => error.try_downcast_ref::<PgDatabaseError>().is_some_and(|error| {
+            let code = error.code();
+            matches!(error.severity(), PgSeverity::Fatal | PgSeverity::Panic)
+                || code.starts_with("08")
+                || code.starts_with("40")
+                || matches!(code, "57014" | "55P03" | "25006")
+        }),
+        _ => false,
     }
 }
 
@@ -98,4 +128,25 @@ pub(crate) async fn as_json(request: Request, next: Next) -> Response {
         _ => "refused",
     };
     Failure::new(status, code, message).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_passing_database_failure_answers_503() {
+        let io = std::io::Error::from(std::io::ErrorKind::ConnectionReset);
+        for error in [
+            sqlx::Error::PoolTimedOut,
+            sqlx::Error::PoolClosed,
+            sqlx::Error::Io(io),
+            sqlx::Error::Protocol("cut".into()),
+        ] {
+            assert_eq!(Failure::from(error).status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+        for error in [sqlx::Error::RowNotFound, sqlx::Error::ColumnNotFound("missing".into())] {
+            assert_eq!(Failure::from(error).status(), StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    }
 }

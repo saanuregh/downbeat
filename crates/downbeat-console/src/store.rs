@@ -129,6 +129,18 @@ pub(crate) async fn grants(pool: &PgPool) -> sqlx::Result<Vec<Grant>> {
     .await
 }
 
+/// One grant by its id.
+pub(crate) async fn grant(pool: &PgPool, id: i64) -> sqlx::Result<Option<Grant>> {
+    sqlx::query_as(
+        "SELECT g.grant_id, p.email AS to_person, g.to_group, g.scheduler, g.scope, g.pipelines, g.created_by, g.created_at
+           FROM console.grant g LEFT JOIN console.person p ON p.person_id = g.to_person
+          WHERE g.grant_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// The grants that apply to a person, directly or through a group.
 pub(crate) async fn grants_of(pool: &PgPool, person: &Person) -> sqlx::Result<Vec<Grant>> {
     sqlx::query_as(

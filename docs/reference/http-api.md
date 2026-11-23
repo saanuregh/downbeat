@@ -113,7 +113,7 @@ first). `joined` rows are never listed. Unknown query parameters are refused (40
 | `job` | Only this job. |
 | `pipeline` | Only jobs in this pipeline (404 for an unknown pipeline). |
 | `status` | `queued`, `running`, `succeeded`, `skipped`, `failed`, `cancelled` or `expired`. |
-| `queued_because`, `skipped_because`, `failed_because` | Only runs with this reason code. |
+| `queued_because`, `skipped_because`, `failed_because` | Only runs with this reason code. With `queued_because`, a page can hold fewer than `limit` runs, even none, and still carry `next_cursor`: keep paging while it is present. |
 | `started_by` | `schedule`, `link`, `person`, `program`, `backfill` or `job`. |
 | `queue` | Only this queue. |
 | `from`, `to` | Created (unfinished) or finished (finished) at or after `from` and before `to`. RFC 3339. |
@@ -190,7 +190,8 @@ example `DELETE /v1/jobs`:
 | 413 | `too_large` | The body is over 256 KiB. |
 | 422 | `bad_input` | The input or output does not fit the job's type, or a dry run of a job that does not support it. |
 | 429 | `rate_limited` | Over 20 requests a second on average (bursts of 100) for this caller and actor. |
-| 503 | `database` | The scheduler could not reach its database. Try again. |
+| 500 | `internal` | The scheduler failed to answer the request for another reason; its log has the error. |
+| 503 | `database` | The scheduler's database could not answer just now: unreachable, a deadlock or serialisation failure, a statement or lock timeout, or a read-only server. Try again. |
 
 A body that is not valid JSON, or that does not fit the request type, is rejected before it
 reaches downbeat's handlers, with status 400, 415 or 422. That answer is an `ApiError` too, with

@@ -254,7 +254,7 @@ async fn a_named_callers_refusals_are_reported_once_a_minute_with_their_count() 
     );
 }
 
-/// 14.12: a request that fails on the database (503) is not counted as refused.
+/// 14.12: a request that fails on the database (here a missing table, so 500) is not counted as refused.
 #[tokio::test]
 async fn a_database_error_is_not_a_refused_request() {
     let database = Database::fresh().await;
@@ -264,8 +264,8 @@ async fn a_database_error_is_not_a_refused_request() {
     let answer = Signer::local(&format!("http://{listen}")).send("POST", "/v1/jobs/echo/runs", &body).await;
     let status = answer.status();
     let detail: serde_json::Value = answer.json().await.unwrap();
-    assert_eq!(status, 503, "{detail}");
-    assert_eq!(detail["error"], "database", "{detail}");
+    assert_eq!(status, 500, "{detail}");
+    assert_eq!(detail["error"], "internal", "{detail}");
     let refused: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM downbeat.audit WHERE action = 'event' AND detail->>'event' = 'request_refused')",
     )

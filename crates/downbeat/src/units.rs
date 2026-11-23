@@ -4,9 +4,13 @@ use std::time::Duration;
 
 /// Durations written as `30.seconds()`, `5.minutes()`, `2.hours()` or `30.days()`.
 pub trait DurationExt {
+    /// This many seconds.
     fn seconds(self) -> Duration;
+    /// This many minutes.
     fn minutes(self) -> Duration;
+    /// This many hours.
     fn hours(self) -> Duration;
+    /// This many days of 24 hours.
     fn days(self) -> Duration;
 }
 
@@ -31,8 +35,11 @@ pub struct Bytes(pub u64);
 
 /// Sizes written as `512.mb()` or `8.gb()` (powers of 1024).
 pub trait BytesExt {
+    /// This many kibibytes (1024 bytes).
     fn kb(self) -> Bytes;
+    /// This many mebibytes (1024 KiB).
     fn mb(self) -> Bytes;
+    /// This many gibibytes (1024 MiB).
     fn gb(self) -> Bytes;
 }
 

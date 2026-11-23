@@ -45,6 +45,6 @@ impl Exchange {
 #[derive(Debug)]
 pub struct Holidays(pub Vec<NaiveDate>);
 
-pub(crate) fn chrono_now() -> String {
-    format!("{:?}", std::time::SystemTime::now())
+pub(crate) fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339()
 }

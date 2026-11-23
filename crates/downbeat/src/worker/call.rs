@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -252,8 +253,19 @@ async fn answer(context: &WorkerContext, child: &mut ChildHandle, run: &RunRow, 
     }
 }
 
+/// How long a child whose messages stopped may take to exit by itself before it is killed.
+const EXIT_WITHIN: Duration = Duration::from_secs(1);
+
+/// How a child whose messages stopped ended. The pipe also stops when a message cannot be read,
+/// with the child still alive: it is then killed, so the wait ends.
 async fn crashed(child: &mut ChildHandle) -> CallOutcome {
-    match child.process.wait().await {
+    let status = if let Ok(status) = tokio::time::timeout(EXIT_WITHIN, child.process.wait()).await {
+        status
+    } else {
+        child.process.kill();
+        child.process.wait().await
+    };
+    match status {
         Ok(status) => {
             let (code, signal) = describe_exit(status);
             CallOutcome::Crashed { code, signal }
@@ -290,6 +302,14 @@ pub(crate) async fn command(
         Err(error) => return CallOutcome::Ended(ChildEnding::BadInput(error)),
     };
     let output_file = std::env::temp_dir().join(format!("downbeat-{}-{}.json", run.run_id, run.starts));
+    // Created here, only for this user, so nobody else can plant the file or read the output.
+    if let Err(error) = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&output_file) {
+        return CallOutcome::ProgramNotStarted(format!(
+            "{}: its output file {} could not be created: {error}",
+            spec.program,
+            output_file.display()
+        ));
+    }
     let outcome = run_program(context, run, &spec, &input, &output_file, &limits, lease).await;
     let outcome = match outcome {
         CallOutcome::Ended(ChildEnding::Output(_)) => {

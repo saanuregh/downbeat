@@ -109,12 +109,13 @@ pub(crate) async fn runs(
         }
         sql.push(" ORDER BY created_at DESC, run_id DESC LIMIT ").push_bind(limit + 1);
         let rows: Vec<RunRow> = sql.build_query_as().fetch_all(&state.pool).await?;
-        for row in rows {
-            if i64::try_from(items.len()).unwrap_or(i64::MAX) == limit {
-                let last: &RunView = items.last().expect("a full page");
-                next = Some(Cursor::Unfinished(last.created_at, last.run_id).text());
-                break;
-            }
+        let examined = usize::try_from(limit).unwrap_or(usize::MAX);
+        // The cursor marks the last row examined, kept or not, so a filtered-out page still pages on.
+        if rows.len() > examined {
+            let last = &rows[examined - 1];
+            next = Some(Cursor::Unfinished(last.created_at, last.run_id).text());
+        }
+        for row in rows.into_iter().take(examined) {
             let view = views::unfinished(&state.pool, &state.registry, row, None).await?;
             if query.queued_because.as_deref().is_none_or(|because| view.queued_because.as_deref() == Some(because)) {
                 items.push(view);

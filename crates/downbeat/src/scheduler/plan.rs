@@ -1,9 +1,6 @@
 //! What a schedule does on a date: its dated override, else its day rule, else its normal times.
 
-use std::time::Duration;
-
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use sqlx::PgPool;
+use chrono::{DateTime, NaiveDate, NaiveTime, TimeDelta, Utc};
 
 use crate::registry::Registry;
 use crate::schedule::times::{dates_covering, parse_time};
@@ -29,10 +26,13 @@ pub(crate) struct OverrideRow {
     pub(crate) created_by: String,
 }
 
-pub(crate) async fn overrides_for(pool: &PgPool, schedule: &str) -> sqlx::Result<Vec<OverrideRow>> {
+pub(crate) async fn overrides_for(
+    executor: impl sqlx::PgExecutor<'_>,
+    schedule: &str,
+) -> sqlx::Result<Vec<OverrideRow>> {
     sqlx::query_as("SELECT * FROM downbeat.schedule_override WHERE schedule = $1 ORDER BY on_date")
         .bind(schedule)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
@@ -110,7 +110,9 @@ pub(crate) fn parse_times(texts: &[String]) -> Result<Vec<NaiveTime>, String> {
     texts.iter().map(|text| parse_time(text)).collect()
 }
 
-/// How long an occurrence of this schedule stays worth running.
-pub(crate) fn expiry_of(schedule: &CompiledSchedule) -> Option<Duration> {
-    schedule.expiry()
+/// When an occurrence of this schedule that counts from `from` stops being worth running. An
+/// expiry too large to add to `from` is no expiry.
+pub(crate) fn expires_at(schedule: &CompiledSchedule, from: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let expiry = TimeDelta::from_std(schedule.expiry()?).ok()?;
+    from.checked_add_signed(expiry)
 }

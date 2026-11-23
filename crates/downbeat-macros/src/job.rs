@@ -32,7 +32,9 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
 
     let handle = &function.sig.ident;
     let visibility = &function.vis;
-    let attributes = &function.attrs;
+    let is = |attribute: &&syn::Attribute, names: &[&str]| names.iter().any(|name| attribute.path().is_ident(name));
+    let conditions: Vec<_> = function.attrs.iter().filter(|a| is(a, &["cfg"])).collect();
+    let handle_attributes: Vec<_> = function.attrs.iter().filter(|a| is(a, &["doc", "allow", "deprecated"])).collect();
     let name = arguments.name.as_ref().map_or_else(|| handle.to_string(), syn::LitStr::value);
     let input_type = signature.input.clone().unwrap_or_else(|| syn::parse_quote!(()));
     let output_type = &signature.output;
@@ -42,7 +44,7 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
     let mut call = function.clone();
     call.sig.ident = format_ident!("call");
     call.vis = syn::parse_quote!(pub);
-    call.attrs.retain(|attribute| attribute.path().is_ident("allow"));
+    call.attrs.retain(|attribute| !is(&attribute, &["doc", "cfg", "deprecated"]));
     call.attrs.push(syn::parse_quote!(#[allow(unknown_lints, clippy::unused_async, clippy::unused_async_trait_impl)]));
 
     let erased = match kind {
@@ -52,12 +54,15 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
 
     let documentation = format!("The `{name}` job. Refer to it by this handle in pipelines.");
     Ok(quote! {
-        #(#attributes)*
+        #(#conditions)*
+        #(#handle_attributes)*
         #[doc = #documentation]
         #[allow(non_camel_case_types)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         #visibility struct #handle;
 
+        #(#conditions)*
+        #[allow(deprecated)]
         impl #handle {
             /// The job's function, as written.
             #[doc(hidden)]
@@ -66,12 +71,17 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
             #policy_function
         }
 
+        #(#conditions)*
+        #[allow(deprecated)]
         #erased
 
+        #(#conditions)*
         ::downbeat::__private::inventory::submit! {
             ::downbeat::__private::Registered { name: #name }
         }
 
+        #(#conditions)*
+        #[allow(deprecated)]
         impl ::downbeat::Job for #handle {
             type Input = #input_type;
             type Output = #output_type;
@@ -84,7 +94,7 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream, kind: Kind) -> s
     })
 }
 
-/// `async fn name(run: Run, input: In, dep: &Dep, …) -> Result<Out>`
+/// `async fn name(run: Run, input: In, dep: &Dep, …) -> JobResult<Out>`
 fn function_signature(function: &ItemFn) -> syn::Result<Signature> {
     if function.sig.asyncness.is_none() {
         return Err(syn::Error::new_spanned(

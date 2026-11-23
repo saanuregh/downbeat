@@ -5,7 +5,7 @@ use std::time::Duration;
 use downbeat_api::types::{
     ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, Done, JobView, MarkSucceededRequest,
     OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, Report, RunView, ScheduleView,
-    StartRequest, StartResponse, Version,
+    StartRequest, Version,
 };
 use downbeat_api::{
     API_VERSION, Claims, DEVELOPMENT_AUDIENCE, IDEMPOTENCY_HEADER, JobName, PrivateKey, RequestBinding, Scope,
@@ -16,10 +16,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
-use crate::Error;
-
-/// How many times a start is tried when the scheduler cannot be reached or is busy.
-const START_TRIES: u32 = 4;
+use crate::{Error, Start};
 
 /// Sets up a [`Client`].
 #[derive(Debug)]
@@ -66,7 +63,13 @@ impl Builder {
 
     /// The private key from an environment variable holding PKCS#8 PEM.
     pub fn key_from_env(self, variable: &str) -> Result<Self, Error> {
-        let pem = std::env::var(variable).map_err(|_| Error::Setup(format!("{variable} is not set")))?;
+        // The error's own text would quote a value that is not UTF-8, and this one is a secret.
+        let pem = std::env::var(variable).map_err(|error| {
+            Error::Setup(match error {
+                std::env::VarError::NotPresent => format!("{variable} is not set"),
+                std::env::VarError::NotUnicode(_) => format!("{variable} is not valid UTF-8"),
+            })
+        })?;
         Ok(self.key(PrivateKey::from_pem(&pem)?))
     }
 
@@ -155,6 +158,7 @@ pub struct Client {
 }
 
 impl Client {
+    /// Starts setting up a client for the scheduler at `base_url`.
     pub fn builder(base_url: &str) -> Builder {
         Builder {
             base: base_url.trim_end_matches('/').to_owned(),
@@ -195,40 +199,83 @@ impl Client {
         self.as_self().start(J::NAME, input)
     }
 
+    /// Every job the client may see.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn jobs(&self) -> Result<Vec<JobView>, Error> {
         self.as_self().get("/v1/jobs").await
     }
 
+    /// One job by name.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn job(&self, name: &str) -> Result<JobView, Error> {
-        self.as_self().get(&format!("/v1/jobs/{name}")).await
+        self.as_self().get(&path(&["v1", "jobs", name])).await
     }
 
+    /// One run by id.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn run(&self, id: Uuid) -> Result<RunView, Error> {
         self.as_self().get(&format!("/v1/runs/{id}")).await
     }
 
     /// Runs, newest first; `query` is the filter part of the URL, such as `status=failed&job=x`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn runs(&self, query: &str) -> Result<Page<RunView>, Error> {
         self.as_self().get(&format!("/v1/runs?{query}")).await
     }
 
+    /// One chain by id.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn chain(&self, id: Uuid) -> Result<ChainView, Error> {
         self.as_self().get(&format!("/v1/chains/{id}")).await
     }
 
+    /// Every pipeline the client may see.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn pipelines(&self) -> Result<Vec<PipelineView>, Error> {
         self.as_self().get("/v1/pipelines").await
     }
 
+    /// The planned and past runs of one day.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn calendar(&self, date: chrono::NaiveDate) -> Result<CalendarDay, Error> {
         self.as_self().get(&format!("/v1/calendar?date={date}")).await
     }
 
     /// Each job's last `days` days (1 to 30, ending today), and yesterday's failures.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn report(&self, days: u32) -> Result<Report, Error> {
         self.as_self().report(days).await
     }
 
+    /// Cancels a run.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn cancel(&self, run: Uuid) -> Result<Done, Error> {
         self.as_self().post(&format!("/v1/runs/{run}/cancel"), None::<&()>, None).await
     }
@@ -251,13 +298,10 @@ pub struct ActingClient<'a> {
 impl<'a> ActingClient<'a> {
     /// Start a job, as this actor.
     pub fn start<I: Serialize>(&self, job: &str, input: &I) -> Start<'a> {
-        let input = serde_json::to_value(input).unwrap_or(serde_json::Value::Null);
-        Start {
-            client: self.clone(),
-            job: job.to_owned(),
-            request: StartRequest { input, ..StartRequest::default() },
-            key: None,
-        }
+        let request = serde_json::to_value(input)
+            .map(|input| StartRequest { input, ..StartRequest::default() })
+            .map_err(|error| Error::Setup(format!("the input for {job} does not serialise to JSON: {error}")));
+        Start { client: self.clone(), job: job.to_owned(), request, key: None }
     }
 
     /// Sends one signed request.
@@ -272,7 +316,12 @@ impl<'a> ActingClient<'a> {
             Some(body) => serde_json::to_vec(body).map_err(|error| Error::Setup(error.to_string()))?,
             None => Vec::new(),
         };
-        let binding = RequestBinding { method: method.as_str(), path_and_query, body: &bytes };
+        let url = self.client.base.join(path_and_query).map_err(|error| Error::Setup(error.to_string()))?;
+        let sent = match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_owned(),
+        };
+        let binding = RequestBinding { method: method.as_str(), path_and_query: &sent, body: &bytes };
         let now = chrono::Utc::now().timestamp();
         let claims = Claims::for_request(
             &self.client.caller,
@@ -284,7 +333,6 @@ impl<'a> ActingClient<'a> {
             now,
         );
         let token = sign(&self.client.key, &claims);
-        let url = self.client.base.join(path_and_query).map_err(|error| Error::Setup(error.to_string()))?;
         let mut request = self.client.http.request(method, url).bearer_auth(token);
         if !bytes.is_empty() {
             request = request.header(reqwest::header::CONTENT_TYPE, "application/json").body(bytes);
@@ -295,10 +343,20 @@ impl<'a> ActingClient<'a> {
         Ok(request.send().await?)
     }
 
+    /// A signed GET of `path_and_query`, decoded as `T`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn get<T: DeserializeOwned>(&self, path_and_query: &str) -> Result<T, Error> {
         decode(self.send(Method::GET, path_and_query, None::<&()>, None).await?).await
     }
 
+    /// A signed POST of `body` to `path_and_query`, decoded as `T`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn post<B: Serialize, T: DeserializeOwned>(
         &self,
         path_and_query: &str,
@@ -308,124 +366,149 @@ impl<'a> ActingClient<'a> {
         decode(self.send(Method::POST, path_and_query, body, idempotency_key).await?).await
     }
 
+    /// A signed DELETE of `path_and_query`, decoded as `T`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn delete<T: DeserializeOwned>(&self, path_and_query: &str) -> Result<T, Error> {
         decode(self.send(Method::DELETE, path_and_query, None::<&()>, None).await?).await
     }
 
+    /// Pauses one `job`, `queue` or `schedule` by name.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn pause(&self, kind: &str, name: &str, request: &PauseRequest) -> Result<Done, Error> {
-        self.post(&format!("/v1/{kind}s/{name}/pause"), Some(request), None).await
+        self.post(&path(&["v1", &format!("{kind}s"), name, "pause"]), Some(request), None).await
     }
 
+    /// Ends a pause of one `job`, `queue` or `schedule`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn resume(&self, kind: &str, name: &str) -> Result<Done, Error> {
-        self.post(&format!("/v1/{kind}s/{name}/resume"), None::<&()>, None).await
+        self.post(&path(&["v1", &format!("{kind}s"), name, "resume"]), None::<&()>, None).await
     }
 
     /// Holds every run of every job until resumed or the pause ends.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn pause_everything(&self, request: &PauseRequest) -> Result<Done, Error> {
         self.post("/v1/pause", Some(request), None).await
     }
 
+    /// Ends a pause of everything.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn resume_everything(&self) -> Result<Done, Error> {
         self.post("/v1/resume", None::<&()>, None).await
     }
 
+    /// Marks a failed run as succeeded.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn mark_succeeded(&self, run: Uuid, request: &MarkSucceededRequest) -> Result<Done, Error> {
         self.post(&format!("/v1/runs/{run}/mark-succeeded"), Some(request), None).await
     }
 
+    /// Saves a dated override of one or more schedules.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn add_override(&self, request: &OverrideRequest) -> Result<Done, Error> {
         self.post("/v1/overrides", Some(request), None).await
     }
 
+    /// What an override would change, saving nothing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn preview_override(&self, request: &OverrideRequest) -> Result<Preview, Error> {
         self.post("/v1/overrides?preview=true", Some(request), None).await
     }
 
+    /// Overrides from the last 30 days on.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn overrides(&self) -> Result<Vec<OverrideView>, Error> {
         self.get("/v1/overrides").await
     }
 
+    /// Starts a backfill of a schedule over a range of dates.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn start_backfill(&self, request: &BackfillRequest) -> Result<Done, Error> {
         self.post("/v1/backfills", Some(request), None).await
     }
 
+    /// The newest backfills.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn backfills(&self) -> Result<Vec<BackfillView>, Error> {
         self.get("/v1/backfills").await
     }
 
+    /// Every schedule, with its next time.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn schedules(&self) -> Result<Vec<ScheduleView>, Error> {
         self.get("/v1/schedules").await
     }
 
+    /// Every queue, with its waiting and running runs.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn queues(&self) -> Result<Vec<QueueView>, Error> {
         self.get("/v1/queues").await
     }
 
+    /// The newest audit entries.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn audit(&self) -> Result<Page<AuditEntry>, Error> {
         self.get("/v1/audit").await
     }
 
+    /// Each job's last `days` days (1 to 30, ending today), and yesterday's failures, as this actor
+    /// sees them.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn report(&self, days: u32) -> Result<Report, Error> {
         self.get(&format!("/v1/report?days={days}")).await
     }
 }
 
-/// A pending start; send it with [`Start::send`].
-#[must_use = "a start does nothing until it is sent"]
-#[derive(Debug)]
-pub struct Start<'a> {
-    client: ActingClient<'a>,
-    job: String,
-    request: StartRequest,
-    key: Option<String>,
-}
-
-impl Start<'_> {
-    pub fn priority(mut self, priority: i16) -> Self {
-        self.request.priority = Some(priority);
-        self
-    }
-
-    /// Create a run even when the same work is already queued.
-    pub fn even_if_queued(mut self) -> Self {
-        self.request.even_if_queued = true;
-        self
-    }
-
-    pub fn dry_run(mut self) -> Self {
-        self.request.dry_run = true;
-        self
-    }
-
-    /// The idempotency key: repeating the request with it returns the first run. When not given,
-    /// one is generated, so the client's own retries never start a second run.
-    pub fn idempotency_key(mut self, key: impl Into<String>) -> Self {
-        self.key = Some(key.into());
-        self
-    }
-
-    /// Sends the start, retrying with the same key when the scheduler cannot be reached or is busy.
-    pub async fn send(self) -> Result<StartResponse, Error> {
-        let key = self.key.unwrap_or_else(|| Uuid::new_v4().to_string());
-        let path = format!("/v1/jobs/{}/runs", self.job);
-        let mut tries = 0;
-        loop {
-            tries += 1;
-            let result = self.client.post::<_, StartResponse>(&path, Some(&self.request), Some(&key)).await;
-            match result {
-                Err(error) if error.is_transient() && tries < START_TRIES => {
-                    tokio::time::sleep(Duration::from_millis(250 * 2_u64.pow(tries))).await;
-                }
-                other => return other,
-            }
-        }
-    }
-
-    /// What the start would do, changing nothing.
-    pub async fn preview(self) -> Result<Preview, Error> {
-        let path = format!("/v1/jobs/{}/runs?preview=true", self.job);
-        self.client.post(&path, Some(&self.request), None).await
-    }
+/// The absolute path made of `segments`, each percent-encoded, so a name with a space or a `/`
+/// stays one segment.
+pub(crate) fn path(segments: &[&str]) -> String {
+    let mut url = Url::parse("http://scheduler/").expect("a fixed URL parses");
+    url.path_segments_mut().expect("an http URL has a path").clear().extend(segments);
+    url.path().to_owned()
 }
 
 async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, Error> {
@@ -433,10 +516,9 @@ async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, E
     if status.is_success() {
         return Ok(response.json().await?);
     }
-    let error: ApiError = response.json().await.unwrap_or(ApiError {
-        error: "unknown".into(),
-        message: status.canonical_reason().unwrap_or("error").to_owned(),
-    });
+    let body = response.bytes().await?;
+    let error: ApiError = serde_json::from_slice(&body)
+        .unwrap_or_else(|_| ApiError { error: "unknown".into(), message: undecoded_message(status, &body) });
     if status == StatusCode::UNAUTHORIZED && error.message.contains("expired") {
         return Err(Error::Api {
             status: status.as_u16(),
@@ -445,4 +527,41 @@ async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, E
         });
     }
     Err(Error::Api { status: status.as_u16(), code: error.error, message: error.message })
+}
+
+/// The status's reason and the start of a body that is not an `ApiError`, such as a proxy's page.
+fn undecoded_message(status: StatusCode, body: &[u8]) -> String {
+    const SHOWN: usize = 200;
+    let reason = status.canonical_reason().unwrap_or("error");
+    let text = String::from_utf8_lossy(&body[..body.len().min(SHOWN)]);
+    let text = text.trim();
+    if text.is_empty() {
+        reason.to_owned()
+    } else if body.len() > SHOWN {
+        format!("{reason}: {text}…")
+    } else {
+        format!("{reason}: {text}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_path_segment_is_percent_encoded() {
+        assert_eq!(path(&["v1", "jobs", "a b/c?d#e%f", "runs"]), "/v1/jobs/a%20b%2Fc%3Fd%23e%25f/runs");
+        assert_eq!(path(&["v1", "jobs", "plain_name"]), "/v1/jobs/plain_name");
+    }
+
+    #[test]
+    fn an_undecodable_error_body_keeps_its_start() {
+        let long = "x".repeat(500);
+        assert_eq!(undecoded_message(StatusCode::BAD_GATEWAY, b""), "Bad Gateway");
+        assert_eq!(undecoded_message(StatusCode::BAD_GATEWAY, b" <h1>down</h1> "), "Bad Gateway: <h1>down</h1>");
+        assert_eq!(
+            undecoded_message(StatusCode::BAD_GATEWAY, long.as_bytes()),
+            format!("Bad Gateway: {}…", &long[..200])
+        );
+    }
 }

@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anyhow::Context;
 use downbeat_api::{DEVELOPMENT_AUDIENCE, PrivateKey, development_key};
 use serde::Deserialize;
 
@@ -104,12 +105,11 @@ fn console_caller() -> String {
 
 impl Config {
     pub(crate) fn from_file(path: &std::path::Path) -> anyhow::Result<Config> {
-        let text =
-            std::fs::read_to_string(path).map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?;
-        let file: File = toml::from_str(&text).map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let file: File = toml::from_str(&text).with_context(|| path.display().to_string())?;
         anyhow::ensure!(!file.schedulers.is_empty(), "list at least one [[scheduler]]");
-        let public_url = reqwest::Url::parse(&file.public_url)
-            .map_err(|error| anyhow::anyhow!("public_url {}: {error}", file.public_url))?;
+        let public_url =
+            reqwest::Url::parse(&file.public_url).with_context(|| format!("public_url {}", file.public_url))?;
         let loopback = public_url.host_str().is_some_and(|host| {
             host == "localhost"
                 || host
@@ -134,11 +134,10 @@ impl Config {
                 entry.name
             );
             let pem = match (&entry.key_file, &entry.key_env) {
-                (Some(path), None) => std::fs::read_to_string(path)
-                    .map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?,
-                (None, Some(variable)) => {
-                    std::env::var(variable).map_err(|_| anyhow::anyhow!("{variable} is not set"))?
+                (Some(path), None) => {
+                    std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
                 }
+                (None, Some(variable)) => secret_from_env(variable)?,
                 _ => anyhow::bail!("scheduler {}: give exactly one of key_file and key_env", entry.name),
             };
             schedulers.push(Scheduler {
@@ -191,6 +190,15 @@ impl Config {
     pub(crate) fn scheduler(&self, name: &str) -> Option<&Scheduler> {
         self.schedulers.iter().find(|scheduler| scheduler.name == name)
     }
+}
+
+/// A secret from the environment. The error never carries the value: `VarError`'s own text quotes
+/// a value that is not UTF-8.
+pub(crate) fn secret_from_env(variable: &str) -> anyhow::Result<String> {
+    std::env::var(variable).map_err(|error| match error {
+        std::env::VarError::NotPresent => anyhow::anyhow!("{variable} is not set"),
+        std::env::VarError::NotUnicode(_) => anyhow::anyhow!("{variable} is not valid UTF-8"),
+    })
 }
 
 #[cfg(test)]

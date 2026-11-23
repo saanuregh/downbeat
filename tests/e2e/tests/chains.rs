@@ -196,8 +196,12 @@ async fn a_run_that_would_go_back_to_the_queue_with_a_cancel_pending_ends_cancel
         .execute(&mut *holder)
         .await
         .unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *holder).await.unwrap();
     std::fs::write(&signal, "").unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let waiting = format!(
+        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND {holder_pid} = ANY(pg_blocking_pids(pid)))"
+    );
+    support::eventually(&database.pool, &waiting, SOON).await;
     holder.commit().await.unwrap();
     let _ = std::fs::remove_file(&signal);
 

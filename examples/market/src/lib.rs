@@ -11,7 +11,7 @@ mod exchange;
 use std::sync::atomic::AtomicU32;
 
 use downbeat::prelude::*;
-use exchange::chrono_now;
+use exchange::now_rfc3339;
 pub use exchange::{Candles, Exchange, Holidays, Prices, TradingDay};
 
 #[job(attempts = 3, backoff = 10.seconds()..=2.minutes(), keep_runs_at_most = 50)]
@@ -21,7 +21,7 @@ pub async fn fetch_prices(run: Run, day: TradingDay, exchange: &Exchange) -> Job
     if count == 0 {
         return skip("the exchange has published nothing yet");
     }
-    Ok(Prices { day, count, digest: format!("{:x}", u64::from(count) * 2_654_435_761), fetched_at: chrono_now() })
+    Ok(Prices { day, count, digest: format!("{:x}", u64::from(count) * 2_654_435_761), fetched_at: now_rfc3339() })
 }
 
 #[job(preset = heavy, timeout = 30.minutes(), max_memory = 512.mb())]

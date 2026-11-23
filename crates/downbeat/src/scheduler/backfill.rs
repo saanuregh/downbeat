@@ -1,7 +1,7 @@
 //! Driving backfills: a scheduled job run for each date in a range, one date at a time, in order,
 //! each date its own chain.
 
-use chrono::{NaiveDate, TimeDelta, Utc};
+use chrono::{NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -9,7 +9,7 @@ use super::plan;
 use crate::job::KeyedInput;
 use crate::registry::Registry;
 use crate::starting::turn_key;
-use crate::store::runs::{self, NewRun, Place, StartedBy};
+use crate::store::runs::{self, Created, NewRun, Place, StartedBy};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct BackfillRow {
@@ -127,8 +127,7 @@ async fn start_next_date(
                 .fetch_one(&mut *connection)
                 .await
                 .map_err(|error| error.to_string())?;
-            let expires_at =
-                plan::expiry_of(schedule).map(|expiry| now + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
+            let expires_at = plan::expires_at(schedule, now);
             let run = NewRun {
                 job: schedule.job.to_owned(),
                 queue: policy.queue.to_owned(),
@@ -150,13 +149,9 @@ async fn start_next_date(
                 actor: Some(backfill.created_by.clone()),
                 queued_reason: None,
             };
-            let created = runs::create(connection, &run).await.map_err(|error| error.to_string())?;
-            let chain: Uuid = sqlx::query_scalar("SELECT chain_id FROM downbeat.run WHERE run_id = $1")
-                .bind(created.run_id())
-                .fetch_one(&mut *connection)
-                .await
-                .map_err(|error| error.to_string())?;
-            return Ok(Some((chain, date)));
+            let (Created::New { chain_id, .. } | Created::Joined { chain_id, .. }) =
+                runs::create(connection, &run).await.map_err(|error| error.to_string())?;
+            return Ok(Some((chain_id, date)));
         }
         date = date.succ_opt().unwrap_or(date);
         if date == NaiveDate::MAX {

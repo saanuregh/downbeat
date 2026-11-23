@@ -201,3 +201,39 @@ async fn every_process_is_started_from_one_dedicated_thread() {
     let name = std::fs::read_to_string(format!("/proc/{}/task/{thread}/comm", app.pid())).unwrap();
     assert!(name.starts_with("downbeat-spawn"), "they were started from thread '{}'", name.trim());
 }
+
+#[tokio::test]
+async fn a_message_the_worker_cannot_read_ends_the_run_as_a_crash() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = one_slot(&database);
+
+    let run = client.start(names_a_huge_program, ()).await.unwrap().run_id();
+    let done = finished(&database.pool, run, SOON).await;
+    assert_eq!((done.status.as_str(), done.failed_because.as_deref()), ("failed", Some("crash")), "{}", done.reason);
+
+    let next = client.start(child_pid, Number { n: 1 }).await.unwrap().run_id();
+    assert_eq!(finished(&database.pool, next, SOON).await.status, "succeeded", "the slot is free again");
+}
+
+#[tokio::test]
+async fn long_progress_and_error_text_is_cut_to_fit() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = one_slot(&database);
+
+    let quiet = client.start(says_too_much, Text { text: "succeed".into() }).await.unwrap().run_id();
+    let done = finished(&database.pool, quiet, SOON).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+
+    let failing = client.start(says_too_much, Text { text: "fail".into() }).await.unwrap().run_id();
+    let done = finished(&database.pool, failing, SOON).await;
+    assert_eq!((done.status.as_str(), done.failed_because.as_deref()), ("failed", Some("error")), "{}", done.reason);
+    let error: Vec<String> = sqlx::query_scalar("SELECT error_chain FROM downbeat.run_history WHERE run_id = $1")
+        .bind(failing)
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    let kept = error.concat();
+    assert!(kept.starts_with("eee") && kept.len() <= downbeat::MAX_VALUE_BYTES + 16, "{} bytes kept", kept.len());
+}

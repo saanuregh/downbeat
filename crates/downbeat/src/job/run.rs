@@ -77,6 +77,7 @@ pub enum Started {
 }
 
 impl Started {
+    /// The run's id, whether it is new or the one the start joined.
     pub fn run_id(self) -> Uuid {
         match self {
             Started::New(id) | Started::Joined(id) => id,

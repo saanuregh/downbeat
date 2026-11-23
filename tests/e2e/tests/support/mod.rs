@@ -23,12 +23,13 @@ pub fn free_port() -> u16 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let base = 20_000 + (std::process::id() % 120) * 100;
-    loop {
+    for _ in 0..100 {
         let candidate = u16::try_from(base + NEXT.fetch_add(1, Ordering::Relaxed) % 100).unwrap();
         if std::net::TcpListener::bind(("127.0.0.1", candidate)).is_ok() {
             return candidate;
         }
     }
+    panic!("no free port in 127.0.0.1:{base}..{}; something else holds the whole range", base + 100);
 }
 
 /// A database of its own for one test, created in the throwaway cluster `mise-tasks/test-rust` starts.

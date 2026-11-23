@@ -50,15 +50,22 @@ pub(crate) async fn prune(pool: &PgPool, registry: &Registry) -> sqlx::Result<()
 }
 
 /// The chains a job started that may go: nothing in them is unfinished, nothing in them is waiting
-/// for a callback, and none holds a job's latest success.
+/// for a callback, and none holds a job's latest success, by the rule `expect_success_every` reads
+/// (`store::history::wait_for_success`, decision 61). The latest end and the latest mark are
+/// compared apart: the first reads the index by job and end, and only a success at least that late
+/// pays for the second, which has no index.
 const PRUNABLE: &str = "
     NOT EXISTS (SELECT 1 FROM downbeat.run r WHERE r.chain_id = c.chain_id)
     AND NOT EXISTS (SELECT 1 FROM downbeat.run_history h WHERE h.chain_id = c.chain_id AND h.notify_after IS NOT NULL)
     AND NOT EXISTS (
         SELECT 1 FROM downbeat.run_history h
-         WHERE h.chain_id = c.chain_id AND h.status = 'succeeded'
-           AND h.finished_at = (SELECT max(l.finished_at) FROM downbeat.run_history l
-                                 WHERE l.job_name = h.job_name AND l.status = 'succeeded'))";
+         WHERE h.chain_id = c.chain_id AND h.status = 'succeeded' AND NOT h.dry_run
+           AND GREATEST(h.finished_at, h.marked_at) >= (
+                   SELECT max(l.finished_at) FROM downbeat.run_history l
+                    WHERE l.job_name = h.job_name AND l.status = 'succeeded' AND NOT l.dry_run)
+           AND GREATEST(h.finished_at, h.marked_at) >= COALESCE((
+                   SELECT max(l.marked_at) FROM downbeat.run_history l
+                    WHERE l.job_name = h.job_name AND l.status = 'succeeded' AND NOT l.dry_run), '-infinity'))";
 
 /// Wraps a query that names candidate chains so that it returns only those whose lock it took,
 /// without waiting. A chain whose lock is held is passed over until the next pass.

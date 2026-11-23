@@ -51,6 +51,18 @@ async fn a_program_that_exits_takes_its_background_process_with_it() {
 }
 
 #[tokio::test]
+async fn a_program_finds_its_output_file_made_and_private_to_its_user() {
+    let database = Database::fresh().await;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let _app = App::start(&database);
+
+    let run = client.start(reports_its_output_file_mode, ()).await.unwrap().run_id();
+    let done = finished(&database.pool, run, SOON).await;
+    assert_eq!(done.status, "succeeded", "{}", done.reason);
+    assert_eq!(done.output, Some(serde_json::json!({ "text": "600" })));
+}
+
+#[tokio::test]
 async fn an_output_that_does_not_fit_the_type_fails_as_bad_input() {
     let database = Database::fresh().await;
     let client = InAppClient::connect(definition, &database.url).await.unwrap();

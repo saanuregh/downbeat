@@ -155,7 +155,7 @@ A person starting a run through the API may give that one run another timeout (i
 | Member | Purpose |
 | --- | --- |
 | `run.is_cancelled()`, `run.cancelled().await` | True, or complete, once this run has been asked to stop: a timeout, a cancel, a lost lease or a shutdown. |
-| `run.progress("41 of 200")` | A line for people, shown with the run. Each call replaces the last. Saved with the next heartbeat. |
+| `run.progress("41 of 200")` | A line for people, shown with the run. Each call replaces the last. Text over 64 KiB is cut. Saved with the next heartbeat. |
 | `run.checkpoint(&state)?` | State a later call of the same run reads to continue. At most 64 KiB. Saved with the next heartbeat. |
 | `run.checkpoint_now(&state).await?` | The same, stored before it returns. |
 | `run.last_checkpoint::<S>()` | What an earlier call of this run last saved, if anything. |
@@ -197,7 +197,7 @@ program to start.
 | Rule | Detail |
 | --- | --- |
 | Fixed words and values | `.args([…])` takes the command's own fixed words and options. `.arg(value)` takes exactly one value, whatever it contains. There is no shell. A value that begins with `-` fails the run (`bad_input`), unless the command calls `.values_may_be_options()`. |
-| Environment | The program gets only the variables named in `.pass_env([…])` (copied from the worker when set there) and `.env(name, value)`, plus `JOB_RUN_ID`, `JOB_ATTEMPT`, `JOB_DRY_RUN` (`1` or `0`) and `JOB_OUTPUT_FILE`. |
+| Environment | The program gets only the variables named in `.pass_env([…])` (copied from the worker when set there) and `.env(name, value)`, plus `JOB_RUN_ID`, `JOB_ATTEMPT`, `JOB_DRY_RUN` (`1` or `0`) and `JOB_OUTPUT_FILE`, an empty file readable only by the worker's user, made before the program starts. |
 | Input | The whole input is also written as JSON to its standard input. |
 | Ending | Exit status 0 is success. Status 75 (`EXIT_NOT_READY`) means "not ready"; the last line of standard error becomes the reason. Anything else fails the run as `exit_code`, or `signal` when a signal killed it. A program that cannot be started at all fails as `error`, with the reason naming why. Each of these is retried like an `Error`. |
 | Output | `Program<T>` declares the output type. JSON the program writes to `JOB_OUTPUT_FILE` becomes the output. An empty file is `null`, which fits `Program<()>`. `{"skip": "reason"}` ends the run as skipped. Output that is not JSON, or does not fit `T`, fails as `bad_input`. Output over 64 KiB fails as `output_too_large`. |

@@ -6,6 +6,7 @@ mod support;
 use std::time::Duration;
 
 use chrono::{NaiveDate, TimeDelta, Utc};
+use downbeat_client::Scope;
 use downbeat_client::types::{BackfillRequest, Done, OverrideRequest};
 use support::{Database, SOON, eventually, with_api_in};
 
@@ -189,4 +190,43 @@ async fn the_calendar_lists_a_schedule_whose_day_rule_fails_as_off_and_shows_the
         assert!(off.reason.starts_with("Its day rule failed"), "{failing}: {}", off.reason);
     }
     assert!(calendar.entries.iter().any(|entry| entry.schedule == "replaced_window"), "other schedules still show");
+}
+
+#[tokio::test]
+async fn overrides_of_unknown_schedules_do_not_crowd_out_the_list() {
+    let database = Database::fresh().await;
+    let (_app, client, _) = with_api_in(&database, "rules").await;
+    let admin = client.as_caller();
+    sqlx::query(
+        "INSERT INTO downbeat.schedule_override (schedule, on_date, change, note, created_by)
+         SELECT 'removed_schedule', current_date + day, 'off', 'old', 'test' FROM generate_series(0, 499) AS day",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    admin.add_override(&request("never_fires", date("2030-01-07"), "off", &[])).await.unwrap();
+
+    let overrides = admin.overrides().await.unwrap();
+    let schedules: Vec<&str> = overrides.iter().map(|row| row.schedule.as_str()).collect();
+    assert_eq!(schedules, ["never_fires"]);
+}
+
+#[tokio::test]
+async fn a_token_limited_to_some_jobs_sees_its_backfills_behind_many_others() {
+    let database = Database::fresh().await;
+    let (_app, client, _) = with_api_in(&database, "rules").await;
+    sqlx::query(
+        "INSERT INTO downbeat.backfill (job_name, schedule, from_date, to_date, next_date, state, created_by, created_at)
+         SELECT job, 'never_fires', current_date, current_date, current_date, 'done', 'test', now() - make_interval(secs => n)
+           FROM (SELECT 'on_the_clock' AS job, 1000 AS n
+                 UNION ALL SELECT 'someone_else', n FROM generate_series(0, 199) AS n) AS rows",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+
+    let limited = client.acting_for("alice", Scope::Read, Some(vec!["on_the_clock".into()]));
+    let backfills = limited.backfills().await.unwrap();
+    let jobs: Vec<&str> = backfills.iter().map(|row| row.job.as_str()).collect();
+    assert_eq!(jobs, ["on_the_clock"]);
 }

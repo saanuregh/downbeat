@@ -19,8 +19,10 @@
 
 mod client;
 mod error;
+mod start;
 
-pub use client::{ActingClient, Builder, Client, Start};
+pub use client::{ActingClient, Builder, Client};
 pub use downbeat_api::types;
 pub use downbeat_api::{JobName, PrivateKey, PublicKey, Scope, development_key, job_name};
 pub use error::Error;
+pub use start::Start;

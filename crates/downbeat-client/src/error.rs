@@ -21,7 +21,7 @@ impl Error {
     pub fn is_transient(&self) -> bool {
         match self {
             Error::Connection(error) => error.is_timeout() || error.is_connect() || error.is_request(),
-            Error::Api { status, .. } => *status == 429 || *status >= 500,
+            Error::Api { status, .. } => matches!(status, 429 | 502 | 503 | 504),
             _ => false,
         }
     }

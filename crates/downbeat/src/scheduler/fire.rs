@@ -67,7 +67,7 @@ pub(crate) async fn fire_due(pool: &PgPool, registry: &Registry) -> sqlx::Result
     for (name, watermark) in due {
         let Some(schedule) = registry.schedules.get(&name) else { continue };
         let mut savepoint = transaction.begin().await?;
-        match fire(&mut savepoint, pool, registry, schedule, watermark, now).await {
+        match fire(&mut savepoint, registry, schedule, watermark, now).await {
             Ok(()) => savepoint.commit().await?,
             Err(error) => {
                 savepoint.rollback().await?;
@@ -87,13 +87,12 @@ pub(crate) async fn fire_due(pool: &PgPool, registry: &Registry) -> sqlx::Result
 
 async fn fire(
     connection: &mut PgConnection,
-    pool: &PgPool,
     registry: &Registry,
     schedule: &CompiledSchedule,
     watermark: DateTime<Utc>,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
-    let overrides = plan::overrides_for(pool, &schedule.name).await.map_err(|error| error.to_string())?;
+    let overrides = plan::overrides_for(&mut *connection, &schedule.name).await.map_err(|error| error.to_string())?;
     let paused: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM downbeat.pause WHERE kind = 'schedule' AND name = $1 AND (until IS NULL OR until > now()))",
     )
@@ -105,8 +104,7 @@ async fn fire(
     if !paused {
         let missed = plan::occurrences_between(registry, schedule, &overrides, watermark, now).await?;
         if let Some((latest, earlier)) = missed.split_last() {
-            let expired = plan::expiry_of(schedule)
-                .is_some_and(|expiry| latest.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX) < now);
+            let expired = plan::expires_at(schedule, latest.at).is_some_and(|at| at < now);
             let mut dropped: Vec<&Occurrence> = earlier.iter().filter(|o| now - o.at > REPORT_DROPPED_AFTER).collect();
             if expired {
                 dropped.push(latest);
@@ -155,8 +153,7 @@ pub(crate) async fn create_run(
     };
     let KeyedInput { input, hash: input_hash, turn_value } = job.spec.input_ops.keyed(schedule.job, input, false)?;
     let policy = &job.spec.policy;
-    let expires_at =
-        plan::expiry_of(schedule).map(|expiry| occurrence.at + TimeDelta::from_std(expiry).unwrap_or(TimeDelta::MAX));
+    let expires_at = plan::expires_at(schedule, occurrence.at);
     let run = NewRun {
         job: schedule.job.to_owned(),
         queue: policy.queue.to_owned(),

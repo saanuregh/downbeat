@@ -43,9 +43,18 @@ impl ChildHandle {
         let (mut reader, writer) = UnixStream::from_std(ours)?.into_split();
         let (sender, messages) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            while let Ok(Some(message)) = protocol::read::<_, FromChild>(&mut reader).await {
-                if sender.send(message).is_err() {
-                    break;
+            loop {
+                match protocol::read::<_, FromChild>(&mut reader).await {
+                    Ok(Some(message)) => {
+                        if sender.send(message).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        tracing::warn!(%error, "a message from the child could not be read; the child will be killed");
+                        break;
+                    }
                 }
             }
         });

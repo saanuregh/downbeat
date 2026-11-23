@@ -198,6 +198,34 @@ fn fragile_need(input: &Text) -> Text {
     input.clone()
 }
 
+/// Writes the permission bits its output file already had when it started, as its output text.
+#[command]
+pub fn reports_its_output_file_mode() -> Program<Text> {
+    Program::new("/bin/sh")
+        .args(["-c", r#"printf '{"text": "%s"}' "$(stat -c %a "$JOB_OUTPUT_FILE")" > "$JOB_OUTPUT_FILE""#])
+}
+
+/// More than the four MiB a message from the child may hold.
+const OVER_A_MESSAGE: usize = 5 * 1024 * 1024;
+
+/// Names a program with an argument too large for one message from the child, so the worker
+/// cannot read it while the child lives on.
+#[command]
+pub fn names_a_huge_program() -> Program<()> {
+    Program::new("/bin/true").args(["x".repeat(OVER_A_MESSAGE)])
+}
+
+/// Reports a progress line too large for one message, then fails with an error as large for the
+/// text `fail`, or succeeds.
+#[job]
+pub async fn says_too_much(run: Run, input: Text) -> JobResult<()> {
+    run.progress("p".repeat(OVER_A_MESSAGE));
+    if input.text == "fail" {
+        return Err(JobError::msg("e".repeat(OVER_A_MESSAGE)));
+    }
+    Ok(())
+}
+
 pub(crate) fn process_rules_jobs(pipeline: &mut Pipeline) {
     pipeline.job(names_its_program_slowly);
     pipeline.job(touchy_output);
@@ -216,4 +244,7 @@ pub(crate) fn process_rules_jobs(pipeline: &mut Pipeline) {
         .after(starts_a_mapped_link.map(|_: Number| Number { n: i64::from(std::process::id()) }));
     pipeline.job(takes_fragile);
     pipeline.job(has_a_fragile_need).needs(crate::echo.done_for(fragile_need));
+    pipeline.job(names_a_huge_program);
+    pipeline.job(says_too_much);
+    pipeline.job(reports_its_output_file_mode);
 }

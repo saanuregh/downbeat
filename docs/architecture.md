@@ -31,7 +31,8 @@ the data model, the main flows, and how failures are handled. The rules themselv
   heartbeat (role `worker` or `scheduler`) and deletes it when it stops.
 - **The scheduler's cadences**: it registers schedules every 60 s; fires due schedules and delivers
   callbacks every `poll`; drives backfills every two polls; and watches for slow runs and overdue
-  jobs every 30 s. The reaper sweeps every 5 s and prunes every hour.
+  jobs every 30 s. The reaper sweeps every 5 s and prunes every hour, on two clocks that run side
+  by side.
 - **Child processes** are the same binary, started by a worker with `DOWNBEAT_CHILD_FD` set.
   `downbeat::run` sees the variable and runs `child::main` instead of the command line. A child
   talks to its worker over a Unix socket on descriptor 3. Each worker slot owns one child.

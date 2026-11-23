@@ -402,3 +402,43 @@ async fn a_change_by_a_caller_acting_as_itself_is_audited_with_its_name_alone() 
     let (_app, client) = with_api(&database).await;
     audits_every_change(&database, &client.as_caller(), "local").await;
 }
+
+#[tokio::test]
+async fn a_queued_because_filter_pages_past_the_runs_it_drops() {
+    let database = Database::fresh().await;
+    let (_app, client) = without_worker(&database).await;
+    let admin = client.as_caller();
+
+    let later = start_later(&admin, "echo", json!({ "text": "later" })).await;
+    for n in 0..3 {
+        client.start("echo", &Text { text: format!("now {n}") }).send().await.unwrap();
+    }
+
+    let mut found = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..10 {
+        let query = match &cursor {
+            Some(cursor) => format!("queued_because=scheduled_later&limit=2&cursor={cursor}"),
+            None => "queued_because=scheduled_later&limit=2".to_owned(),
+        };
+        let page = client.runs(&query).await.unwrap();
+        found.extend(page.items.into_iter().map(|run| run.run_id));
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(found, vec![later]);
+}
+
+#[tokio::test]
+async fn a_name_with_a_space_or_a_slash_is_signed_and_sent_as_one_path_segment() {
+    let database = Database::fresh().await;
+    let (_app, client) = with_api(&database).await;
+    for name in ["no such job", "no/such?job"] {
+        match client.job(name).await {
+            Err(Error::Api { status: 404, message, .. }) => assert!(message.contains(name), "{message}"),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+}

@@ -56,5 +56,7 @@ async fn fetching_skips_until_the_exchange_has_published() {
 
     let _ = fetch_prices.test(Run::for_test(), day, &exchange).await;
     let third = fetch_prices.test(Run::for_test().on_attempt(2), day, &exchange).await;
-    assert!(matches!(third, Outcome::Succeeded(prices) if prices.count == 50));
+    let Outcome::Succeeded(prices) = third else { panic!("the third fetch succeeds: {third:?}") };
+    assert_eq!(prices.count, 50);
+    assert!(chrono::DateTime::parse_from_rfc3339(&prices.fetched_at).is_ok(), "{}", prices.fetched_at);
 }

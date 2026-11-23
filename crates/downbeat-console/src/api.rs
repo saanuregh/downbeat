@@ -56,7 +56,8 @@ pub(crate) async fn me(
             label: scheduler.label.clone(),
             scope: highest(&state.config, &session.person, &grants, &scheduler.name),
             reachable: version.is_some(),
-            supported: version.is_none_or(|version| version == API_VERSION || version + 1 == API_VERSION),
+            supported: version
+                .is_none_or(|version| version == API_VERSION || version.checked_add(1) == Some(API_VERSION)),
             api_version: version,
         });
     }
@@ -154,11 +155,7 @@ pub(crate) async fn add_grant(
     .fetch_one(&state.pool)
     .await?;
     store::audit(&state.pool, &session.person.email, "grant", json!({ "grant_id": grant_id, "to_person": grant.to_person, "to_group": grant.to_group, "scheduler": grant.scheduler, "scope": grant.scope, "pipelines": grant.pipelines })).await?;
-    let added = store::grants(&state.pool)
-        .await?
-        .into_iter()
-        .find(|existing| existing.grant_id == grant_id)
-        .ok_or_else(|| Failure::internal("the grant vanished"))?;
+    let added = store::grant(&state.pool, grant_id).await?.ok_or_else(|| Failure::internal("the grant vanished"))?;
     Ok(Json(added))
 }
 
@@ -234,9 +231,19 @@ pub(crate) async fn audit(
     Ok(Json(json!({ "items": rows, "next_cursor": next })))
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Preferences {
+    #[serde(default)]
+    time_zone: Option<String>,
+    #[serde(default)]
+    filters: Value,
+}
+
+/// Preferences as stored. Lenient, unlike the request type, so after a rollback the fields this
+/// console knows survive a row written by a newer one instead of resetting to defaults.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(crate) struct StoredPreferences {
     #[serde(default)]
     time_zone: Option<String>,
     #[serde(default)]
@@ -247,12 +254,19 @@ pub(crate) struct Preferences {
 pub(crate) async fn preferences(
     Extract(state): Extract<State>,
     Extension(session): Extension<Arc<Session>>,
-) -> Result<Json<Preferences>, Failure> {
+) -> Result<Json<StoredPreferences>, Failure> {
     let data: Option<Value> = sqlx::query_scalar("SELECT data FROM console.preference WHERE person_id = $1")
         .bind(session.person.person_id)
         .fetch_optional(&state.pool)
         .await?;
-    Ok(Json(data.and_then(|data| serde_json::from_value(data).ok()).unwrap_or_default()))
+    let stored = data.and_then(|data| {
+        serde_json::from_value(data)
+            .inspect_err(|error| {
+                tracing::warn!(person = %session.person.email, %error, "stored preferences could not be read; showing defaults");
+            })
+            .ok()
+    });
+    Ok(Json(stored.unwrap_or_default()))
 }
 
 /// `PUT /api/preferences`.
