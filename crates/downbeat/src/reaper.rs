@@ -25,6 +25,13 @@ const PRUNE_EVERY: Duration = Duration::from_secs(3600);
 /// Rows handled per statement, so no sweep holds locks for long.
 const BATCH: i64 = 100;
 
+/// Where the next batch of a step starts: after the last run id of a full batch, or `None` once a
+/// batch came back short. Each step walks its runs in `run_id` order, so runs that keep failing
+/// never fill every batch and hide the runs after them.
+fn next_batch<T>(rows: &[T], run_id: impl Fn(&T) -> Uuid) -> Option<Uuid> {
+    if i64::try_from(rows.len()).is_ok_and(|n| n >= BATCH) { rows.last().map(run_id) } else { None }
+}
+
 pub(crate) async fn serve(pool: PgPool, registry: Arc<Registry>, stop: CancellationToken) {
     let sweep = || async {
         for error in sweep_once(&pool, &registry).await {
@@ -129,18 +136,29 @@ struct LostRow {
 /// Runs whose lease expired longer ago than the margin: back to the queue, or failed when the
 /// worker was lost while the function ran for the second time.
 async fn take_back_lost(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
+    let mut after = Some(Uuid::nil());
+    while let Some(from) = after {
+        after = take_back_lost_batch(sweep, from).await?;
+    }
+    Ok(())
+}
+
+/// One batch of [`take_back_lost`], in its own transaction, from the run after `after`.
+async fn take_back_lost_batch(sweep: &mut Sweep<'_>, after: Uuid) -> sqlx::Result<Option<Uuid>> {
     let margin = interval(sweep.registry.settings.reaper_margin());
     let mut transaction = sweep.pool.begin().await?;
     let rows: Vec<LostRow> = sqlx::query_as(
         "SELECT run_id, job_name, chain_id, fence, lease_owner, lost_count, function_started_at, cancel_requested_by
            FROM downbeat.run
-          WHERE state = 'running' AND lease_expires_at < now() - $1
-          LIMIT $2 FOR UPDATE SKIP LOCKED",
+          WHERE state = 'running' AND lease_expires_at < now() - $1 AND run_id > $3
+          ORDER BY run_id LIMIT $2 FOR UPDATE SKIP LOCKED",
     )
     .bind(margin)
     .bind(BATCH)
+    .bind(after)
     .fetch_all(&mut *transaction)
     .await?;
+    let next = next_batch(&rows, |row| row.run_id);
     let mut to_end = Vec::new();
     for row in rows {
         let worker = row.lease_owner.clone().unwrap_or_else(|| "unknown".to_owned());
@@ -169,7 +187,7 @@ async fn take_back_lost(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
     for (row, ending) in to_end {
         sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
     }
-    Ok(())
+    Ok(next)
 }
 
 /// Puts a lost run back in the queue. One whose function had started counts the loss, logs the
@@ -219,37 +237,50 @@ struct QueuedRow {
 
 /// Queued runs that someone asked to cancel while they were held: they end as cancelled.
 async fn cancel_requested(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
-    let rows: Vec<(Uuid, Uuid, i64, String)> = sqlx::query_as(
-        "SELECT run_id, chain_id, fence, cancel_requested_by FROM downbeat.run
-          WHERE state = 'queued' AND cancel_requested_by IS NOT NULL LIMIT $1",
-    )
-    .bind(BATCH)
-    .fetch_all(sweep.pool)
-    .await?;
-    for (run_id, chain_id, fence, by) in rows {
-        sweep.end(run_id, chain_id, fence, Ending::new(Status::Cancelled, reasons::cancelled(&by))).await;
+    let mut after = Some(Uuid::nil());
+    while let Some(from) = after {
+        let rows: Vec<(Uuid, Uuid, i64, String)> = sqlx::query_as(
+            "SELECT run_id, chain_id, fence, cancel_requested_by FROM downbeat.run
+              WHERE state = 'queued' AND cancel_requested_by IS NOT NULL AND run_id > $2
+              ORDER BY run_id LIMIT $1",
+        )
+        .bind(BATCH)
+        .bind(from)
+        .fetch_all(sweep.pool)
+        .await?;
+        after = next_batch(&rows, |row| row.0);
+        for (run_id, chain_id, fence, by) in rows {
+            sweep.end(run_id, chain_id, fence, Ending::new(Status::Cancelled, reasons::cancelled(&by))).await;
+        }
     }
     Ok(())
 }
 
 /// Queued runs never started whose occurrence has expired.
 async fn expire(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
-    let rows: Vec<QueuedRow> = sqlx::query_as(
-        "SELECT run_id, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
-          WHERE state = 'queued' AND starts = 0 AND expires_at < now() LIMIT $1",
-    )
-    .bind(BATCH)
-    .fetch_all(sweep.pool)
-    .await?;
-    for row in rows {
-        let why = match row.queued_because.as_deref() {
-            Some("paused") => "its job or queue was paused",
-            Some("waiting_turn") => "it was waiting its turn",
-            _ => "no worker started it in time",
-        };
-        let expires_at = row.expires_at.unwrap_or(row.due_at);
-        let ending = Ending::new(Status::Expired, reasons::expired(row.due_at, expires_at, sweep.registry.zone, why));
-        sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
+    let mut after = Some(Uuid::nil());
+    while let Some(from) = after {
+        let rows: Vec<QueuedRow> = sqlx::query_as(
+            "SELECT run_id, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
+              WHERE state = 'queued' AND starts = 0 AND expires_at < now() AND run_id > $2
+              ORDER BY run_id LIMIT $1",
+        )
+        .bind(BATCH)
+        .bind(from)
+        .fetch_all(sweep.pool)
+        .await?;
+        after = next_batch(&rows, |row| row.run_id);
+        for row in rows {
+            let why = match row.queued_because.as_deref() {
+                Some("paused") => "its job or queue was paused",
+                Some("waiting_turn") => "it was waiting its turn",
+                _ => "no worker started it in time",
+            };
+            let expires_at = row.expires_at.unwrap_or(row.due_at);
+            let ending =
+                Ending::new(Status::Expired, reasons::expired(row.due_at, expires_at, sweep.registry.zone, why));
+            sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
+        }
     }
     Ok(())
 }
@@ -261,18 +292,24 @@ async fn give_up(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
         by_limit.entry(job.spec.policy.give_up_after).or_default().push((*name).to_owned());
     }
     for (limit, jobs) in by_limit {
-        let rows: Vec<QueuedRow> = sqlx::query_as(
-            "SELECT run_id, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
-              WHERE state = 'queued' AND job_name = ANY($1) AND created_at < now() - $2 LIMIT $3",
-        )
-        .bind(&jobs)
-        .bind(interval(limit))
-        .bind(BATCH)
-        .fetch_all(sweep.pool)
-        .await?;
-        for row in rows {
-            let ending = Ending::failed("gave_up", reasons::gave_up(limit, row.queued_reason.as_deref()));
-            sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
+        let mut after = Some(Uuid::nil());
+        while let Some(from) = after {
+            let rows: Vec<QueuedRow> = sqlx::query_as(
+                "SELECT run_id, chain_id, fence, due_at, expires_at, queued_reason, queued_because FROM downbeat.run
+                  WHERE state = 'queued' AND job_name = ANY($1) AND created_at < now() - $2 AND run_id > $4
+                  ORDER BY run_id LIMIT $3",
+            )
+            .bind(&jobs)
+            .bind(interval(limit))
+            .bind(BATCH)
+            .bind(from)
+            .fetch_all(sweep.pool)
+            .await?;
+            after = next_batch(&rows, |row| row.run_id);
+            for row in rows {
+                let ending = Ending::failed("gave_up", reasons::gave_up(limit, row.queued_reason.as_deref()));
+                sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
+            }
         }
     }
     Ok(())
@@ -280,21 +317,26 @@ async fn give_up(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
 
 /// Queued runs of a job that no worker seen in the last hour has in its build.
 async fn unregistered(sweep: &mut Sweep<'_>) -> sqlx::Result<()> {
-    let rows: Vec<QueuedRow> = sqlx::query_as(
-        "SELECT r.run_id, r.chain_id, r.fence, r.due_at, r.expires_at, r.queued_reason, r.queued_because
-           FROM downbeat.run r
-          WHERE r.state = 'queued' AND r.created_at < now() - interval '1 hour'
-            AND EXISTS (SELECT 1 FROM downbeat.worker w WHERE w.role = 'worker')
-            AND NOT EXISTS (SELECT 1 FROM downbeat.worker w
-                             WHERE w.role = 'worker' AND w.last_seen_at > now() - interval '1 hour' AND r.job_name = ANY(w.jobs))
-          LIMIT $1",
-    )
-    .bind(BATCH)
-    .fetch_all(sweep.pool)
-    .await?;
-    for row in rows {
-        let ending = Ending::failed("job_not_registered", reasons::not_registered());
-        sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
+    let mut after = Some(Uuid::nil());
+    while let Some(from) = after {
+        let rows: Vec<QueuedRow> = sqlx::query_as(
+            "SELECT r.run_id, r.chain_id, r.fence, r.due_at, r.expires_at, r.queued_reason, r.queued_because
+               FROM downbeat.run r
+              WHERE r.state = 'queued' AND r.created_at < now() - interval '1 hour' AND r.run_id > $2
+                AND EXISTS (SELECT 1 FROM downbeat.worker w WHERE w.role = 'worker')
+                AND NOT EXISTS (SELECT 1 FROM downbeat.worker w
+                                 WHERE w.role = 'worker' AND w.last_seen_at > now() - interval '1 hour' AND r.job_name = ANY(w.jobs))
+              ORDER BY r.run_id LIMIT $1",
+        )
+        .bind(BATCH)
+        .bind(from)
+        .fetch_all(sweep.pool)
+        .await?;
+        after = next_batch(&rows, |row| row.run_id);
+        for row in rows {
+            let ending = Ending::failed("job_not_registered", reasons::not_registered());
+            sweep.end(row.run_id, row.chain_id, row.fence, ending).await;
+        }
     }
     Ok(())
 }

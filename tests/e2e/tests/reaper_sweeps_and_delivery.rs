@@ -285,3 +285,46 @@ async fn a_run_that_cannot_be_ended_holds_up_no_other_sweep() {
         .unwrap();
     assert!(left, "the run that cannot end is still there");
 }
+
+// 9.6: runs that keep failing never fill every batch; the sweep walks past them to the rest.
+#[tokio::test]
+async fn more_failing_runs_than_a_batch_hold_up_no_later_run() {
+    let database = Database::fresh().await;
+    let pool = &database.pool;
+    let client = InAppClient::connect(definition, &database.url).await.unwrap();
+    let mut stuck = Vec::new();
+    for i in 0..150 {
+        stuck.push(client.start(echo, Text { text: format!("stuck {i}") }).await.unwrap().run_id());
+    }
+    let good = client.start(echo, Text { text: "good".into() }).await.unwrap().run_id();
+    sqlx::raw_sql(
+        "CREATE TABLE stuck (run_id uuid PRIMARY KEY);
+         CREATE FUNCTION refuse() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+           IF EXISTS (SELECT 1 FROM stuck WHERE run_id = NEW.run_id) THEN
+             RAISE EXCEPTION 'this run cannot end, on purpose';
+           END IF;
+           RETURN NEW;
+         END $$;
+         CREATE TRIGGER refuse BEFORE INSERT ON downbeat.run_history
+         FOR EACH ROW EXECUTE FUNCTION refuse()",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO stuck SELECT unnest($1::uuid[])").bind(&stuck).execute(pool).await.unwrap();
+    sqlx::query("UPDATE downbeat.run SET cancel_requested_by = 'tester' WHERE run_id = ANY($1)")
+        .bind(&stuck)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE downbeat.run SET cancel_requested_by = 'tester' WHERE run_id = $1")
+        .bind(good)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    // A scheduler alone runs the reaper and claims nothing.
+    let _reaper = App::with(&database, &["scheduler"], "test");
+    assert_eq!(finished(pool, good, SOON).await.status, "cancelled");
+}

@@ -58,7 +58,8 @@ The first version.
 - `on_finish` and `on_event` callbacks delivered at least once from the database; `log_link` and
   `redact`.
 - History pruning by chain, batch after batch within a budget, on a clock of its own beside the
-  sweeps; a run a sweep cannot handle is logged and passed over.
+  sweeps; a run a sweep cannot handle is logged and passed over, and each sweep walks its runs
+  batch after batch in `run_id` order, so runs that keep failing never hide the rest.
 - Progress text and the reasons of errors, panics, skips and not-ready are cut at 64 KiB; a child
   that sends a message the worker cannot read is killed and counted as a crash.
 - A command whose program, arguments and environment exceed 1 MiB as JSON fails as `bad_input`, naming

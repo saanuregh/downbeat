@@ -371,7 +371,8 @@ Modules: `worker/lease.rs`, `reaper.rs`, `definition.rs` (`Settings`).
    (`job_not_registered`). It must delete expired
    used-token records. Every duty runs on every sweep, and a run that cannot be handled is logged
    and passed over, so a failing run holds up neither the other runs of its batch nor the other
-   duties. Pruning (section 13) runs beside
+   duties. Each duty walks its runs in `run_id` order, batch after batch while a batch comes back
+   full, so runs that keep failing never fill every batch and hide the runs after them. Pruning (section 13) runs beside
    the sweeps, so a long pass delays none, and a sweep or a prune that overruns its period delays
    the next rather than making up the missed ones.
 7. A run whose function has been called at least once must never be expired.
