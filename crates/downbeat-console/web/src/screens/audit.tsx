@@ -1,6 +1,13 @@
 // Who did what: to jobs, from the scheduler's audit; and sign-ins and grants, from the console's.
 import { queryString } from "../api";
-import { Empty, ErrorNote, Loading, PageHeader, Time } from "../components/ui";
+import {
+  Empty,
+  ErrorNote,
+  Loading,
+  PageHeader,
+  Pager,
+  Time,
+} from "../components/ui";
 import { formatActor, shortId } from "../format";
 import { useLoad } from "../load";
 import { Link, useLocation } from "../router";
@@ -151,18 +158,11 @@ function AuditTable(props: {
           </table>
         </div>
       )}
-      <nav className="pager" aria-label="Pages">
-        {props.firstHref && (
-          <Link className="button" to={props.firstHref}>
-            Newest
-          </Link>
-        )}
-        {props.nextHref && (
-          <Link className="button" to={props.nextHref}>
-            Next page
-          </Link>
-        )}
-      </nav>
+      <Pager
+        firstHref={props.firstHref}
+        nextHref={props.nextHref}
+        firstLabel="Newest"
+      />
     </>
   );
 }

@@ -577,3 +577,12 @@ a status or an error is a minor version, not a major one.
   The scheduler reads its stored text into them in one place (`From<&str>`); the console's
   screens keep these fields as strings, because they must show a word from a newer scheduler.
   The client's `pause` and `resume` take a `PauseKind` instead of a string.
+- **Every list is paged in the database.** The scheduler's backfills and overrides and the
+  console's grants and people follow the audit list: `limit` (default 50, at most 200), one row
+  more fetched to learn whether a next page exists, and a cursor naming the last row. Each orders
+  by a unique key: backfills by id, newest first (the primary key serves it); overrides by date and
+  schedule; grants by scheduler and id; people by lower-cased email and id. No index is added:
+  those three tables hold rows people make by hand, so sorting the rows a filter finds is cheap.
+  Backfills take `job` and overrides take `date`, because the Job and Calendar screens show only
+  one job's or one date's, and filtering a page in the browser would show empty pages. The client's
+  `audit`, `backfills` and `overrides` take a `PageRequest`.

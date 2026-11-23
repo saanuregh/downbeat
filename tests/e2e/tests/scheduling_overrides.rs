@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::{NaiveDate, TimeDelta, Utc};
 use downbeat_client::Scope;
-use downbeat_client::types::{BackfillRequest, Done, OverrideRequest};
+use downbeat_client::types::{BackfillRequest, Done, OverrideRequest, PageRequest};
 use support::{Database, SOON, eventually, with_api_in};
 
 fn request(schedule: &str, date: NaiveDate, change: &str, times: &[&str]) -> OverrideRequest {
@@ -79,7 +79,7 @@ async fn a_second_override_for_the_same_schedule_and_date_replaces_the_first() {
     admin.add_override(&request("never_fires", day, "off", &[])).await.unwrap();
     admin.add_override(&request("never_fires", day, "times", &["10:15"])).await.unwrap();
 
-    let overrides = admin.overrides().await.unwrap();
+    let overrides = admin.overrides(&PageRequest::new()).await.unwrap().items;
     let saved: Vec<_> = overrides.iter().filter(|row| row.schedule == "never_fires").collect();
     assert_eq!(saved.len(), 1, "{overrides:?}");
     assert_eq!(saved[0].change, "times");
@@ -197,7 +197,7 @@ async fn overrides_of_unknown_schedules_do_not_crowd_out_the_list() {
     .unwrap();
     admin.add_override(&request("never_fires", date("2030-01-07"), "off", &[])).await.unwrap();
 
-    let overrides = admin.overrides().await.unwrap();
+    let overrides = admin.overrides(&PageRequest::new()).await.unwrap().items;
     let schedules: Vec<&str> = overrides.iter().map(|row| row.schedule.as_str()).collect();
     assert_eq!(schedules, ["never_fires"]);
 }
@@ -217,7 +217,63 @@ async fn a_token_limited_to_some_jobs_sees_its_backfills_behind_many_others() {
     .unwrap();
 
     let limited = client.acting_for("alice", Scope::Read, Some(vec!["on_the_clock".into()]));
-    let backfills = limited.backfills().await.unwrap();
+    let backfills = limited.backfills(&PageRequest::new()).await.unwrap().items;
     let jobs: Vec<&str> = backfills.iter().map(|row| row.job.as_str()).collect();
     assert_eq!(jobs, ["on_the_clock"]);
+}
+
+#[tokio::test]
+async fn backfills_and_overrides_come_a_page_at_a_time() {
+    let database = Database::fresh().await;
+    let (_app, client, _) = with_api_in(&database, "rules").await;
+    let admin = client.as_caller();
+    sqlx::query(
+        "INSERT INTO downbeat.schedule_override (schedule, on_date, change, note, created_by) VALUES
+           ('never_fires', '2030-01-09', 'off', 'n', 't'), ('never_fires', '2030-01-08', 'off', 'n', 't'),
+           ('missed_window', '2030-01-08', 'off', 'n', 't'), ('never_fires', '2030-01-07', 'off', 'n', 't')",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO downbeat.backfill (job_name, schedule, from_date, to_date, next_date, state, created_by)
+         SELECT CASE WHEN n % 2 = 0 THEN 'on_the_clock' ELSE 'someone_else' END, 'never_fires',
+                current_date, current_date, current_date, 'done', 'test'
+           FROM generate_series(1, 5) AS n ORDER BY n",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+
+    let two = PageRequest::new().limit(2);
+    let first = admin.overrides(&two).await.unwrap();
+    let second = admin.overrides(&two.clone().cursor(first.next_cursor.clone().unwrap())).await.unwrap();
+    let listed: Vec<(String, String)> =
+        [first.items, second.items].concat().into_iter().map(|row| (row.date.to_string(), row.schedule)).collect();
+    let expected = [
+        ("2030-01-07", "never_fires"),
+        ("2030-01-08", "missed_window"),
+        ("2030-01-08", "never_fires"),
+        ("2030-01-09", "never_fires"),
+    ];
+    assert_eq!(listed, expected.map(|(date, schedule)| (date.to_owned(), schedule.to_owned())));
+    assert_eq!(second.next_cursor, None);
+    let one_day: downbeat_client::types::Page<downbeat_client::types::OverrideView> =
+        admin.get("/v1/overrides?date=2030-01-08").await.unwrap();
+    let schedules: Vec<&str> = one_day.items.iter().map(|row| row.schedule.as_str()).collect();
+    assert_eq!(schedules, ["missed_window", "never_fires"]);
+
+    let first = admin.backfills(&two).await.unwrap();
+    let second = admin.backfills(&two.clone().cursor(first.next_cursor.clone().unwrap())).await.unwrap();
+    let third = admin.backfills(&two.clone().cursor(second.next_cursor.clone().unwrap())).await.unwrap();
+    let ids: Vec<i64> = [first.items, second.items, third.items].concat().iter().map(|row| row.backfill_id).collect();
+    assert_eq!(ids, [5, 4, 3, 2, 1], "newest first");
+    assert_eq!(third.next_cursor, None);
+    let one_job: downbeat_client::types::Page<downbeat_client::types::BackfillView> =
+        admin.get("/v1/backfills?job=on_the_clock").await.unwrap();
+    let ids: Vec<i64> = one_job.items.iter().map(|row| row.backfill_id).collect();
+    assert_eq!(ids, [4, 2]);
+
+    let refused = admin.backfills(&PageRequest::new().cursor("not-an-id")).await.unwrap_err();
+    assert!(matches!(refused, downbeat_client::Error::Api { status: 400, .. }), "{refused}");
 }

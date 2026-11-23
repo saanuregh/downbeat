@@ -105,8 +105,69 @@ async fn grant_ids(base: &str, person: &(String, String)) -> Result<Vec<i64>, u1
     if !response.status().is_success() {
         return Err(response.status().as_u16());
     }
-    let grants: Vec<Value> = response.json().await.unwrap();
-    Ok(grants.iter().map(|grant| grant["grant_id"].as_i64().unwrap()).collect())
+    let page: Value = response.json().await.unwrap();
+    Ok(page["items"].as_array().unwrap().iter().map(|grant| grant["grant_id"].as_i64().unwrap()).collect())
+}
+
+/// Every page of a console list, two to a page, each as the `field` of its items.
+async fn pages(base: &str, person: &(String, String), path: &str, field: &str) -> Vec<Vec<String>> {
+    let mut pages = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut url = reqwest::Url::parse(&format!("{base}{path}?limit=2")).unwrap();
+        if let Some(cursor) = &cursor {
+            url.query_pairs_mut().append_pair("cursor", cursor);
+        }
+        let page: Value =
+            reqwest::Client::new().get(url).header("cookie", &person.0).send().await.unwrap().json().await.unwrap();
+        let items = page["items"].as_array().unwrap();
+        pages.push(items.iter().map(|item| item[field].as_str().unwrap_or("").to_owned()).collect());
+        match page["next_cursor"].as_str() {
+            Some(next) => cursor = Some(next.to_owned()),
+            None => return pages,
+        }
+    }
+}
+
+#[tokio::test]
+async fn grants_and_people_come_a_page_at_a_time_in_their_order() {
+    let database = Database::fresh().await;
+    let (_app, provider, _console, base) = setup(&database, BY_DOMAIN).await;
+    let boss = signed_in(&provider, &base, "boss@example.com").await;
+    for email in ["carol@example.com", "Alice@example.com", "bob@example.com", "dan@example.com"] {
+        signed_in(&provider, &base, email).await;
+    }
+    for group in ["third", "first", "second"] {
+        grant(&base, &boss, json!({ "to_group": group, "scheduler": "test", "scope": "read" })).await;
+    }
+    // A grant on a scheduler this console no longer has is not listed.
+    sqlx::query(
+        "INSERT INTO console.grant (to_group, scheduler, scope, created_by) VALUES ('old', 'gone', 'read', 'x')",
+    )
+    .execute(&database.pool)
+    .await
+    .unwrap();
+
+    let people = pages(&base, &boss, "/api/people", "email").await;
+    assert_eq!(
+        people,
+        [
+            vec!["Alice@example.com", "bob@example.com"],
+            vec!["boss@example.com", "carol@example.com"],
+            vec!["dan@example.com"]
+        ]
+    );
+    // Grants come by scheduler and then in the order they were made.
+    let grants = pages(&base, &boss, "/api/grants", "to_group").await;
+    assert_eq!(grants, [vec!["third", "first"], vec!["second"]]);
+
+    let refused = reqwest::Client::new()
+        .get(format!("{base}/api/people?cursor=nothing"))
+        .header("cookie", &boss.0)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 400);
 }
 
 async fn remove(base: &str, person: &(String, String), id: i64) -> u16 {

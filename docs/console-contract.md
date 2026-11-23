@@ -30,15 +30,18 @@ request and response types are in `crates/downbeat-api/src/types.rs`; the endpoi
 
 ## Access
 
-- `GET /api/grants` → `[{ grant_id, to_person: string|null, to_group: string|null, scheduler, scope,
-  pipelines: string[]|null, created_by, created_at }]`: the grants on the schedulers the person
-  administers in full (every pipeline).
+- `GET /api/grants?limit=&cursor=` → `{ items: [{ grant_id, to_person: string|null,
+  to_group: string|null, scheduler, scope, pipelines: string[]|null, created_by, created_at }],
+  next_cursor? }`: the grants on the schedulers the person administers in full (every pipeline),
+  by scheduler and then in the order they were made.
 - `POST /api/grants` with `{ to_person?: email, to_group?: string, scheduler, scope, pipelines?: string[] }`
   (exactly one of `to_person`, `to_group`) → the new grant. Needs `administer` on every pipeline of
   that scheduler, so nobody can grant more than they hold. `DELETE` needs the same.
 - `DELETE /api/grants/{id}` → `{ "message": "…" }`.
-- `GET /api/people` → `[{ email, name, groups: string[], last_seen_at }]`. Needs `administer`
-  somewhere.
+- `GET /api/people?limit=&cursor=` → `{ items: [{ email, name, groups: string[], last_seen_at }],
+  next_cursor? }`, by email. Needs `administer` somewhere.
+- Both lists take `limit` (default 50, at most 200) and the previous page's `next_cursor` as
+  `cursor`; `next_cursor` is absent on the last page. A cursor the console did not return is 400.
 
 ## Console audit and preferences
 

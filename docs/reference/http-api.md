@@ -52,13 +52,17 @@ requests is in [the API chapter](../guide/07-api-and-client.md#signed-requests-f
 | `GET /v1/pause` | R | | `PauseView?`: the pause of everything, if any | |
 | `POST /v1/pause` | A (token covering every job) | `PauseRequest` | `Done`: holds every run of every job | ✓ |
 | `POST /v1/resume` | A (token covering every job) | | `Done` | ✓ |
-| `GET /v1/overrides` | R | | `OverrideView[]`, from 30 days ago on | |
+| `GET /v1/overrides?date=&limit=&cursor=` | R | | `Page<OverrideView>`, from 30 days ago on, by date and then schedule; `date` keeps one date | |
 | `POST /v1/overrides` | A | `OverrideRequest` | `Done` with the last override's `id` | ✓ |
 | `DELETE /v1/overrides/{id}` | A | | `Done` | ✓ |
-| `GET /v1/backfills` | R | | `BackfillView[]`, newest 200 | |
+| `GET /v1/backfills?job=&limit=&cursor=` | R | | `Page<BackfillView>`, newest first; `job` keeps one job | |
 | `POST /v1/backfills` | A | `BackfillRequest` | `Done` with the backfill's `id` | ✓ |
 | `POST /v1/backfills/{id}/cancel` | A, covering every job in its current chain | | `Done` | ✓ |
-| `GET /v1/audit?limit=&before=` | R | | `Page<AuditEntry>` | |
+| `GET /v1/audit?limit=&before=` | R | | `Page<AuditEntry>`, newest first; `before` is the previous page's `next_cursor` | |
+
+Every list that returns a `Page` takes `limit` (default 50, at most 200), and the previous page's
+`next_cursor` as `cursor` (as `before` for the audit). A cursor this API did not return is refused
+(400), as is a query parameter a list does not take.
 | `GET /v1/report?days=` | R | `days` 1 to 30, default 7 | `Report` | |
 
 ### Endpoint notes

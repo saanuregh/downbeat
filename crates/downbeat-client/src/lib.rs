@@ -19,6 +19,7 @@
 
 mod client;
 mod error;
+mod paths_and_answers;
 mod pause;
 mod start;
 

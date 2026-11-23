@@ -170,7 +170,9 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
   `resume_everything`, `mark_succeeded`,
   `add_override`, `preview_override`, `overrides`, `start_backfill`, `backfills`, `schedules`,
   `queues`, `audit`, and generic `get`, `post` and `delete` for any other endpoint, such as
-  `post("/v1/runs/{id}/retry", None::<&()>, None)`.
+  `post("/v1/runs/{id}/retry", None::<&()>, None)`. `audit`, `backfills` and `overrides` return
+  one `Page` and take a `PageRequest`: `PageRequest::new()` for the first page, and
+  `.cursor(next)`, with the `next_cursor` of the page before, for the next.
 - **Requests and answers can grow.** Build a request with `new(…)` from its required fields and a
   setter for each optional one, such as `PauseRequest::new("bad upstream data").until(end)` or
   `BackfillRequest::new("daily_report", from, to).continue_on_failure()`. Every request, answer

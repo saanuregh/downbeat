@@ -4,7 +4,7 @@
 mod support;
 
 use downbeat_api::{PrivateKey, Scope};
-use downbeat_client::types::{BackfillRequest, BackfillView, OverrideRequest, OverrideView, StartResponse};
+use downbeat_client::types::{BackfillRequest, BackfillView, OverrideRequest, OverrideView, Page, StartResponse};
 use serde_json::{Value, json};
 use support::{Database, SOON, Signer, finished, with_api_at, with_callers};
 use uuid::Uuid;
@@ -59,10 +59,10 @@ async fn an_operate_token_is_refused_resumes_override_removal_and_backfill_cance
     let day = chrono::NaiveDate::from_ymd_opt(2030, 1, 7).unwrap();
     let off = OverrideRequest::new(["report"], day, "off", "holiday");
     let _: Value = admin.post("/v1/overrides", &serde_json::to_value(off).unwrap()).await;
-    let overrides: Vec<OverrideView> = admin.get("/v1/overrides").await;
+    let overrides = admin.get::<Page<OverrideView>>("/v1/overrides").await.items;
     let backfill = BackfillRequest::new("dated", day, day);
     let _: Value = admin.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
-    let backfills: Vec<BackfillView> = admin.get("/v1/backfills").await;
+    let backfills = admin.get::<Page<BackfillView>>("/v1/backfills").await.items;
     let before = changes(&database).await;
 
     let operator = Signer { scope: Scope::Operate, ..Signer::local(&base) };

@@ -35,6 +35,37 @@ impl<T> Default for Page<T> {
     }
 }
 
+/// Which page of a list to ask for: the first, or the one after a page's `next_cursor`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PageRequest {
+    /// How many items, at most; the scheduler's default (50) when not set, and never over 200.
+    pub limit: Option<u32>,
+    /// The `next_cursor` of the page before.
+    pub cursor: Option<String>,
+}
+
+impl PageRequest {
+    /// The first page, of the default size.
+    pub fn new() -> Self {
+        PageRequest::default()
+    }
+
+    /// At most this many items.
+    #[must_use]
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// The page after the one whose `next_cursor` this is.
+    #[must_use]
+    pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
+        self.cursor = Some(cursor.into());
+        self
+    }
+}
+
 /// An error, with a sentence that says what to do.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

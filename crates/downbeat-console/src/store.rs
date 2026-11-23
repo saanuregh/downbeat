@@ -119,12 +119,25 @@ pub(crate) struct Grant {
     pub(crate) created_at: DateTime<Utc>,
 }
 
-pub(crate) async fn grants(pool: &PgPool) -> sqlx::Result<Vec<Grant>> {
+/// Up to `limit` grants on these schedulers, by scheduler and then id, after the grant `after`
+/// names by its scheduler and id. Grants are made by people, so there are few to sort.
+pub(crate) async fn grants(
+    pool: &PgPool,
+    schedulers: &[String],
+    after: Option<(String, i64)>,
+    limit: i64,
+) -> sqlx::Result<Vec<Grant>> {
+    let (after_scheduler, after_id) = after.unzip();
     sqlx::query_as(
         "SELECT g.grant_id, p.email AS to_person, g.to_group, g.scheduler, g.scope, g.pipelines, g.created_by, g.created_at
            FROM console.grant g LEFT JOIN console.person p ON p.person_id = g.to_person
-          ORDER BY g.scheduler, g.grant_id",
+          WHERE g.scheduler = ANY($1) AND ($2::text IS NULL OR (g.scheduler, g.grant_id) > ($2, $3::bigint))
+          ORDER BY g.scheduler, g.grant_id LIMIT $4",
     )
+    .bind(schedulers)
+    .bind(after_scheduler)
+    .bind(after_id)
+    .bind(limit)
     .fetch_all(pool)
     .await
 }

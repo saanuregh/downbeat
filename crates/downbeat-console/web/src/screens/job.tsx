@@ -5,6 +5,7 @@ import {
   PauseButton,
   ResumeButton,
 } from "../components/action-forms";
+import { queryString } from "../api";
 import { RunTable } from "../components/run-table";
 import { StartButton } from "../components/start-dialog";
 import {
@@ -14,6 +15,7 @@ import {
   Facts,
   Loading,
   PageHeader,
+  Pager,
   PauseNote,
   Section,
   StatusBadge,
@@ -22,7 +24,7 @@ import {
 } from "../components/ui";
 import { formatDuration, secondsBetween } from "../format";
 import { useLoad } from "../load";
-import { Link } from "../router";
+import { Link, useLocation } from "../router";
 import { useScheduler } from "../session";
 import { asShape } from "../shape-form";
 import type {
@@ -37,10 +39,14 @@ import type {
 export function JobScreen({ params }: { params: Record<string, string> }) {
   const name = params.name ?? "";
   const { api, href, can } = useScheduler();
+  const { query } = useLocation();
+  const backfillsCursor = query.get("backfills");
   const job = useLoad<JobView>(api(`/jobs/${encodeURIComponent(name)}`));
   const runs = useLoad<Page<RunView>>(api("/runs", { job: name, limit: 20 }));
   const schedules = useLoad<ScheduleView[]>(api("/schedules"));
-  const backfills = useLoad<BackfillView[]>(api("/backfills"));
+  const backfills = useLoad<Page<BackfillView>>(
+    api("/backfills", { job: name, cursor: backfillsCursor }),
+  );
   const reload = () => {
     job.reload();
     runs.reload();
@@ -54,9 +60,8 @@ export function JobScreen({ params }: { params: Record<string, string> }) {
   const ownSchedules = (schedules.data ?? []).filter(
     (schedule) => schedule.job === name,
   );
-  const ownBackfills = (backfills.data ?? []).filter(
-    (backfill) => backfill.job === name,
-  );
+  const ownBackfills = backfills.data?.items ?? [];
+  const jobHref = href(`/jobs/${encodeURIComponent(name)}`);
 
   return (
     <>
@@ -218,7 +223,7 @@ export function JobScreen({ params }: { params: Record<string, string> }) {
         )}
       </Section>
 
-      {ownBackfills.length > 0 && (
+      {(ownBackfills.length > 0 || backfillsCursor) && (
         <Section title="Backfills">
           <ul className="cards">
             {ownBackfills.map((backfill) => (
@@ -250,6 +255,17 @@ export function JobScreen({ params }: { params: Record<string, string> }) {
               </li>
             ))}
           </ul>
+          <Pager
+            label="Pages of backfills"
+            firstHref={backfillsCursor ? jobHref : null}
+            nextHref={
+              backfills.data?.next_cursor
+                ? jobHref +
+                  queryString({ backfills: backfills.data.next_cursor })
+                : null
+            }
+            firstLabel="Newest"
+          />
         </Section>
       )}
     </>

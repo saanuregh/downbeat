@@ -1,16 +1,17 @@
 //! The calendar, schedules and dated overrides.
 
+use super::{page_of, page_size};
 use axum::Json;
 use axum::extract::{Extension, Query, State as Extract};
 use chrono::{DateTime, NaiveDate, Utc};
 use downbeat_api::Scope;
-use downbeat_api::types::{CalendarDay, CalendarEntry, DayOff, OverrideView, ScheduleView};
+use downbeat_api::types::{CalendarDay, CalendarEntry, DayOff, OverrideView, Page, ScheduleView};
 use downbeat_api::with_defaults;
 use serde::Deserialize;
 
 use crate::api::State;
 use crate::api::auth::Caller;
-use crate::api::error::Answer;
+use crate::api::error::{Answer, Failure};
 use crate::api::views;
 use crate::schedule::DayPlan;
 use crate::scheduler::plan::{self, PlanSource};
@@ -116,10 +117,23 @@ pub(crate) async fn schedules(
     Ok(Json(views))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OverridesQuery {
+    /// Only the overrides of this date.
+    date: Option<NaiveDate>,
+    limit: Option<i64>,
+    cursor: Option<String>,
+}
+
+/// `GET /overrides`: from 30 days ago on, by date and then schedule, which is unique. The unique
+/// index on (schedule, date) finds each visible schedule's rows; overrides are made by people, so
+/// sorting the few found is cheap.
 pub(crate) async fn overrides(
     Extract(state): Extract<State>,
     Extension(caller): Extension<Caller>,
-) -> Answer<Vec<OverrideView>> {
+    Query(query): Query<OverridesQuery>,
+) -> Answer<Page<OverrideView>> {
     caller.require(Scope::Read)?;
     let visible: Vec<&str> = state
         .registry
@@ -128,15 +142,30 @@ pub(crate) async fn overrides(
         .filter(|schedule| caller.covers(schedule.job))
         .map(|schedule| schedule.name.as_str())
         .collect();
+    let size = page_size(query.limit);
+    let after = query.cursor.as_deref().map(override_cursor).transpose()?;
     let rows: Vec<plan::OverrideRow> = sqlx::query_as(
         "SELECT * FROM downbeat.schedule_override
           WHERE on_date >= (now() - interval '30 days')::date AND schedule = ANY($1)
-          ORDER BY on_date, schedule LIMIT 500",
+            AND ($2::date IS NULL OR on_date = $2) AND ($3::date IS NULL OR (on_date, schedule) > ($3, $4::text))
+          ORDER BY on_date, schedule LIMIT $5",
     )
     .bind(&visible)
+    .bind(query.date)
+    .bind(after.as_ref().map(|(date, _)| *date))
+    .bind(after.as_ref().map(|(_, schedule)| schedule.as_str()))
+    .bind(size + 1)
     .fetch_all(&state.pool)
     .await?;
-    Ok(Json(rows.into_iter().map(override_view).collect()))
+    let items = rows.into_iter().map(override_view).collect();
+    Ok(Json(page_of(items, size, |view: &OverrideView| format!("{}/{}", view.date, view.schedule))))
+}
+
+/// The date and schedule an overrides cursor holds, written `2030-01-07/report`.
+fn override_cursor(text: &str) -> Result<(NaiveDate, String), Failure> {
+    let bad = || Failure::bad_request("the cursor is not one this API returned");
+    let (date, schedule) = text.split_once('/').ok_or_else(bad)?;
+    Ok((date.parse().map_err(|_| bad())?, schedule.to_owned()))
 }
 
 pub(crate) fn override_view(row: plan::OverrideRow) -> OverrideView {

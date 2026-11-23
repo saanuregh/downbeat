@@ -24,6 +24,10 @@ major version ([decision 72](docs/decisions.md#72-the-public-api-can-grow-after-
   enums (`RunStatus`, `QueuedBecause`, `SkippedBecause`, `FailedBecause`, `JobKind`,
   `BackfillState`, `CallEnded`, `ErrorCode`) with an `Unknown` variant; the JSON is unchanged.
   `Error::Api.code` is an `ErrorCode`, and `ActingClient::pause` and `resume` take a `PauseKind`.
+- `GET /v1/backfills` and `GET /v1/overrides` return a `Page` with `limit` and `cursor`, and take
+  `job` and `date` filters; the console's `GET /api/grants` and `GET /api/people` return a `Page`
+  too. The client's `audit`, `backfills` and `overrides` take a `PageRequest`. The Access, Job and
+  Calendar screens page these lists as the Audit screen does.
 
 ### Jobs
 

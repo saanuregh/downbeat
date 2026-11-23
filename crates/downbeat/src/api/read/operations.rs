@@ -1,6 +1,6 @@
 //! Queues, backfills and the audit trail.
 
-use super::MAX_PAGE;
+use super::{id_cursor, page_of, page_size};
 use std::collections::BTreeMap;
 
 use axum::Json;
@@ -102,19 +102,42 @@ pub(crate) async fn queues(
     Ok(Json(views))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BackfillsQuery {
+    /// Only this job's backfills.
+    job: Option<String>,
+    limit: Option<i64>,
+    cursor: Option<String>,
+}
+
+/// `GET /backfills`: newest first, by id. The primary key serves the order and the cursor; the job
+/// filter is checked on the way, and backfills are made by people, so there are few to pass over.
 pub(crate) async fn backfills(
     Extract(state): Extract<State>,
     Extension(caller): Extension<Caller>,
-) -> Answer<Vec<BackfillView>> {
+    Query(query): Query<BackfillsQuery>,
+) -> Answer<Page<BackfillView>> {
     caller.require(Scope::Read)?;
+    let mut jobs = caller.jobs.clone();
+    if let Some(job) = &query.job {
+        caller.require_job(job)?;
+        jobs = Some(vec![job.clone()]);
+    }
+    let size = page_size(query.limit);
+    let before = query.cursor.as_deref().map(id_cursor).transpose()?;
     let rows: Vec<BackfillRow> = sqlx::query_as(
-        "SELECT * FROM downbeat.backfill WHERE ($1::text[] IS NULL OR job_name = ANY($1))
-          ORDER BY created_at DESC LIMIT 200",
+        "SELECT * FROM downbeat.backfill
+          WHERE ($1::text[] IS NULL OR job_name = ANY($1)) AND ($2::bigint IS NULL OR backfill_id < $2)
+          ORDER BY backfill_id DESC LIMIT $3",
     )
-    .bind(&caller.jobs)
+    .bind(&jobs)
+    .bind(before)
+    .bind(size + 1)
     .fetch_all(&state.pool)
     .await?;
-    Ok(Json(rows.into_iter().map(backfill_view).collect()))
+    let items = rows.into_iter().map(backfill_view).collect();
+    Ok(Json(page_of(items, size, |backfill| backfill.backfill_id.to_string())))
 }
 
 pub(crate) fn backfill_view(row: BackfillRow) -> BackfillView {
@@ -146,21 +169,19 @@ pub(crate) async fn audit(
     Query(query): Query<AuditQuery>,
 ) -> Answer<Page<AuditEntry>> {
     caller.require(Scope::Read)?;
-    let limit = query.limit.unwrap_or(50).clamp(1, MAX_PAGE);
+    let size = page_size(query.limit);
     let rows: Vec<AuditRow> = sqlx::query_as(
         "SELECT audit_id, at, actor, action, job_name, run_id, schedule, detail FROM downbeat.audit
           WHERE ($1::bigint IS NULL OR audit_id < $1) AND ($3::text[] IS NULL OR job_name = ANY($3))
           ORDER BY audit_id DESC LIMIT $2",
     )
     .bind(query.before)
-    .bind(limit + 1)
+    .bind(size + 1)
     .bind(&caller.jobs)
     .fetch_all(&state.pool)
     .await?;
-    let more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     let items: Vec<AuditEntry> = rows
         .into_iter()
-        .take(usize::try_from(limit).unwrap_or(0))
         .map(|row| {
             with_defaults!(AuditEntry {
                 audit_id: row.audit_id,
@@ -174,6 +195,5 @@ pub(crate) async fn audit(
             })
         })
         .collect();
-    let next_cursor = more.then(|| items.last().map(|entry| entry.audit_id.to_string())).flatten();
-    Ok(Json(with_defaults!(Page { items, next_cursor })))
+    Ok(Json(page_of(items, size, |entry| entry.audit_id.to_string())))
 }

@@ -15,7 +15,7 @@ pub(crate) use runs::{run, runs};
 use axum::Json;
 use axum::extract::State as Extract;
 use downbeat_api::API_VERSION;
-use downbeat_api::types::{Health, Version};
+use downbeat_api::types::{Health, Page, Version};
 use downbeat_api::with_defaults;
 
 use crate::api::State;
@@ -23,6 +23,26 @@ use crate::api::error::Failure;
 
 /// The most items one page returns.
 const MAX_PAGE: i64 = 200;
+
+/// How many items a page holds: `limit`, or 50, and never more than [`MAX_PAGE`].
+fn page_size(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(50).clamp(1, MAX_PAGE)
+}
+
+/// A page of `items`, which were fetched with one more than `size` so that the extra one says
+/// another page follows; the next page then starts after the cursor of this page's last item.
+fn page_of<T>(mut items: Vec<T>, size: i64, cursor: impl Fn(&T) -> String) -> Page<T> {
+    let size = usize::try_from(size).unwrap_or(0);
+    let more = items.len() > size;
+    items.truncate(size);
+    let next_cursor = if more { items.last().map(cursor) } else { None };
+    with_defaults!(Page { items, next_cursor })
+}
+
+/// The id a list's cursor holds, for a list ordered by its id.
+fn id_cursor(text: &str) -> Result<i64, Failure> {
+    text.parse().map_err(|_| Failure::bad_request("the cursor is not one this API returned"))
+}
 
 pub(crate) async fn healthz() -> Json<Health> {
     Json(with_defaults!(Health { ok: true, api: API_VERSION }))

@@ -6,12 +6,15 @@ import {
   ErrorNote,
   Loading,
   PageHeader,
+  Pager,
   Section,
   Time,
 } from "../components/ui";
+import { queryString } from "../api";
 import { useLoad } from "../load";
+import { useLocation } from "../router";
 import { allows, useSession } from "../session";
-import type { Grant, Person, Scope } from "../types";
+import type { Grant, Page, Person, Scope } from "../types";
 
 const scopeWords: Record<Scope, string> = {
   read: "see",
@@ -30,8 +33,18 @@ function whoOf(grant: {
 
 export function AccessScreen() {
   const { me } = useSession();
-  const grants = useLoad<Grant[]>("/api/grants");
-  const people = useLoad<Person[]>("/api/people");
+  const { query } = useLocation();
+  const grantsCursor = query.get("grants");
+  const peopleCursor = query.get("people");
+  const grants = useLoad<Page<Grant>>(
+    `/api/grants${queryString({ cursor: grantsCursor })}`,
+  );
+  const people = useLoad<Page<Person>>(
+    `/api/people${queryString({ cursor: peopleCursor })}`,
+  );
+  /** This screen with one list moved to another page and the other kept where it is. */
+  const pageHref = (move: { grants?: string | null; people?: string | null }) =>
+    `/access${queryString({ grants: grantsCursor, people: peopleCursor, ...move })}`;
   const administered = me.schedulers.filter((item) =>
     allows(item.scope, "administer"),
   );
@@ -50,7 +63,7 @@ export function AccessScreen() {
                 name: item.name,
                 label: item.label,
               }))}
-              people={people.data ?? []}
+              people={people.data?.items ?? []}
               onDone={grants.reload}
             />
           )
@@ -61,10 +74,10 @@ export function AccessScreen() {
           <ErrorNote error={grants.error} onRetry={grants.reload} />
         )}
         {!grants.data && !grants.error && <Loading />}
-        {grants.data && grants.data.length === 0 && (
+        {grants.data && grants.data.items.length === 0 && (
           <Empty>No grants yet.</Empty>
         )}
-        {grants.data && grants.data.length > 0 && (
+        {grants.data && grants.data.items.length > 0 && (
           <div className="table-scroll">
             <table className="table">
               <thead>
@@ -80,7 +93,7 @@ export function AccessScreen() {
                 </tr>
               </thead>
               <tbody>
-                {grants.data.map((grant) => (
+                {grants.data.items.map((grant) => (
                   <tr key={grant.grant_id}>
                     <td>{whoOf(grant)}</td>
                     <td>{grant.scope}</td>
@@ -124,16 +137,27 @@ export function AccessScreen() {
             </table>
           </div>
         )}
+        {grants.data && (
+          <Pager
+            label="Pages of grants"
+            firstHref={grantsCursor ? pageHref({ grants: null }) : null}
+            nextHref={
+              grants.data.next_cursor
+                ? pageHref({ grants: grants.data.next_cursor })
+                : null
+            }
+          />
+        )}
       </Section>
       <Section title="People">
         {people.error && (
           <ErrorNote error={people.error} onRetry={people.reload} />
         )}
         {!people.data && !people.error && <Loading />}
-        {people.data && people.data.length === 0 && (
+        {people.data && people.data.items.length === 0 && (
           <Empty>Nobody has signed in yet.</Empty>
         )}
-        {people.data && people.data.length > 0 && (
+        {people.data && people.data.items.length > 0 && (
           <div className="table-scroll">
             <table className="table">
               <thead>
@@ -145,7 +169,7 @@ export function AccessScreen() {
                 </tr>
               </thead>
               <tbody>
-                {people.data.map((person) => (
+                {people.data.items.map((person) => (
                   <tr key={person.email}>
                     <td>{person.name}</td>
                     <td>{person.email}</td>
@@ -164,6 +188,17 @@ export function AccessScreen() {
               </tbody>
             </table>
           </div>
+        )}
+        {people.data && (
+          <Pager
+            label="Pages of people"
+            firstHref={peopleCursor ? pageHref({ people: null }) : null}
+            nextHref={
+              people.data.next_cursor
+                ? pageHref({ people: people.data.next_cursor })
+                : null
+            }
+          />
         )}
       </Section>
     </>

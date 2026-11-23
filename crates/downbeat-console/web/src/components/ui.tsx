@@ -1,6 +1,7 @@
 // Small building blocks shared by every screen. Everything is rendered as text.
 import type { ReactNode } from "react";
 import { formatDateTime, formatUtc, statusTone } from "../format";
+import { Link } from "../router";
 import { useZone } from "../session";
 import type { Json, PauseView } from "../types";
 
@@ -71,6 +72,32 @@ export function ErrorNote({
 
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="empty">{children}</p>;
+}
+
+/** The links under a paged list: back to its first page, and on to the next. Shows nothing on a
+ * list that fits one page. */
+export function Pager(props: {
+  firstHref: string | null;
+  nextHref: string | null;
+  /** What the first page is called: "Newest" for a list newest first. */
+  firstLabel?: string;
+  /** Names the list, when a screen has more than one. */
+  label?: string;
+}) {
+  return (
+    <nav className="pager" aria-label={props.label ?? "Pages"}>
+      {props.firstHref && (
+        <Link className="button" to={props.firstHref}>
+          {props.firstLabel ?? "First page"}
+        </Link>
+      )}
+      {props.nextHref && (
+        <Link className="button" to={props.nextHref}>
+          Next page
+        </Link>
+      )}
+    </nav>
+  );
 }
 
 export function PageHeader(props: {

@@ -3,20 +3,20 @@
 use std::time::Duration;
 
 use downbeat_api::types::{
-    ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, Done, ErrorCode, JobView,
-    MarkSucceededRequest, OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, Report,
-    RunView, ScheduleView, StartRequest, Version,
+    AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, Done, JobView, MarkSucceededRequest,
+    OverrideRequest, OverrideView, Page, PageRequest, PauseRequest, PipelineView, Preview, QueueView, Report, RunView,
+    ScheduleView, StartRequest, Version,
 };
-use downbeat_api::with_defaults;
 use downbeat_api::{
     API_VERSION, Claims, DEVELOPMENT_AUDIENCE, IDEMPOTENCY_HEADER, JobName, PrivateKey, RequestBinding, Scope,
     development_key, sign,
 };
-use reqwest::{Method, StatusCode, Url};
+use reqwest::{Method, Url};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
+use crate::paths_and_answers::{decode, page_path, path};
 use crate::{Error, PauseKind, Start};
 
 /// Sets up a [`Client`].
@@ -447,13 +447,13 @@ impl<'a> ActingClient<'a> {
         self.post("/v1/overrides?preview=true", Some(request), None).await
     }
 
-    /// Overrides from the last 30 days on.
+    /// One page of the overrides from 30 days ago on, by date and then schedule.
     ///
     /// # Errors
     ///
     /// Fails when the scheduler cannot be reached or answers with an error.
-    pub async fn overrides(&self) -> Result<Vec<OverrideView>, Error> {
-        self.get("/v1/overrides").await
+    pub async fn overrides(&self, page: &PageRequest) -> Result<Page<OverrideView>, Error> {
+        self.get(&page_path(&["v1", "overrides"], "cursor", page)).await
     }
 
     /// Starts a backfill of a schedule over a range of dates.
@@ -465,13 +465,13 @@ impl<'a> ActingClient<'a> {
         self.post("/v1/backfills", Some(request), None).await
     }
 
-    /// The newest backfills.
+    /// One page of the backfills, newest first.
     ///
     /// # Errors
     ///
     /// Fails when the scheduler cannot be reached or answers with an error.
-    pub async fn backfills(&self) -> Result<Vec<BackfillView>, Error> {
-        self.get("/v1/backfills").await
+    pub async fn backfills(&self, page: &PageRequest) -> Result<Page<BackfillView>, Error> {
+        self.get(&page_path(&["v1", "backfills"], "cursor", page)).await
     }
 
     /// Every schedule, with its next time.
@@ -492,13 +492,13 @@ impl<'a> ActingClient<'a> {
         self.get("/v1/queues").await
     }
 
-    /// The newest audit entries.
+    /// One page of the audit entries, newest first.
     ///
     /// # Errors
     ///
     /// Fails when the scheduler cannot be reached or answers with an error.
-    pub async fn audit(&self) -> Result<Page<AuditEntry>, Error> {
-        self.get("/v1/audit").await
+    pub async fn audit(&self, page: &PageRequest) -> Result<Page<AuditEntry>, Error> {
+        self.get(&page_path(&["v1", "audit"], "before", page)).await
     }
 
     /// Each job's last `days` days (1 to 30, ending today), and yesterday's failures, as this actor
@@ -509,69 +509,5 @@ impl<'a> ActingClient<'a> {
     /// Fails when the scheduler cannot be reached or answers with an error.
     pub async fn report(&self, days: u32) -> Result<Report, Error> {
         self.get(&format!("/v1/report?days={days}")).await
-    }
-}
-
-/// The absolute path made of `segments`, each percent-encoded, so a name with a space or a `/`
-/// stays one segment.
-pub(crate) fn path(segments: &[&str]) -> String {
-    let mut url = Url::parse("http://scheduler/").expect("a fixed URL parses");
-    url.path_segments_mut().expect("an http URL has a path").clear().extend(segments);
-    url.path().to_owned()
-}
-
-async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, Error> {
-    let status = response.status();
-    if status.is_success() {
-        return response.json().await.map_err(Error::connection);
-    }
-    let body = response.bytes().await.map_err(Error::connection)?;
-    let error: ApiError = serde_json::from_slice(&body).unwrap_or_else(|_| {
-        with_defaults!(ApiError { error: ErrorCode::Unknown, message: undecoded_message(status, &body) })
-    });
-    if status == StatusCode::UNAUTHORIZED && error.message.contains("expired") {
-        return Err(Error::Api {
-            status: status.as_u16(),
-            code: error.error,
-            message: format!("{} — check this machine's clock", error.message),
-        });
-    }
-    Err(Error::Api { status: status.as_u16(), code: error.error, message: error.message })
-}
-
-/// The status's reason and the start of a body that is not an `ApiError`, such as a proxy's page.
-fn undecoded_message(status: StatusCode, body: &[u8]) -> String {
-    const SHOWN: usize = 200;
-    let reason = status.canonical_reason().unwrap_or("error");
-    let text = String::from_utf8_lossy(&body[..body.len().min(SHOWN)]);
-    let text = text.trim();
-    if text.is_empty() {
-        reason.to_owned()
-    } else if body.len() > SHOWN {
-        format!("{reason}: {text}…")
-    } else {
-        format!("{reason}: {text}")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_path_segment_is_percent_encoded() {
-        assert_eq!(path(&["v1", "jobs", "a b/c?d#e%f", "runs"]), "/v1/jobs/a%20b%2Fc%3Fd%23e%25f/runs");
-        assert_eq!(path(&["v1", "jobs", "plain_name"]), "/v1/jobs/plain_name");
-    }
-
-    #[test]
-    fn an_undecodable_error_body_keeps_its_start() {
-        let long = "x".repeat(500);
-        assert_eq!(undecoded_message(StatusCode::BAD_GATEWAY, b""), "Bad Gateway");
-        assert_eq!(undecoded_message(StatusCode::BAD_GATEWAY, b" <h1>down</h1> "), "Bad Gateway: <h1>down</h1>");
-        assert_eq!(
-            undecoded_message(StatusCode::BAD_GATEWAY, long.as_bytes()),
-            format!("Bad Gateway: {}…", &long[..200])
-        );
     }
 }

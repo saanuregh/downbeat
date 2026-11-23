@@ -6,7 +6,8 @@ use downbeat_api::types::{Preview, StartRequest, StartResponse};
 use uuid::Uuid;
 
 use crate::Error;
-use crate::client::{ActingClient, path};
+use crate::client::ActingClient;
+use crate::paths_and_answers::path;
 
 /// How many times a start is tried when the scheduler cannot be reached or is busy.
 const START_TRIES: u32 = 4;

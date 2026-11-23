@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Extension, Path, Query, State as Extract};
-use downbeat_api::{API_VERSION, Scope};
+use downbeat_api::types::Page;
+use downbeat_api::{API_VERSION, Scope, with_defaults};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -82,14 +83,48 @@ async fn require_administer(state: &State, session: &Session, scheduler: &str) -
     }
 }
 
-/// `GET /api/grants`: every grant, for people who administer something.
+/// Which page of a list the screens ask for.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PageQuery {
+    limit: Option<i64>,
+    /// The `next_cursor` of the page before.
+    cursor: Option<String>,
+}
+
+/// How many items a page holds: `limit`, or 50, and never more than 200, as the scheduler's lists.
+fn page_size(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(50).clamp(1, 200)
+}
+
+/// A page of `items`, which were fetched with one more than `size` so that the extra one says
+/// another page follows; the next page then starts after the cursor of this page's last item.
+fn page_of<T>(mut items: Vec<T>, size: i64, cursor: impl Fn(&T) -> String) -> Page<T> {
+    let size = usize::try_from(size).unwrap_or(0);
+    let more = items.len() > size;
+    items.truncate(size);
+    let next_cursor = if more { items.last().map(cursor) } else { None };
+    with_defaults!(Page { items, next_cursor })
+}
+
+/// The sort key and id a cursor holds, written `<key>/<id>`; the key may itself hold a `/`.
+fn keyed_cursor(text: &str) -> Result<(String, i64), Failure> {
+    let bad = || Failure::bad_request("the cursor is not one this console returned");
+    let (key, id) = text.rsplit_once('/').ok_or_else(bad)?;
+    Ok((key.to_owned(), id.parse().map_err(|_| bad())?))
+}
+
+/// `GET /api/grants`: a page of the grants on the schedulers this person administers in full.
 pub(crate) async fn grants(
     Extract(state): Extract<State>,
     Extension(session): Extension<Arc<Session>>,
-) -> Result<Json<Vec<Grant>>, Failure> {
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<Grant>>, Failure> {
     let administered = administered_schedulers(&state, &session).await?;
-    let grants = store::grants(&state.pool).await?;
-    Ok(Json(grants.into_iter().filter(|grant| administered.contains(&grant.scheduler)).collect()))
+    let size = page_size(query.limit);
+    let after = query.cursor.as_deref().map(keyed_cursor).transpose()?;
+    let grants = store::grants(&state.pool, &administered, after, size + 1).await?;
+    Ok(Json(page_of(grants, size, |grant| format!("{}/{}", grant.scheduler, grant.grant_id))))
 }
 
 /// The schedulers this person administers in full.
@@ -179,23 +214,39 @@ pub(crate) async fn remove_grant(
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub(crate) struct PersonRow {
+    /// With `sorted_by`, where the next page starts.
+    #[serde(skip)]
+    person_id: i64,
+    /// The email as the list sorts it, in the database's own lower case.
+    #[serde(skip)]
+    sorted_by: String,
     email: String,
     name: String,
     groups: Vec<String>,
     last_seen_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// `GET /api/people`.
+/// `GET /api/people`: a page of the people who have signed in, by email. People are added one
+/// sign-in at a time, so there are few to sort.
 pub(crate) async fn people(
     Extract(state): Extract<State>,
     Extension(session): Extension<Arc<Session>>,
-) -> Result<Json<Vec<PersonRow>>, Failure> {
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Page<PersonRow>>, Failure> {
     administers_something(&state, &session).await?;
-    let people =
-        sqlx::query_as("SELECT email, name, groups, last_seen_at FROM console.person ORDER BY lower(email) LIMIT 1000")
-            .fetch_all(&state.pool)
-            .await?;
-    Ok(Json(people))
+    let size = page_size(query.limit);
+    let (after_email, after_id) = query.cursor.as_deref().map(keyed_cursor).transpose()?.unzip();
+    let people = sqlx::query_as(
+        "SELECT person_id, lower(email) AS sorted_by, email, name, groups, last_seen_at FROM console.person
+          WHERE ($1::text IS NULL OR (lower(email), person_id) > ($1, $2::bigint))
+          ORDER BY lower(email), person_id LIMIT $3",
+    )
+    .bind(after_email)
+    .bind(after_id)
+    .bind(size + 1)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(page_of(people, size, |person: &PersonRow| format!("{}/{}", person.sorted_by, person.person_id))))
 }
 
 #[derive(Debug, Deserialize)]

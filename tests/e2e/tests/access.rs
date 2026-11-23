@@ -171,14 +171,14 @@ async fn a_caller_limited_to_some_jobs_sees_no_overrides_backfills_or_calendar_o
     let backfill = BackfillRequest::new("dated", day, day);
     let _: serde_json::Value = admin.post("/v1/backfills", &serde_json::to_value(backfill).unwrap()).await;
 
-    let overrides: Vec<OverrideView> = admin.get("/v1/overrides").await;
+    let overrides = admin.get::<Page<OverrideView>>("/v1/overrides").await.items;
     assert_eq!(overrides.len(), 1);
-    let overrides: Vec<OverrideView> = billing.get("/v1/overrides").await;
+    let overrides = billing.get::<Page<OverrideView>>("/v1/overrides").await.items;
     assert!(overrides.is_empty(), "{overrides:?}");
 
-    let backfills: Vec<BackfillView> = admin.get("/v1/backfills").await;
+    let backfills = admin.get::<Page<BackfillView>>("/v1/backfills").await.items;
     assert_eq!(backfills.len(), 1);
-    let backfills: Vec<BackfillView> = billing.get("/v1/backfills").await;
+    let backfills = billing.get::<Page<BackfillView>>("/v1/backfills").await.items;
     assert!(backfills.is_empty(), "{backfills:?}");
 
     let next_day = "/v1/calendar?date=2030-01-08";
@@ -218,12 +218,12 @@ async fn a_caller_limited_to_some_jobs_cannot_cancel_a_backfill_whose_chain_reac
         support::SOON,
     )
     .await;
-    let backfills: Vec<BackfillView> = scheduling.get("/v1/backfills").await;
+    let backfills = scheduling.get::<Page<BackfillView>>("/v1/backfills").await.items;
     let id = backfills[0].backfill_id;
 
     let refused = scheduling.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;
     assert_eq!(refused.status(), 403, "its chain now holds files_dated, which this caller does not cover");
-    let still: Vec<BackfillView> = admin.get("/v1/backfills").await;
+    let still = admin.get::<Page<BackfillView>>("/v1/backfills").await.items;
     assert_eq!(still[0].state, BackfillState::Running, "a refused cancel changes nothing");
 
     let cancelled = admin.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;

@@ -8,11 +8,12 @@ import {
   ErrorNote,
   Loading,
   PageHeader,
+  Pager,
   Section,
   StatusBadge,
   Tag,
 } from "../components/ui";
-import { messageOf } from "../api";
+import { messageOf, queryString } from "../api";
 import {
   addDays,
   dateInZone,
@@ -27,6 +28,7 @@ import type {
   CalendarDay,
   CalendarEntry,
   OverrideView,
+  Page,
   ScheduleView,
 } from "../types";
 
@@ -45,7 +47,10 @@ export function CalendarScreen() {
     ? (query.get("date") as string)
     : today;
   const day = useLoad<CalendarDay>(api("/calendar", { date }));
-  const overrides = useLoad<OverrideView[]>(api("/overrides"));
+  const overridesCursor = query.get("overrides");
+  const overrides = useLoad<Page<OverrideView>>(
+    api("/overrides", { date, cursor: overridesCursor }),
+  );
   const schedules = useLoad<ScheduleView[]>(
     can("administer") ? api("/schedules") : null,
   );
@@ -55,9 +60,8 @@ export function CalendarScreen() {
     day.reload();
     overrides.reload();
   };
-  const todaysOverrides = (overrides.data ?? []).filter(
-    (item) => item.date === date,
-  );
+  const todaysOverrides = overrides.data?.items ?? [];
+  const dateHref = href(`/calendar${queryString({ date })}`);
   const entries = (day.data?.entries ?? []).toSorted(
     (a, b) => Date.parse(a.at) - Date.parse(b.at),
   );
@@ -133,7 +137,7 @@ export function CalendarScreen() {
         </Section>
       )}
 
-      {todaysOverrides.length > 0 && (
+      {(todaysOverrides.length > 0 || overridesCursor) && (
         <Section title="Overrides on this date">
           <ul className="plain-list">
             {todaysOverrides.map((item) => (
@@ -165,6 +169,17 @@ export function CalendarScreen() {
               </li>
             ))}
           </ul>
+          <Pager
+            label="Pages of overrides"
+            firstHref={overridesCursor ? dateHref : null}
+            nextHref={
+              overrides.data?.next_cursor
+                ? href(
+                    `/calendar${queryString({ date, overrides: overrides.data.next_cursor })}`,
+                  )
+                : null
+            }
+          />
         </Section>
       )}
 
