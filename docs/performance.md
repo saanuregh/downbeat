@@ -22,7 +22,7 @@ carries over.
 | 2,000 queued runs on one worker with 8 slots | 0.81 s, about 2,500 runs a second |
 | One run alone, from the request to its end, on a reused child | mean 203 ms |
 | The same on a fresh child (`fresh_process`) | mean 213 ms; 95th percentile 404 ms |
-| One pruning pass over 60,000 chains past their retention | 8.0 s; every chain removed except the one holding the job's latest success (9 s before pruning moved to lock-then-check, [decision 47](decisions.md#47-pruning-locks-first-then-checks)) |
+| One pruning pass over 60,000 chains past their retention | 2.4 s, in debug and release builds alike, measured 2026-11-23 over TCP; every chain removed except the one holding the job's latest success. The code before decision 71 took 8.4 s in a debug build but 2.3–2.6 s in a release build, so the rewrite made no difference to an optimized build |
 
 ## What the numbers say
 
@@ -37,6 +37,6 @@ carries over.
   measure its own binary before using `fresh_process` for frequent jobs.
 - **Pruning keeps up.** The first measurement found that one hourly pass removed only 500 chains,
   about 12,000 runs a day, below the volume the engine is sized for. Pruning now deletes batch
-  after batch, for up to five minutes a pass, at about 7,500 chains a second here (60,000 in 8 s).
+  after batch, for up to five minutes a pass, at about 25,000 chains a second here (60,000 in 2.4 s).
 - **An index on chains by first job and start time did not help pruning** (12.7 s with it against
   9 s without), so it was not added.
