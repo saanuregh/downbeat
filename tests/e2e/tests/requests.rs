@@ -4,8 +4,8 @@
 
 mod support;
 
-use downbeat_client::Error;
 use downbeat_client::types::{ApiError, MarkSucceededRequest, Preview, StartRequest, StartResponse};
+use downbeat_client::{Error, PauseKind};
 use downbeat_e2e::*;
 use serde_json::json;
 use support::{Database, SOON, Signer, finished, finished_job, with_api, with_api_at};
@@ -109,7 +109,7 @@ async fn resuming_a_pause_that_has_ended_is_a_conflict() {
     .execute(&database.pool)
     .await
     .unwrap();
-    let refused = client.as_caller().resume("job", "echo").await.unwrap_err();
+    let refused = client.as_caller().resume(PauseKind::Job, "echo").await.unwrap_err();
     assert!(matches!(refused, Error::Api { status: 409, .. }), "{refused}");
 }
 

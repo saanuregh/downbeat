@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::{Extension, Path, Query, State as Extract};
 use chrono::{DateTime, Utc};
 use downbeat_api::Scope;
-use downbeat_api::types::{Page, RunView};
+use downbeat_api::types::{Page, QueuedBecause, RunView};
 use downbeat_api::with_defaults;
 use serde::Deserialize;
 use sqlx::{Postgres, QueryBuilder};
@@ -118,7 +118,11 @@ pub(crate) async fn runs(
         }
         let rows: Vec<RunRow> = rows.into_iter().take(examined).collect();
         for view in views::unfinished(&state.pool, &state.registry, rows).await? {
-            if query.queued_because.as_deref().is_none_or(|because| view.queued_because.as_deref() == Some(because)) {
+            if query
+                .queued_because
+                .as_deref()
+                .is_none_or(|because| view.queued_because.map(QueuedBecause::as_str) == Some(because))
+            {
                 items.push(view);
             }
         }

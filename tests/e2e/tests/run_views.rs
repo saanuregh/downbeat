@@ -97,8 +97,8 @@ struct Said {
 fn said(view: &RunView) -> Said {
     Said {
         run_id: view.run_id,
-        status: view.status.clone(),
-        queued_because: view.queued_because.clone(),
+        status: view.status.to_string(),
+        queued_because: view.queued_because.map(|because| because.to_string()),
         reason: masked(&view.reason),
         attempt: view.attempt,
         attempts: view.attempts,
@@ -269,9 +269,9 @@ async fn a_list_says_why_each_unfinished_run_waits_and_agrees_with_the_single_ru
         .unwrap();
     let everything = "Held: paused by local until resumed (all stop).";
     for view in listed(&client).await {
-        if view.status == "queued" {
+        if view.status == downbeat_client::types::RunStatus::Queued {
             assert_eq!(
-                (view.queued_because.as_deref(), view.reason.as_str()),
+                (view.queued_because.map(downbeat_client::types::QueuedBecause::as_str), view.reason.as_str()),
                 (Some("paused"), everything),
                 "{}",
                 view.run_id

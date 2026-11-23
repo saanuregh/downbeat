@@ -4,6 +4,7 @@
 mod support;
 
 use downbeat::{InAppClient, Started};
+use downbeat_client::types::SkippedBecause;
 use downbeat_e2e::*;
 use support::{App, Database, SOON, finished};
 
@@ -131,7 +132,7 @@ async fn a_schedule_that_joins_queued_work_leaves_hidden_rows_that_are_not_deliv
 
     let listed = client.runs("job=ticker").await.unwrap();
     assert!(
-        listed.items.iter().all(|run| run.skipped_because.as_deref() != Some("joined")),
+        listed.items.iter().all(|run| run.skipped_because != Some(SkippedBecause::Joined)),
         "the runs list hides joined rows"
     );
 

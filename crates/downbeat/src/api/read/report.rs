@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::{Extension, Query, State as Extract};
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use downbeat_api::Scope;
-use downbeat_api::types::{DayReport, FailedRun, JobReport, Report};
+use downbeat_api::types::{DayReport, FailedBecause, FailedRun, JobReport, Report};
 use downbeat_api::with_defaults;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -140,7 +140,7 @@ pub(crate) async fn report(
                 log_link: state.registry.log_link_for(row.run_id),
                 run_id: row.run_id,
                 job: row.job_name,
-                failed_because: row.failed_because,
+                failed_because: row.failed_because.as_deref().map(FailedBecause::from),
                 reason: row.reason,
                 finished_at: row.finished_at,
             })

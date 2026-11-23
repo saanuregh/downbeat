@@ -130,6 +130,12 @@ body with a field its type does not have is refused with 422 `bad_input`, and th
 the field. The Rust client leaves out the optional fields that are not set, so it keeps working
 against an older scheduler as long as it uses only what that scheduler knows.
 
+A word from a closed set is an enum in Rust, written in JSON as the same text: `RunStatus`
+(`status` in `RunView`, `RunSummary`, `StartResponse` and the values of `ChainSummary.statuses`),
+`QueuedBecause`, `SkippedBecause`, `FailedBecause`, `CallEnded` (`CallView.ended`), `JobKind`
+(`JobView.kind`), `BackfillState` (`BackfillView.state`) and `ErrorCode` (`ApiError.error`). Each
+has an `Unknown` variant, which a word from a newer scheduler reads as; it is never sent.
+
 | Type | Fields |
 | --- | --- |
 | `Health` | `ok: bool`, `api: u32` |
@@ -201,3 +207,6 @@ example `DELETE /v1/jobs`:
 A body that is not valid JSON, or that does not fit the request type, is rejected before it
 reaches downbeat's handlers, with status 400, 415 or 422. That answer is an `ApiError` too, with
 code `bad_request` (400 and 415) or `bad_input` (422) and the framework's sentence as its message.
+Any other refusal the framework answers by itself has code `refused`. A console answers its own
+errors in the same shape, and adds `scheduler_unreachable` (502) when it cannot reach a scheduler.
+In Rust the code is an `ErrorCode`.

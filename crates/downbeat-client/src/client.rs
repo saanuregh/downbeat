@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use downbeat_api::types::{
-    ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, Done, JobView, MarkSucceededRequest,
-    OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, Report, RunView, ScheduleView,
-    StartRequest, Version,
+    ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, Done, ErrorCode, JobView,
+    MarkSucceededRequest, OverrideRequest, OverrideView, Page, PauseRequest, PipelineView, Preview, QueueView, Report,
+    RunView, ScheduleView, StartRequest, Version,
 };
 use downbeat_api::with_defaults;
 use downbeat_api::{
@@ -17,7 +17,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
-use crate::{Error, Start};
+use crate::{Error, PauseKind, Start};
 
 /// Sets up a [`Client`].
 #[derive(Debug)]
@@ -384,22 +384,22 @@ impl<'a> ActingClient<'a> {
         decode(self.send(Method::DELETE, path_and_query, None::<&()>, None).await?).await
     }
 
-    /// Pauses one `job`, `queue` or `schedule` by name.
+    /// Pauses one job, queue or schedule by name.
     ///
     /// # Errors
     ///
     /// Fails when the scheduler cannot be reached or answers with an error.
-    pub async fn pause(&self, kind: &str, name: &str, request: &PauseRequest) -> Result<Done, Error> {
-        self.post(&path(&["v1", &format!("{kind}s"), name, "pause"]), Some(request), None).await
+    pub async fn pause(&self, kind: PauseKind, name: &str, request: &PauseRequest) -> Result<Done, Error> {
+        self.post(&path(&["v1", kind.segment(), name, "pause"]), Some(request), None).await
     }
 
-    /// Ends a pause of one `job`, `queue` or `schedule`.
+    /// Ends a pause of one job, queue or schedule.
     ///
     /// # Errors
     ///
     /// Fails when the scheduler cannot be reached or answers with an error.
-    pub async fn resume(&self, kind: &str, name: &str) -> Result<Done, Error> {
-        self.post(&path(&["v1", &format!("{kind}s"), name, "resume"]), None::<&()>, None).await
+    pub async fn resume(&self, kind: PauseKind, name: &str) -> Result<Done, Error> {
+        self.post(&path(&["v1", kind.segment(), name, "resume"]), None::<&()>, None).await
     }
 
     /// Holds every run of every job until resumed or the pause ends.
@@ -527,7 +527,7 @@ async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, E
     }
     let body = response.bytes().await.map_err(Error::connection)?;
     let error: ApiError = serde_json::from_slice(&body).unwrap_or_else(|_| {
-        with_defaults!(ApiError { error: "unknown".into(), message: undecoded_message(status, &body) })
+        with_defaults!(ApiError { error: ErrorCode::Unknown, message: undecoded_message(status, &body) })
     });
     if status == StatusCode::UNAUTHORIZED && error.message.contains("expired") {
         return Err(Error::Api {

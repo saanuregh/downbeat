@@ -5,40 +5,40 @@ use axum::extract::Request;
 use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use downbeat_api::types::ApiError;
+use downbeat_api::types::{ApiError, ErrorCode};
 use downbeat_api::with_defaults;
 use sqlx::postgres::{PgDatabaseError, PgSeverity};
 
 #[derive(Debug)]
 pub(crate) struct Failure {
     status: StatusCode,
-    code: &'static str,
+    code: ErrorCode,
     message: String,
 }
 
 impl Failure {
-    pub(crate) fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Failure {
+    pub(crate) fn new(status: StatusCode, code: ErrorCode, message: impl Into<String>) -> Failure {
         Failure { status, code, message: message.into() }
     }
 
     pub(crate) fn not_found(what: impl Into<String>) -> Failure {
-        Failure::new(StatusCode::NOT_FOUND, "not_found", what)
+        Failure::new(StatusCode::NOT_FOUND, ErrorCode::NotFound, what)
     }
 
     pub(crate) fn bad_request(message: impl Into<String>) -> Failure {
-        Failure::new(StatusCode::BAD_REQUEST, "bad_request", message)
+        Failure::new(StatusCode::BAD_REQUEST, ErrorCode::BadRequest, message)
     }
 
     pub(crate) fn conflict(message: impl Into<String>) -> Failure {
-        Failure::new(StatusCode::CONFLICT, "conflict", message)
+        Failure::new(StatusCode::CONFLICT, ErrorCode::Conflict, message)
     }
 
     pub(crate) fn forbidden(message: impl Into<String>) -> Failure {
-        Failure::new(StatusCode::FORBIDDEN, "forbidden", message)
+        Failure::new(StatusCode::FORBIDDEN, ErrorCode::Forbidden, message)
     }
 
     pub(crate) fn unprocessable(message: impl Into<String>) -> Failure {
-        Failure::new(StatusCode::UNPROCESSABLE_ENTITY, "bad_input", message)
+        Failure::new(StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::BadInput, message)
     }
 }
 
@@ -58,11 +58,15 @@ impl From<sqlx::Error> for Failure {
         if is_passing(&error) {
             Failure::new(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "database",
+                ErrorCode::Database,
                 "the scheduler's database could not answer just now; try again",
             )
         } else {
-            Failure::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", "the scheduler failed to answer this request")
+            Failure::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::Internal,
+                "the scheduler failed to answer this request",
+            )
         }
     }
 }
@@ -94,8 +98,7 @@ fn is_passing(error: &sqlx::Error) -> bool {
 
 impl IntoResponse for Failure {
     fn into_response(self) -> Response {
-        (self.status, Json(with_defaults!(ApiError { error: self.code.to_owned(), message: self.message })))
-            .into_response()
+        (self.status, Json(with_defaults!(ApiError { error: self.code, message: self.message }))).into_response()
     }
 }
 
@@ -121,13 +124,13 @@ pub(crate) async fn as_json(request: Request, next: Next) -> Response {
         text.trim().to_owned()
     };
     let code = match status {
-        StatusCode::NOT_FOUND => "not_found",
-        StatusCode::METHOD_NOT_ALLOWED => "method_not_allowed",
-        StatusCode::PAYLOAD_TOO_LARGE => "too_large",
-        StatusCode::UNSUPPORTED_MEDIA_TYPE | StatusCode::BAD_REQUEST => "bad_request",
-        StatusCode::UNPROCESSABLE_ENTITY => "bad_input",
-        _ if status.is_server_error() => "internal",
-        _ => "refused",
+        StatusCode::NOT_FOUND => ErrorCode::NotFound,
+        StatusCode::METHOD_NOT_ALLOWED => ErrorCode::MethodNotAllowed,
+        StatusCode::PAYLOAD_TOO_LARGE => ErrorCode::TooLarge,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE | StatusCode::BAD_REQUEST => ErrorCode::BadRequest,
+        StatusCode::UNPROCESSABLE_ENTITY => ErrorCode::BadInput,
+        _ if status.is_server_error() => ErrorCode::Internal,
+        _ => ErrorCode::Refused,
     };
     Failure::new(status, code, message).into_response()
 }

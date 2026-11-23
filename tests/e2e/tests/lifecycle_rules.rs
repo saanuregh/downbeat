@@ -4,11 +4,13 @@
 
 mod support;
 
+use downbeat_client::types::QueuedBecause;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use downbeat::InAppClient;
+use downbeat_client::PauseKind;
 use downbeat_client::types::{BackfillRequest, PauseRequest};
 use downbeat_e2e::runtime_rules::*;
 use downbeat_e2e::*;
@@ -227,18 +229,18 @@ async fn a_queued_run_says_whether_its_queue_is_paused_unserved_or_busy() {
     .await;
     let waiting = client.start("naps", &Number { n: 1 }).send().await.unwrap();
     let view = client.run(waiting.run_id).await.unwrap();
-    assert_eq!(view.queued_because.as_deref(), Some("no_free_worker"));
+    assert_eq!(view.queued_because, Some(QueuedBecause::NoFreeWorker));
     assert!(view.reason.contains("every slot on queue default is busy"), "{}", view.reason);
 
     let unserved = client.start("on_an_unserved_queue", &()).send().await.unwrap();
     let view = client.run(unserved.run_id).await.unwrap();
-    assert_eq!(view.queued_because.as_deref(), Some("no_free_worker"));
+    assert_eq!(view.queued_because, Some(QueuedBecause::NoFreeWorker));
     assert!(view.reason.contains("no running worker serves queue nobody_serves"), "{}", view.reason);
 
     let pause = PauseRequest::new("testing").until_resumed();
-    client.as_caller().pause("queue", "default", &pause).await.unwrap();
+    client.as_caller().pause(PauseKind::Queue, "default", &pause).await.unwrap();
     let view = client.run(waiting.run_id).await.unwrap();
-    assert_eq!(view.queued_because.as_deref(), Some("paused"), "{}", view.reason);
+    assert_eq!(view.queued_because, Some(QueuedBecause::Paused), "{}", view.reason);
     assert!(view.reason.contains("testing"), "{}", view.reason);
 }
 

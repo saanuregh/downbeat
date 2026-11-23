@@ -20,6 +20,10 @@ major version ([decision 72](docs/decisions.md#72-the-public-api-can-grow-after-
   `new(…)` and setters, such as `PauseRequest::new(note).until_resumed()`.
 - `downbeat_client::Error::Connection` holds a `ConnectionError` instead of a `reqwest::Error`;
   the `reqwest::Error` is its `source()`.
+- Statuses, reason codes, a job's kind, a backfill's state, a call's ending and error codes are
+  enums (`RunStatus`, `QueuedBecause`, `SkippedBecause`, `FailedBecause`, `JobKind`,
+  `BackfillState`, `CallEnded`, `ErrorCode`) with an `Unknown` variant; the JSON is unchanged.
+  `Error::Api.code` is an `ErrorCode`, and `ActingClient::pause` and `resume` take a `PauseKind`.
 
 ### Jobs
 

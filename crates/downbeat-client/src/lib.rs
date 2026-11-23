@@ -19,10 +19,12 @@
 
 mod client;
 mod error;
+mod pause;
 mod start;
 
 pub use client::{ActingClient, Builder, Client};
 pub use downbeat_api::types;
 pub use downbeat_api::{JobName, PrivateKey, PublicKey, Scope, development_key, job_name};
 pub use error::{ConnectionError, Error};
+pub use pause::PauseKind;
 pub use start::Start;

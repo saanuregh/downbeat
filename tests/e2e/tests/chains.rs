@@ -3,7 +3,7 @@
 mod support;
 
 use downbeat_client::types::{Done, PauseRequest, StartRequest, StartResponse};
-use downbeat_client::{Client, Error};
+use downbeat_client::{Client, Error, PauseKind};
 use downbeat_e2e::*;
 use serde_json::json;
 use support::{Database, SOON, Signer, finished, finished_job, with_api, with_api_at};
@@ -11,7 +11,7 @@ use support::{Database, SOON, Signer, finished, finished_job, with_api, with_api
 /// Pauses a job until it is resumed, so the runs started after stay queued.
 async fn hold(client: &Client, job: &str) {
     let pause = PauseRequest::new("held by the test").until_resumed();
-    client.as_caller().pause("job", job, &pause).await.unwrap();
+    client.as_caller().pause(PauseKind::Job, job, &pause).await.unwrap();
 }
 
 #[tokio::test]
@@ -114,7 +114,7 @@ async fn a_linked_run_cancelled_before_it_ran_is_retried_with_its_parents_output
     assert_eq!(finished(&database.pool, queued, SOON).await.status, "cancelled");
 
     let _: Done = client.as_caller().post(&format!("/v1/runs/{queued}/retry"), None::<&()>, None).await.unwrap();
-    client.as_caller().resume("job", "shout").await.unwrap();
+    client.as_caller().resume(PauseKind::Job, "shout").await.unwrap();
     let succeeded =
         "SELECT EXISTS (SELECT 1 FROM downbeat.run_history WHERE job_name = 'shout' AND status = 'succeeded')";
     support::eventually(&database.pool, succeeded, SOON).await;

@@ -2,6 +2,7 @@
 
 mod support;
 
+use downbeat_client::types::FailedBecause;
 use downbeat_client::{Error, Scope};
 use downbeat_e2e::Text;
 use support::{Database, SOON, eventually, finished, with_api};
@@ -59,7 +60,7 @@ async fn report_counts_each_day_and_lists_yesterdays_failures() {
 
     let failures: Vec<Uuid> = summary.failed_yesterday.iter().map(|run| run.run_id).collect();
     assert_eq!(failures, [panicked]);
-    assert_eq!(summary.failed_yesterday[0].failed_because.as_deref(), Some("panic"));
+    assert_eq!(summary.failed_yesterday[0].failed_because, Some(FailedBecause::Panic));
 }
 
 #[tokio::test]

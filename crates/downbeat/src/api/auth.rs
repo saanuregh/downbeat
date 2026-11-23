@@ -11,6 +11,7 @@ use axum::extract::{Request, State as Extract};
 use axum::http::{HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use downbeat_api::types::ErrorCode;
 use downbeat_api::{API_VERSION, RequestBinding, Scope, VERSION_HEADER, verify as verify_token};
 
 use super::State;
@@ -100,7 +101,8 @@ pub(crate) async fn verify(Extract(state): Extract<State>, request: Request, nex
 }
 
 async fn check(state: &State, request: Request) -> Result<Request, (Failure, Option<String>)> {
-    let unauthorized = |message: String| (Failure::new(StatusCode::UNAUTHORIZED, "unauthorized", message), None);
+    let unauthorized =
+        |message: String| (Failure::new(StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized, message), None);
     let (parts, body) = request.into_parts();
     let token = parts
         .headers
@@ -112,7 +114,7 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
         })?
         .to_owned();
     let body: Bytes = axum::body::to_bytes(body, MAX_BODY).await.map_err(|_| {
-        (Failure::new(StatusCode::PAYLOAD_TOO_LARGE, "too_large", "the request body is over 256 KiB"), None)
+        (Failure::new(StatusCode::PAYLOAD_TOO_LARGE, ErrorCode::TooLarge, "the request body is over 256 KiB"), None)
     })?;
     // Nested under /v1, the router sees the path without its prefix; the token binds the full one.
     let path_and_query = parts.extensions.get::<axum::extract::OriginalUri>().map_or_else(
@@ -152,7 +154,11 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
     }
     if !state.rate_limits.allow(&format!("{}/{}", claims.iss, claims.sub)) {
         return Err((
-            Failure::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "too many requests from this actor; slow down"),
+            Failure::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                ErrorCode::RateLimited,
+                "too many requests from this actor; slow down",
+            ),
             Some(claims.iss.clone()),
         ));
     }
@@ -172,7 +178,10 @@ async fn check(state: &State, request: Request) -> Result<Request, (Failure, Opt
         if !first_use {
             // The token verified, so its caller is known and is named in the report.
             let message = "this token has been used already; sign a new one for each request";
-            return Err((Failure::new(StatusCode::UNAUTHORIZED, "unauthorized", message), Some(claims.iss.clone())));
+            return Err((
+                Failure::new(StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized, message),
+                Some(claims.iss.clone()),
+            ));
         }
     }
     let caller = Caller { name: claims.iss, actor: claims.sub, scope: claims.scope, jobs: claims.jobs };

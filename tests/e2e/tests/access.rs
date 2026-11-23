@@ -7,6 +7,7 @@ use downbeat_client::types::{
     ApiError, AuditEntry, BackfillRequest, BackfillView, CalendarDay, ChainView, OverrideRequest, OverrideView, Page,
     PauseRequest, QueueView, RunView, StartRequest, StartResponse,
 };
+use downbeat_client::types::{BackfillState, ErrorCode};
 use serde_json::json;
 use support::{Database, Signer, with_api_at, with_callers};
 
@@ -50,7 +51,7 @@ async fn a_body_over_256_kib_is_too_large() {
     let response = Signer::local(&format!("http://{listen}")).send("POST", "/v1/jobs/echo/runs", &body).await;
     assert_eq!(response.status(), 413);
     let error: ApiError = response.json().await.unwrap();
-    assert_eq!(error.error, "too_large");
+    assert_eq!(error.error, ErrorCode::TooLarge);
 }
 
 #[tokio::test]
@@ -223,7 +224,7 @@ async fn a_caller_limited_to_some_jobs_cannot_cancel_a_backfill_whose_chain_reac
     let refused = scheduling.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;
     assert_eq!(refused.status(), 403, "its chain now holds files_dated, which this caller does not cover");
     let still: Vec<BackfillView> = admin.get("/v1/backfills").await;
-    assert_eq!(still[0].state, "running", "a refused cancel changes nothing");
+    assert_eq!(still[0].state, BackfillState::Running, "a refused cancel changes nothing");
 
     let cancelled = admin.send("POST", &format!("/v1/backfills/{id}/cancel"), b"").await;
     assert_eq!(cancelled.status(), 200);

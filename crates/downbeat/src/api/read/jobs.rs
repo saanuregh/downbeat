@@ -6,7 +6,9 @@ use axum::Json;
 use axum::extract::{Extension, Path, State as Extract};
 use chrono::{DateTime, Utc};
 use downbeat_api::Scope;
-use downbeat_api::types::{ChainNode, ChainSummary, ChainView, JobView, PipelineNode, PipelineView, RunSummary};
+use downbeat_api::types::{
+    ChainNode, ChainSummary, ChainView, JobKind, JobView, PipelineNode, PipelineView, RunStatus, RunSummary,
+};
 use downbeat_api::with_defaults;
 use uuid::Uuid;
 
@@ -74,7 +76,7 @@ async fn job_view(state: &State, job: &RegisteredJob) -> Result<JobView, Failure
     Ok(with_defaults!(JobView {
         name: name.to_owned(),
         pipeline: job.pipeline.clone(),
-        kind: if job.spec.is_command() { "command" } else { "function" }.to_owned(),
+        kind: if job.spec.is_command() { JobKind::Command } else { JobKind::Function },
         queue: job.spec.policy.queue.to_owned(),
         triggers: crate::describe::triggers_and_conditions(&state.registry, job),
         policies: job.spec.policy.describe(),
@@ -172,7 +174,7 @@ async fn recent_chains(
         let statuses = statuses
             .iter()
             .filter(|(id, job, _)| *id == chain_id && caller.covers(job))
-            .map(|(_, job, status)| (job.clone(), status.clone()))
+            .map(|(_, job, status)| (job.clone(), RunStatus::from(status.as_str())))
             .collect();
         by_pipeline.entry(pipeline).or_default().push(with_defaults!(ChainSummary {
             chain_id,
@@ -256,7 +258,7 @@ pub(crate) async fn chain(
             .map(|run| {
                 with_defaults!(RunSummary {
                     run_id: run.run_id,
-                    status: run.state.clone(),
+                    status: RunStatus::from(run.state.as_str()),
                     reason: run.queued_reason.clone().unwrap_or_default(),
                     at: run.created_at,
                 })

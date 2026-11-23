@@ -11,8 +11,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod codes;
 mod requests;
 
+pub use codes::{
+    BackfillState, CallEnded, ErrorCode, FailedBecause, JobKind, QueuedBecause, RunStatus, SkippedBecause,
+};
 pub use requests::{BackfillRequest, MarkSucceededRequest, OverrideRequest, PauseRequest, StartRequest};
 
 /// One page of a list, and the cursor for the next.
@@ -35,7 +39,7 @@ impl<T> Default for Page<T> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ApiError {
-    pub error: String,
+    pub error: ErrorCode,
     pub message: String,
 }
 
@@ -55,11 +59,10 @@ pub struct RunView {
     pub job: String,
     pub pipeline: Option<String>,
     pub chain_id: Uuid,
-    /// `queued`, `running`, `succeeded`, `skipped`, `failed`, `cancelled` or `expired`.
-    pub status: String,
-    pub queued_because: Option<String>,
-    pub skipped_because: Option<String>,
-    pub failed_because: Option<String>,
+    pub status: RunStatus,
+    pub queued_because: Option<QueuedBecause>,
+    pub skipped_because: Option<SkippedBecause>,
+    pub failed_because: Option<FailedBecause>,
     /// One plain sentence: what is happening or happened, and why.
     pub reason: String,
     pub started_by: String,
@@ -116,7 +119,7 @@ pub struct CallView {
     pub build: String,
     pub started_at: DateTime<Utc>,
     pub ended_at: DateTime<Utc>,
-    pub ended: String,
+    pub ended: CallEnded,
 }
 
 /// A job: what it is, what starts it, how it runs, and how it has been doing.
@@ -125,8 +128,7 @@ pub struct CallView {
 pub struct JobView {
     pub name: String,
     pub pipeline: String,
-    /// `function` or `command`.
-    pub kind: String,
+    pub kind: JobKind,
     pub queue: String,
     /// What starts it and on what conditions, in words.
     pub triggers: Vec<String>,
@@ -149,7 +151,7 @@ pub struct JobView {
 #[non_exhaustive]
 pub struct RunSummary {
     pub run_id: Uuid,
-    pub status: String,
+    pub status: RunStatus,
     pub reason: String,
     pub at: DateTime<Utc>,
 }
@@ -190,7 +192,7 @@ pub struct ChainSummary {
     pub first_job: String,
     pub started_at: DateTime<Utc>,
     /// Status of each job that ran, by job name.
-    pub statuses: BTreeMap<String, String>,
+    pub statuses: BTreeMap<String, RunStatus>,
     pub cancelled: bool,
 }
 
@@ -292,7 +294,7 @@ pub struct BackfillView {
     pub to: NaiveDate,
     /// The next date to run, or the one running now.
     pub reached: NaiveDate,
-    pub state: String,
+    pub state: BackfillState,
     pub reason: Option<String>,
     pub continue_on_failure: bool,
     pub created_by: String,
@@ -329,7 +331,7 @@ pub struct OverrideView {
 #[non_exhaustive]
 pub struct StartResponse {
     pub run_id: Uuid,
-    pub status: String,
+    pub status: RunStatus,
     /// The same work was already queued; this is its run.
     #[serde(default)]
     pub joined: bool,
@@ -415,7 +417,7 @@ pub struct DayReport {
 pub struct FailedRun {
     pub run_id: Uuid,
     pub job: String,
-    pub failed_because: Option<String>,
+    pub failed_because: Option<FailedBecause>,
     pub reason: String,
     pub finished_at: DateTime<Utc>,
     pub log_link: Option<String>,

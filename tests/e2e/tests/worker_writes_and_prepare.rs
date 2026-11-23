@@ -4,6 +4,7 @@
 
 mod support;
 
+use downbeat_client::types::{QueuedBecause, RunStatus};
 use std::time::Duration;
 
 use downbeat::InAppClient;
@@ -25,7 +26,7 @@ async fn the_api_shows_a_queued_run_as_queued_and_a_running_run_as_running() {
     database.hold("naps").await;
 
     let run = client.start("naps", &Number { n: 4000 }).send().await.unwrap().run_id;
-    assert_eq!(client.run(run).await.unwrap().status, "queued");
+    assert_eq!(client.run(run).await.unwrap().status, RunStatus::Queued);
 
     database.release().await;
     eventually(
@@ -34,9 +35,9 @@ async fn the_api_shows_a_queued_run_as_queued_and_a_running_run_as_running() {
         SOON,
     )
     .await;
-    assert_eq!(client.run(run).await.unwrap().status, "running");
+    assert_eq!(client.run(run).await.unwrap().status, RunStatus::Running);
     finished(&database.pool, run, SOON).await;
-    assert_eq!(client.run(run).await.unwrap().status, "succeeded");
+    assert_eq!(client.run(run).await.unwrap().status, RunStatus::Succeeded);
 }
 
 #[tokio::test]
@@ -52,7 +53,7 @@ async fn only_a_worker_seen_in_the_last_minute_counts_as_serving_a_queue() {
 
     let run = client.start("on_an_unserved_queue", &()).send().await.unwrap().run_id;
     let view = client.run(run).await.unwrap();
-    assert_eq!(view.queued_because.as_deref(), Some("no_free_worker"));
+    assert_eq!(view.queued_because, Some(QueuedBecause::NoFreeWorker));
     assert!(view.reason.contains("no running worker serves queue nobody_serves"), "{}", view.reason);
 
     execute(&database, "UPDATE downbeat.worker SET last_seen_at = now() WHERE worker_id = 'ghost'").await;

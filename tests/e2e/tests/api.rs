@@ -3,11 +3,12 @@
 
 mod support;
 
+use downbeat_client::types::{FailedBecause, QueuedBecause, RunStatus};
 use std::time::Duration;
 
 use chrono::NaiveDate;
 use downbeat_client::types::{BackfillRequest, MarkSucceededRequest, OverrideRequest, PauseRequest, PipelineView};
-use downbeat_client::{Error, PrivateKey, Scope};
+use downbeat_client::{Error, PauseKind, PrivateKey, Scope};
 use downbeat_e2e::*;
 use serde_json::json;
 use support::{Database, SOON, eventually, finished, with_api};
@@ -63,7 +64,7 @@ async fn runs_are_listed_with_their_reasons() {
 
     let failed = client.runs("status=failed").await.unwrap();
     assert_eq!(failed.items.len(), 1);
-    assert_eq!(failed.items[0].failed_because.as_deref(), Some("panic"));
+    assert_eq!(failed.items[0].failed_because, Some(FailedBecause::Panic));
 
     let run = client.run(started.run_id).await.unwrap();
     assert!(run.reason.starts_with("Failed: the function panicked"), "{}", run.reason);
@@ -93,15 +94,15 @@ async fn a_paused_job_holds_its_runs_until_resumed() {
     let (_app, client) = with_api(&database).await;
     let admin = client.as_caller();
     let until = chrono::Utc::now() + chrono::TimeDelta::hours(1);
-    admin.pause("job", "echo", &PauseRequest::new("bad upstream data").until(until)).await.unwrap();
+    admin.pause(PauseKind::Job, "echo", &PauseRequest::new("bad upstream data").until(until)).await.unwrap();
 
     let started = client.start("echo", &Text { text: "held".into() }).send().await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
     let held = client.run(started.run_id).await.unwrap();
-    assert_eq!(held.queued_because.as_deref(), Some("paused"));
+    assert_eq!(held.queued_because, Some(QueuedBecause::Paused));
     assert!(held.reason.contains("bad upstream data"), "{}", held.reason);
 
-    admin.resume("job", "echo").await.unwrap();
+    admin.resume(PauseKind::Job, "echo").await.unwrap();
     assert_eq!(finished(&database.pool, started.run_id, SOON).await.status, "succeeded");
 }
 
@@ -109,7 +110,7 @@ async fn a_paused_job_holds_its_runs_until_resumed() {
 async fn a_pause_needs_an_end_or_an_explicit_until_resumed() {
     let database = Database::fresh().await;
     let (_app, client) = with_api(&database).await;
-    let refused = client.as_caller().pause("job", "echo", &PauseRequest::new("why")).await.unwrap_err();
+    let refused = client.as_caller().pause(PauseKind::Job, "echo", &PauseRequest::new("why")).await.unwrap_err();
     assert!(matches!(refused, Error::Api { status: 400, .. }), "{refused}");
 }
 
@@ -129,7 +130,7 @@ async fn a_failed_step_can_be_retried_in_its_chain_or_marked_as_succeeded() {
     let note = MarkSucceededRequest::new("fixed by hand");
     admin.mark_succeeded(failed.run_id, &note).await.unwrap();
     let marked = client.run(failed.run_id).await.unwrap();
-    assert_eq!(marked.status, "succeeded");
+    assert_eq!(marked.status, RunStatus::Succeeded);
     assert_eq!(marked.marked_by.as_deref(), Some("local"));
 }
 
@@ -231,7 +232,7 @@ async fn a_caller_limited_to_some_jobs_sees_and_does_nothing_else() {
     assert!(matches!(other, Error::Api { status: 403, .. }), "{other}");
 
     let pause = PauseRequest::new("maintenance").until_resumed();
-    let queue = service.as_caller().pause("queue", "default", &pause).await.unwrap_err();
+    let queue = service.as_caller().pause(PauseKind::Queue, "default", &pause).await.unwrap_err();
     assert!(matches!(queue, Error::Api { status: 403, .. }), "{queue}");
 
     let pipelines = service.pipelines().await.unwrap();
@@ -284,7 +285,7 @@ async fn pausing_everything_holds_every_job_until_resumed() {
     let started = client.start("echo", &Text { text: "held".into() }).send().await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
     let held = client.run(started.run_id).await.unwrap();
-    assert_eq!(held.queued_because.as_deref(), Some("paused"));
+    assert_eq!(held.queued_because, Some(QueuedBecause::Paused));
     assert!(held.reason.contains("database maintenance"), "{}", held.reason);
 
     admin.resume_everything().await.unwrap();

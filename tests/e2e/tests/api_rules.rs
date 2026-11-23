@@ -4,9 +4,10 @@
 mod support;
 
 use chrono::{NaiveDate, Utc};
+use downbeat_client::types::QueuedBecause;
 use downbeat_client::types::{BackfillRequest, Done, MarkSucceededRequest, OverrideRequest, PauseRequest, Preview};
 use downbeat_client::types::{StartRequest, StartResponse};
-use downbeat_client::{ActingClient, Error, Scope};
+use downbeat_client::{ActingClient, Error, PauseKind, Scope};
 use downbeat_e2e::*;
 use serde_json::json;
 use support::{Database, SOON, eventually, finished, with_api, without_worker};
@@ -19,8 +20,8 @@ async fn start_later(client: &ActingClient<'_>, job: &str, input: serde_json::Va
     started.run_id
 }
 
-async fn queued_because(client: &downbeat_client::Client, run: Uuid) -> String {
-    client.run(run).await.unwrap().queued_because.unwrap_or_default()
+async fn queued_because(client: &downbeat_client::Client, run: Uuid) -> &'static str {
+    client.run(run).await.unwrap().queued_because.map_or("", QueuedBecause::as_str)
 }
 
 async fn sql(database: &Database, statement: &'static str, run: Uuid) {
@@ -56,10 +57,10 @@ async fn a_queued_run_reports_a_pause_first_then_its_stored_reason_while_due_lat
     let later = start_later(&admin, "echo", json!({ "text": "later" })).await;
     assert_eq!(queued_because(&client, later).await, "scheduled_later");
 
-    admin.pause("job", "echo", &until_resumed()).await.unwrap();
+    admin.pause(PauseKind::Job, "echo", &until_resumed()).await.unwrap();
     assert_eq!(queued_because(&client, later).await, "paused", "a pause comes before a stored reason");
     admin.pause_everything(&until_resumed()).await.unwrap();
-    admin.resume("job", "echo").await.unwrap();
+    admin.resume(PauseKind::Job, "echo").await.unwrap();
     assert_eq!(queued_because(&client, later).await, "paused", "a pause of everything holds it too");
     admin.resume_everything().await.unwrap();
     assert_eq!(queued_because(&client, later).await, "scheduled_later");
@@ -99,7 +100,7 @@ async fn a_run_waiting_for_its_turn_says_so_before_its_stored_reason_and_after_a
     let waiting = start_later(&admin, "single", json!({ "seconds": 1 })).await;
     assert_eq!(queued_because(&client, waiting).await, "waiting_turn");
 
-    admin.pause("job", "single", &until_resumed()).await.unwrap();
+    admin.pause(PauseKind::Job, "single", &until_resumed()).await.unwrap();
     assert_eq!(queued_because(&client, waiting).await, "paused");
 }
 
@@ -319,9 +320,9 @@ async fn audits_every_change(database: &Database, client: &ActingClient<'_>, act
     let _: Done = client.post(&format!("/v1/chains/{chain}/cancel"), None::<&()>, None).await.unwrap();
     audited("cancel_chain").await;
 
-    client.pause("job", "shout", &until_resumed()).await.unwrap();
+    client.pause(PauseKind::Job, "shout", &until_resumed()).await.unwrap();
     audited("pause_job").await;
-    client.resume("job", "shout").await.unwrap();
+    client.resume(PauseKind::Job, "shout").await.unwrap();
     audited("resume_job").await;
     client.pause_everything(&until_resumed()).await.unwrap();
     audited("pause_all").await;

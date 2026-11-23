@@ -4,6 +4,7 @@
 
 mod support;
 
+use downbeat_client::types::QueuedBecause;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,8 +48,8 @@ async fn a_pause_whose_until_has_passed_neither_holds_a_queued_run_nor_stops_a_c
         .unwrap();
     }
 
-    let because = client.run(run).await.unwrap().queued_because.unwrap_or_default();
-    assert_eq!(because, "no_free_worker", "an ended pause is not reported");
+    let because = client.run(run).await.unwrap().queued_because;
+    assert_eq!(because, Some(QueuedBecause::NoFreeWorker), "an ended pause is not reported");
     let jobs = vec!["echo".to_owned()];
     let claimed = downbeat::measure::claim(&database.pool, "default", &jobs).await.unwrap();
     assert_eq!(claimed.map(|(id, _)| id), Some(run), "an ended pause does not stop the claim");

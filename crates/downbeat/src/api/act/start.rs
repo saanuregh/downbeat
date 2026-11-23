@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::{Extension, Path, Query, State as Extract};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use downbeat_api::types::{StartRequest, StartResponse};
+use downbeat_api::types::{RunStatus, StartRequest, StartResponse};
 use downbeat_api::with_defaults;
 use downbeat_api::{IDEMPOTENCY_HEADER, Scope};
 use serde_json::Value;
@@ -82,7 +82,7 @@ pub(crate) async fn start(
     };
     let response = with_defaults!(StartResponse {
         run_id: result.started.run_id(),
-        status: "queued".to_owned(),
+        status: RunStatus::Queued,
         joined,
         repeated: result.repeated,
     });

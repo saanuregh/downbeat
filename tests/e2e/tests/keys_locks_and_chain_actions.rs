@@ -8,8 +8,8 @@ mod support;
 use std::time::Duration;
 
 use downbeat::InAppClient;
-use downbeat_client::Scope;
 use downbeat_client::types::{Done, MarkSucceededRequest, PauseRequest, Preview, StartResponse};
+use downbeat_client::{PauseKind, Scope};
 use downbeat_e2e::runtime_rules::*;
 use downbeat_e2e::*;
 use serde_json::json;
@@ -265,10 +265,10 @@ async fn pausing_and_resuming_a_queue_and_a_schedule_is_audited() {
     let admin = client.as_caller();
     let pause = PauseRequest::new("testing").until_resumed();
 
-    admin.pause("queue", "default", &pause).await.unwrap();
-    admin.resume("queue", "default").await.unwrap();
-    admin.pause("schedule", "report", &pause).await.unwrap();
-    admin.resume("schedule", "report").await.unwrap();
+    admin.pause(PauseKind::Queue, "default", &pause).await.unwrap();
+    admin.resume(PauseKind::Queue, "default").await.unwrap();
+    admin.pause(PauseKind::Schedule, "report", &pause).await.unwrap();
+    admin.resume(PauseKind::Schedule, "report").await.unwrap();
 
     let rows: Vec<(String, String, Option<String>)> =
         sqlx::query_as("SELECT actor, action, schedule FROM downbeat.audit WHERE action <> 'event' ORDER BY audit_id")

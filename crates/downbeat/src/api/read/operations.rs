@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::{Extension, Query, State as Extract};
 use chrono::{DateTime, Utc};
 use downbeat_api::Scope;
-use downbeat_api::types::{AuditEntry, BackfillView, Page, QueueView, WorkerView};
+use downbeat_api::types::{AuditEntry, BackfillState, BackfillView, Page, QueueView, WorkerView};
 use downbeat_api::with_defaults;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -73,7 +73,8 @@ pub(crate) async fn queues(
         let mut because: BTreeMap<String, i64> = BTreeMap::new();
         let count = i64::try_from(queued.len()).unwrap_or(i64::MAX);
         for view in views::unfinished(&state.pool, &state.registry, queued).await? {
-            *because.entry(view.queued_because.unwrap_or_default()).or_default() += 1;
+            *because.entry(view.queued_because.map_or_else(String::new, |because| because.to_string())).or_default() +=
+                1;
         }
         let serving = workers
             .iter()
@@ -124,7 +125,7 @@ pub(crate) fn backfill_view(row: BackfillRow) -> BackfillView {
         from: row.from_date,
         to: row.to_date,
         reached: row.next_date,
-        state: row.state,
+        state: BackfillState::from(row.state.as_str()),
         reason: row.reason,
         continue_on_failure: row.continue_on_failure,
         created_by: row.created_by,

@@ -570,3 +570,10 @@ a status or an error is a minor version, not a major one.
   scheduler does not know never silently changes an action. In turn the Rust client leaves out
   each optional request field that is not set, so a client with a newer optional field still
   works against an older scheduler until it sets that field.
+- **Words from a closed set are enums with `Unknown`.** Statuses, reason codes, a job's kind, a
+  backfill's state, a call's ending and the error code are enums whose JSON is the same text as
+  before. Each has an `Unknown` variant (`#[serde(other)]`) that a word a newer scheduler sends
+  reads as, so adding a status does not break an older client's reads; strict decoding would.
+  The scheduler reads its stored text into them in one place (`From<&str>`); the console's
+  screens keep these fields as strings, because they must show a word from a newer scheduler.
+  The client's `pause` and `resume` take a `PauseKind` instead of a string.

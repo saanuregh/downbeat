@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use downbeat_api::types::{CallView, PauseView, RunDetail, RunSummary, RunView};
+use downbeat_api::types::{
+    CallView, FailedBecause, PauseView, QueuedBecause, RunDetail, RunStatus, RunSummary, RunView, SkippedBecause,
+};
 use downbeat_api::with_defaults;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -26,10 +28,10 @@ pub(crate) fn finished(registry: &Registry, row: HistoryRow, detail: Option<RunD
         run_id: row.run_id,
         job: row.job_name,
         chain_id: row.chain_id,
-        status: row.status,
+        status: RunStatus::from(row.status.as_str()),
         queued_because: None,
-        skipped_because: row.skipped_because,
-        failed_because: row.failed_because,
+        skipped_because: row.skipped_because.as_deref().map(SkippedBecause::from),
+        failed_because: row.failed_because.as_deref().map(FailedBecause::from),
         reason: row.reason,
         started_by: row.started_by,
         actor: row.actor,
@@ -69,14 +71,14 @@ pub(crate) async fn unfinished(pool: &PgPool, registry: &Registry, rows: Vec<Run
     let mut views = Vec::with_capacity(rows.len());
     for (row, queued) in rows.into_iter().zip(reasons) {
         let (status, queued_because, reason) = if let Some((because, reason)) = queued {
-            ("queued".to_owned(), Some(because), reason)
+            (RunStatus::Queued, Some(QueuedBecause::from(because.as_str())), reason)
         } else {
             let reason = match (&row.function_started_at, &row.lease_owner) {
                 (Some(started), Some(worker)) => format!("Running on {worker} for {}.", since(*started)),
                 (None, Some(worker)) => format!("Claimed by {worker}; preparing."),
                 _ => "Running.".to_owned(),
             };
-            ("running".to_owned(), None, reason)
+            (RunStatus::Running, None, reason)
         };
         let job = registry.job(&row.job_name);
         let expected = durations.get(&row.job_name);
@@ -297,7 +299,7 @@ pub(crate) async fn detail(
 pub(crate) fn summary(row: &HistoryRow) -> RunSummary {
     with_defaults!(RunSummary {
         run_id: row.run_id,
-        status: row.status.clone(),
+        status: RunStatus::from(row.status.as_str()),
         reason: row.reason.clone(),
         at: row.finished_at
     })

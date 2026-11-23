@@ -165,7 +165,8 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
   and `.local()` for a scheduler started with `--local`.
 - **Other calls**: `jobs()`, `job(name)`, `run(id)`, `runs("status=failed&job=x")`, `chain(id)`,
   `pipelines()`, `calendar(date)`, `cancel(run_id)`, and `start(…).preview()`.
-  `as_caller()` returns an `ActingClient` with `pause`, `resume`, `pause_everything`,
+  `as_caller()` returns an `ActingClient` with `pause` and `resume` (of a `PauseKind::Job`,
+  `Queue` or `Schedule`, by name), `pause_everything`,
   `resume_everything`, `mark_succeeded`,
   `add_override`, `preview_override`, `overrides`, `start_backfill`, `backfills`, `schedules`,
   `queues`, `audit`, and generic `get`, `post` and `delete` for any other endpoint, such as
@@ -175,9 +176,14 @@ println!("{} joined={} repeated={}", started.run_id, started.joined, started.rep
   `BackfillRequest::new("daily_report", from, to).continue_on_failure()`. Every request, answer
   and error type is `#[non_exhaustive]`, so a match needs a `_` arm and a later version can add a
   field or a variant without breaking your code.
+- **Statuses and codes are enums.** A run's `status` is a `RunStatus`, its reason codes are
+  `QueuedBecause`, `SkippedBecause` and `FailedBecause`, and an error's `code` is an `ErrorCode`.
+  Each has an `Unknown` variant: a word a newer scheduler sends that this client does not know
+  reads as `Unknown` instead of failing the whole answer.
 - **Acting for someone else**: `client.acting_for("asha@example.com", Scope::Operate, None)`
   signs as that actor. Only a caller with `acts_for_people = true` may do this.
-- **Errors**: `Error::Api { status, code, message }` carries the scheduler's answer.
+- **Errors**: `Error::Api { status, code, message }` carries the scheduler's answer, with `code`
+  an `ErrorCode` such as `ErrorCode::Forbidden`.
   `Error::Connection` means the scheduler could not be reached or its answer could not be read;
   the HTTP library's own error is the `source()` of its `ConnectionError`.
   `Error::is_transient()` says whether retrying could help. A 401 for an expired token adds

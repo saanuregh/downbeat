@@ -14,7 +14,7 @@ pub enum Error {
     Version { spoken: u32, supported: Vec<u32> },
     /// The scheduler answered with an error.
     #[error("{status}: {message}")]
-    Api { status: u16, code: String, message: String },
+    Api { status: u16, code: downbeat_api::types::ErrorCode, message: String },
 }
 
 impl Error {
