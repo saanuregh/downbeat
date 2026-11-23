@@ -199,3 +199,25 @@ async fn on_finish_hears_of_a_run_marked_as_succeeded_long_after_it_failed() {
     client.as_caller().mark_succeeded(failed.run_id, &mark).await.unwrap();
     read_when("succeeded").await;
 }
+
+#[tokio::test]
+async fn a_request_with_a_field_it_does_not_have_is_refused_and_names_it() {
+    let database = Database::fresh().await;
+    let (_app, _client, listen) = with_api_at(&database).await;
+    let local = Signer::local(&format!("http://{listen}"));
+    for (path, body, field) in [
+        ("/v1/jobs/echo/runs", json!({ "input": { "text": "x" }, "priorty": 5 }), "priorty"),
+        ("/v1/jobs/echo/pause", json!({ "note": "n", "until_resumed": true, "untill": null }), "untill"),
+        ("/v1/pause", json!({ "note": "n", "until_resumed": true, "scope": "all" }), "scope"),
+    ] {
+        let (status, refused) = json_error(local.send("POST", path, &serde_json::to_vec(&body).unwrap()).await).await;
+        assert_eq!(status, 422, "{path}: {refused:?}");
+        assert!(refused.message.contains(&format!("unknown field `{field}`")), "{path}: {}", refused.message);
+    }
+    let changed: i64 =
+        sqlx::query_scalar("SELECT (SELECT count(*) FROM downbeat.run) + (SELECT count(*) FROM downbeat.pause)")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(changed, 0, "a refused request changes nothing");
+}

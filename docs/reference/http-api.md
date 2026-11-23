@@ -125,7 +125,10 @@ first). `joined` rows are never listed. Unknown query parameters are refused (40
 
 All in `downbeat_api::types`. Optional fields are `null` when absent, unless noted. In Rust every
 type is `#[non_exhaustive]`: a request is built with `new(…)` from its required fields and a
-setter for each optional one, and an answer can be built for a test from `Default`.
+setter for each optional one, and an answer can be built for a test from `Default`. A request
+body with a field its type does not have is refused with 422 `bad_input`, and the message names
+the field. The Rust client leaves out the optional fields that are not set, so it keeps working
+against an older scheduler as long as it uses only what that scheduler knows.
 
 | Type | Fields |
 | --- | --- |

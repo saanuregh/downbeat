@@ -89,6 +89,8 @@ major version ([decision 72](docs/decisions.md#72-the-public-api-can-grow-after-
   answers 503; any other database failure answers 500, which `downbeat-client` does not retry.
 - Per-request Ed25519 tokens bound to the request, a callers file with scopes and job limits,
   replay protection, idempotency keys, and a rate limit per caller and actor.
+- Request bodies refuse fields they do not have, naming them; the Rust client sends only the
+  optional fields that are set.
 - `downbeat-api` crate with the wire types and token signing; `downbeat-client` crate for Rust
   callers, starting jobs by name or, through `job_name!`, with a typed input.
 - `GET /v1/report` and `Client::report`: each job's recent days (runs, failures, failure rate,

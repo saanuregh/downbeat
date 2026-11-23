@@ -565,3 +565,8 @@ a status or an error is a minor version, not a major one.
   the engine's supported API (`InAppClient` connects by URL, decision 9; only the hidden `measure`
   module takes a `PgPool`), so moving to another `sqlx` major is a breaking change of
   `downbeat::Error`.
+- **A request refuses what it does not know, and sends only what is set.** Every request body
+  refuses an unknown field, as before (422 with the field named), so a typo or a field an older
+  scheduler does not know never silently changes an action. In turn the Rust client leaves out
+  each optional request field that is not set, so a client with a newer optional field still
+  works against an older scheduler until it sets that field.

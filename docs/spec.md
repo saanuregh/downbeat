@@ -547,7 +547,9 @@ Modules: `api/mod.rs`, `api/auth.rs`, `api/act/`, `api/read/`, `downbeat-api/src
 **Requests.**
 
 15. A start's input must be decoded strictly into the job's input type; failure is 422. A dry run
-    of a job without `supports_dry_run` is 422. An unknown job is 404.
+    of a job without `supports_dry_run` is 422. An unknown job is 404. A request body with a
+    field its request type does not have must be refused with 422, naming the field. The Rust
+    client must leave out every optional request field that is not set.
 16. With an `Idempotency-Key` header, the key must be claimed for `(<caller>/<actor>, job, key)`
     in the same transaction as the run. A repeated key must return the first run with
     `repeated: true` and HTTP 200, creating nothing. A new run answers 201; a joined run 200 with
