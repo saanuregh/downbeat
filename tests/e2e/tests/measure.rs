@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use downbeat::InAppClient;
 use downbeat_e2e::*;
-use support::{App, Database, eventually, finished};
+use support::{App, Database, eventually, finished, without_worker};
 
 fn summary(name: &str, mut samples: Vec<Duration>) {
     samples.sort();
@@ -115,5 +115,44 @@ async fn throughput_and_child_start_up() {
             samples.push(started.elapsed());
         }
         summary(&format!("one run, start to end, on {label}"), samples);
+    }
+}
+
+/// The statements run in this test database so far, when the cluster loads `pg_stat_statements`.
+async fn statements(database: &Database) -> Option<i64> {
+    sqlx::query_scalar(
+        "SELECT sum(calls)::int8 FROM pg_stat_statements WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .ok()
+}
+
+#[tokio::test]
+#[ignore = "a measurement, not a test: run it on purpose"]
+async fn a_page_of_a_hundred_queued_runs() {
+    let database = Database::fresh().await;
+    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_stat_statements").execute(&database.pool).await;
+    seed_queued(&database, "noop", 100).await;
+    let (_app, client) = without_worker(&database).await;
+    let mut samples = Vec::new();
+    // The scheduler runs statements of its own meanwhile, so the fewest seen is the page's cost.
+    let mut fewest: Option<i64> = None;
+    for _ in 0..50 {
+        let before = statements(&database).await;
+        let started = Instant::now();
+        let page = client.runs("limit=100").await.unwrap();
+        samples.push(started.elapsed());
+        assert_eq!(page.items.len(), 100);
+        if let (Some(before), Some(after)) = (before, statements(&database).await) {
+            // Less the statement that read the count before.
+            let spent = after - before - 1;
+            fewest = Some(fewest.map_or(spent, |fewest| fewest.min(spent)));
+        }
+    }
+    summary("GET /runs, a page of 100 queued runs", samples);
+    match fewest {
+        Some(count) => println!("statements for that page: {count}"),
+        None => println!("statements for that page: not counted; the cluster does not load pg_stat_statements"),
     }
 }

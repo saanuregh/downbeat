@@ -115,8 +115,8 @@ pub(crate) async fn runs(
             let last = &rows[examined - 1];
             next = Some(Cursor::Unfinished(last.created_at, last.run_id).text());
         }
-        for row in rows.into_iter().take(examined) {
-            let view = views::unfinished(&state.pool, &state.registry, row, None).await?;
+        let rows: Vec<RunRow> = rows.into_iter().take(examined).collect();
+        for view in views::unfinished(&state.pool, &state.registry, rows).await? {
             if query.queued_because.as_deref().is_none_or(|because| view.queued_because.as_deref() == Some(because)) {
                 items.push(view);
             }
@@ -212,7 +212,9 @@ pub(crate) async fn run(
     if let Some(row) = crate::store::runs::get(&mut connection, id).await? {
         caller.require_job(&row.job_name)?;
         let detail = views::detail(&state.pool, id, row.parents.clone(), &row.call_log, None, None).await?;
-        return Ok(Json(views::unfinished(&state.pool, &state.registry, row, Some(detail)).await?));
+        let views = views::unfinished(&state.pool, &state.registry, vec![row]).await?;
+        let view = views.into_iter().next().expect("one view for one row");
+        return Ok(Json(RunView { detail: Some(detail), ..view }));
     }
     let row: HistoryRow = sqlx::query_as("SELECT * FROM downbeat.run_history WHERE run_id = $1")
         .bind(id)

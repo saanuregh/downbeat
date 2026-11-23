@@ -1,5 +1,6 @@
 //! Questions about finished runs that conditions and expectations ask.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -61,22 +62,36 @@ pub(crate) async fn by_ids(pool: &PgPool, ids: &[Uuid]) -> sqlx::Result<Vec<Hist
 /// (one and a half times their 90th percentile). Needs at least five successes. A success lasts
 /// from its first start to its end, retries included; dry runs are left out.
 pub(crate) async fn expected_duration(pool: &PgPool, job: &str) -> sqlx::Result<Option<(Duration, Duration)>> {
-    let row: Option<(i64, Option<f64>, Option<f64>)> = sqlx::query_as(
-        "SELECT count(*), percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds), percentile_cont(0.9) WITHIN GROUP (ORDER BY seconds)
-           FROM (SELECT EXTRACT(EPOCH FROM finished_at - started_at)::float8 AS seconds
-                   FROM downbeat.run_history
-                  WHERE job_name = $1 AND status = 'succeeded' AND NOT dry_run AND started_at IS NOT NULL
-                  ORDER BY finished_at DESC LIMIT 20) recent",
+    Ok(expected_durations(pool, &[job.to_owned()]).await?.remove(job))
+}
+
+/// [`expected_duration`] for several jobs in one query; a job without one is left out.
+pub(crate) async fn expected_durations(
+    pool: &PgPool,
+    jobs: &[String],
+) -> sqlx::Result<HashMap<String, (Duration, Duration)>> {
+    let rows: Vec<(String, i64, Option<f64>, Option<f64>)> = sqlx::query_as(
+        "SELECT job.name, count(*), percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds),
+                percentile_cont(0.9) WITHIN GROUP (ORDER BY seconds)
+           FROM (SELECT DISTINCT name FROM unnest($1::text[]) AS name) job
+          CROSS JOIN LATERAL (SELECT EXTRACT(EPOCH FROM finished_at - started_at)::float8 AS seconds
+                                FROM downbeat.run_history
+                               WHERE job_name = job.name AND status = 'succeeded' AND NOT dry_run AND started_at IS NOT NULL
+                               ORDER BY finished_at DESC LIMIT 20) recent
+          GROUP BY job.name",
     )
-    .bind(job)
-    .fetch_optional(pool)
+    .bind(jobs)
+    .fetch_all(pool)
     .await?;
-    Ok(match row {
-        Some((count, Some(median), Some(p90))) if count >= 5 => {
-            Some((Duration::from_secs_f64(median.max(0.0)), Duration::from_secs_f64((p90 * 1.5).max(1.0))))
-        }
-        _ => None,
-    })
+    Ok(rows
+        .into_iter()
+        .filter_map(|(job, count, median, p90)| match (median, p90) {
+            (Some(median), Some(p90)) if count >= 5 => {
+                Some((job, (Duration::from_secs_f64(median.max(0.0)), Duration::from_secs_f64((p90 * 1.5).max(1.0)))))
+            }
+            _ => None,
+        })
+        .collect())
 }
 
 /// How long a job has gone without a success, for `expect_success_every`.

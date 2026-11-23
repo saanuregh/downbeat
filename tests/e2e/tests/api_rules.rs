@@ -3,32 +3,14 @@
 
 mod support;
 
-use std::time::Duration;
-
 use chrono::{NaiveDate, Utc};
 use downbeat_client::types::{BackfillRequest, Done, MarkSucceededRequest, OverrideRequest, PauseRequest, Preview};
 use downbeat_client::types::{StartRequest, StartResponse};
 use downbeat_client::{ActingClient, Error, Scope};
 use downbeat_e2e::*;
 use serde_json::json;
-use support::{App, Database, SOON, eventually, finished, free_port, with_api};
+use support::{Database, SOON, eventually, finished, with_api, without_worker};
 use uuid::Uuid;
-
-/// The test product as a scheduler with the `--local` API and no worker, so runs stay queued.
-async fn without_worker(database: &Database) -> (App, downbeat_client::Client) {
-    let listen = format!("127.0.0.1:{}", free_port());
-    let app = App::with(database, &["scheduler", "--local", "--listen", &listen], "test");
-    let deadline = tokio::time::Instant::now() + SOON;
-    loop {
-        match downbeat_client::Client::builder(&format!("http://{listen}")).local().connect().await {
-            Ok(client) => return (app, client),
-            Err(error) => {
-                assert!(tokio::time::Instant::now() < deadline, "the API did not come up: {error}");
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        }
-    }
-}
 
 /// Starts a job with a `not_before` an hour from now.
 async fn start_later(client: &ActingClient<'_>, job: &str, input: serde_json::Value) -> Uuid {

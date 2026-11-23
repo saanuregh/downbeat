@@ -1,5 +1,7 @@
 //! Turning stored rows into what the API returns, with a reason for every state.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use downbeat_api::types::{CallView, PauseView, RunDetail, RunSummary, RunView};
 use sqlx::PgPool;
@@ -56,108 +58,163 @@ pub(crate) fn finished(registry: &Registry, row: HistoryRow, detail: Option<RunD
     }
 }
 
-/// A queued or running run, with the reason worked out now for states that are not stored.
-pub(crate) async fn unfinished(
-    pool: &PgPool,
-    registry: &Registry,
-    row: RunRow,
-    detail: Option<RunDetail>,
-) -> sqlx::Result<RunView> {
-    let (status, queued_because, reason) = if row.state == "running" {
-        let reason = match (&row.function_started_at, &row.lease_owner) {
-            (Some(started), Some(worker)) => format!("Running on {worker} for {}.", since(*started)),
-            (None, Some(worker)) => format!("Claimed by {worker}; preparing."),
-            _ => "Running.".to_owned(),
+/// Queued or running runs, in the order given, with the reason worked out now for states that are
+/// not stored. However many rows there are, this costs at most four queries: one per kind of fact
+/// the reasons and expected durations need, for every row at once.
+pub(crate) async fn unfinished(pool: &PgPool, registry: &Registry, rows: Vec<RunRow>) -> sqlx::Result<Vec<RunView>> {
+    let jobs: Vec<String> = rows.iter().map(|row| row.job_name.clone()).collect();
+    let durations = crate::store::history::expected_durations(pool, &jobs).await?;
+    let reasons = queued_reasons(pool, registry, &rows).await?;
+    let mut views = Vec::with_capacity(rows.len());
+    for (row, queued) in rows.into_iter().zip(reasons) {
+        let (status, queued_because, reason) = if let Some((because, reason)) = queued {
+            ("queued".to_owned(), Some(because), reason)
+        } else {
+            let reason = match (&row.function_started_at, &row.lease_owner) {
+                (Some(started), Some(worker)) => format!("Running on {worker} for {}.", since(*started)),
+                (None, Some(worker)) => format!("Claimed by {worker}; preparing."),
+                _ => "Running.".to_owned(),
+            };
+            ("running".to_owned(), None, reason)
         };
-        ("running".to_owned(), None, reason)
-    } else {
-        let (because, reason) = queued_reason(pool, registry, &row).await?;
-        ("queued".to_owned(), Some(because), reason)
-    };
-    let job = registry.job(&row.job_name);
-    let expected = crate::store::history::expected_duration(pool, &row.job_name).await?;
-    Ok(RunView {
-        pipeline: job.map(|job| job.pipeline.clone()),
-        log_link: registry.log_link_for(row.run_id),
-        attempts: job.map_or(1, |job| i32::from(job.spec.policy.attempts)),
-        run_id: row.run_id,
-        job: row.job_name,
-        chain_id: row.chain_id,
-        status,
-        queued_because,
-        skipped_because: None,
-        failed_because: None,
-        reason,
-        started_by: row.started_by,
-        actor: row.actor,
-        schedule: row.schedule,
-        queue: row.queue,
-        priority: row.priority,
-        due_at: row.due_at,
-        created_at: row.created_at,
-        started_at: row.first_started_at,
-        finished_at: None,
-        attempt: i32::from(row.failures) + 1,
-        calls: row.starts,
-        lost_count: i32::from(row.lost_count),
-        interruptions: i32::from(row.interruptions),
-        dry_run: row.dry_run,
-        progress: row.progress,
-        has_checkpoint: row.checkpoint.is_some(),
-        slow: row.slow_reported,
-        expected_seconds: expected.map(|(median, _)| i64::try_from(median.as_secs()).unwrap_or(i64::MAX)),
-        input: row.input,
-        output: None,
-        marked_by: None,
-        marked_at: None,
-        note: None,
-        detail,
-    })
+        let job = registry.job(&row.job_name);
+        let expected = durations.get(&row.job_name);
+        views.push(RunView {
+            pipeline: job.map(|job| job.pipeline.clone()),
+            log_link: registry.log_link_for(row.run_id),
+            attempts: job.map_or(1, |job| i32::from(job.spec.policy.attempts)),
+            run_id: row.run_id,
+            job: row.job_name,
+            chain_id: row.chain_id,
+            status,
+            queued_because,
+            skipped_because: None,
+            failed_because: None,
+            reason,
+            started_by: row.started_by,
+            actor: row.actor,
+            schedule: row.schedule,
+            queue: row.queue,
+            priority: row.priority,
+            due_at: row.due_at,
+            created_at: row.created_at,
+            started_at: row.first_started_at,
+            finished_at: None,
+            attempt: i32::from(row.failures) + 1,
+            calls: row.starts,
+            lost_count: i32::from(row.lost_count),
+            interruptions: i32::from(row.interruptions),
+            dry_run: row.dry_run,
+            progress: row.progress,
+            has_checkpoint: row.checkpoint.is_some(),
+            slow: row.slow_reported,
+            expected_seconds: expected.map(|(median, _)| i64::try_from(median.as_secs()).unwrap_or(i64::MAX)),
+            input: row.input,
+            output: None,
+            marked_by: None,
+            marked_at: None,
+            note: None,
+            detail: None,
+        });
+    }
+    Ok(views)
 }
 
-/// Why a queued run is not running. `paused`, `waiting_turn` and `no_free_worker` are worked out
-/// now; the others were stored by whoever queued it.
-async fn queued_reason(pool: &PgPool, registry: &Registry, row: &RunRow) -> sqlx::Result<(String, String)> {
-    let pause = match pause_of(pool, "all", "all").await? {
-        Some(everything) => Some(everything),
-        None => pause_of(pool, "job", &row.job_name).await?.or(pause_of(pool, "queue", &row.queue).await?),
-    };
-    if let Some(pause) = pause {
-        let until = pause.until.map_or_else(
-            || "until resumed".to_owned(),
-            |until| format!("until {}", until.format("%Y-%m-%d %H:%M UTC")),
-        );
-        return Ok(("paused".to_owned(), format!("Held: paused by {} {until} ({}).", pause.by, pause.note)));
+/// Why each queued row is not running, and `None` for a running one, in the order of the rows.
+/// `paused`, `waiting_turn` and `no_free_worker` are worked out now, in that order of precedence;
+/// the others were stored by whoever queued the run.
+async fn queued_reasons(
+    pool: &PgPool,
+    registry: &Registry,
+    rows: &[RunRow],
+) -> sqlx::Result<Vec<Option<(String, String)>>> {
+    let waiting = |row: &RunRow| row.state != "running";
+    let mut reasons: Vec<Option<(String, String)>> = vec![None; rows.len()];
+    if !rows.iter().any(waiting) {
+        return Ok(reasons);
     }
-    if let Some(turn) = &row.turn_key {
-        let holder: Option<Uuid> =
-            sqlx::query_scalar("SELECT run_id FROM downbeat.run WHERE turn_key = $1 AND starts > 0 AND run_id <> $2")
-                .bind(turn)
-                .bind(row.run_id)
-                .fetch_optional(pool)
-                .await?;
-        if holder.is_some() {
-            let rule = registry.job(&row.job_name).map_or(crate::job::Turn::SameWork, |job| job.spec.policy.turn);
-            return Ok(("waiting_turn".to_owned(), reasons::waiting_turn(holder, rule)));
+
+    let mut asked = vec![("all".to_owned(), "all".to_owned())];
+    for row in rows.iter().filter(|row| waiting(row)) {
+        asked.push(("job".to_owned(), row.job_name.clone()));
+        asked.push(("queue".to_owned(), row.queue.clone()));
+    }
+    let pauses = active_pauses(pool, &asked).await?;
+    let pause_of = |kind: &str, name: &str| pauses.get(&(kind.to_owned(), name.to_owned()));
+    for (row, reason) in rows.iter().zip(&mut reasons).filter(|(row, _)| waiting(row)) {
+        let pause = pause_of("all", "all").or(pause_of("job", &row.job_name)).or(pause_of("queue", &row.queue));
+        *reason = pause.map(|pause| {
+            let until = pause.until.map_or_else(
+                || "until resumed".to_owned(),
+                |until| format!("until {}", until.format("%Y-%m-%d %H:%M UTC")),
+            );
+            ("paused".to_owned(), format!("Held: paused by {} {until} ({}).", pause.by, pause.note))
+        });
+    }
+
+    let turns: Vec<&str> = rows
+        .iter()
+        .zip(&reasons)
+        .filter(|(row, reason)| waiting(row) && reason.is_none())
+        .filter_map(|(row, _)| row.turn_key.as_deref())
+        .collect();
+    if !turns.is_empty() {
+        // The `run_turn` index lets at most one run hold a turn.
+        let holders: HashMap<String, Uuid> =
+            sqlx::query_as("SELECT turn_key, run_id FROM downbeat.run WHERE turn_key = ANY($1) AND starts > 0")
+                .bind(&turns)
+                .fetch_all(pool)
+                .await?
+                .into_iter()
+                .collect();
+        for (row, reason) in rows.iter().zip(&mut reasons).filter(|(row, reason)| waiting(row) && reason.is_none()) {
+            let holder = row.turn_key.as_ref().and_then(|turn| holders.get(turn)).filter(|id| **id != row.run_id);
+            if let Some(holder) = holder {
+                let rule = registry.job(&row.job_name).map_or(crate::job::Turn::SameWork, |job| job.spec.policy.turn);
+                *reason = Some(("waiting_turn".to_owned(), reasons::waiting_turn(Some(*holder), rule)));
+            }
         }
     }
-    // Whether the run is due later is judged by the database's clock, in the same query.
-    let (serving, due_later): (i64, bool) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM downbeat.worker
-                  WHERE role = 'worker' AND queues ? $1 AND last_seen_at > now() - interval '1 minute'),
-                $2 > now()",
+
+    let queues: Vec<&str> = rows
+        .iter()
+        .zip(&reasons)
+        .filter(|(row, reason)| waiting(row) && reason.is_none())
+        .map(|(row, _)| row.queue.as_str())
+        .collect();
+    if queues.is_empty() {
+        return Ok(reasons);
+    }
+    // Whether a run is due later is judged by the database's clock, read in the same query.
+    let counted: Vec<(String, i64, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT queue.name,
+                (SELECT count(*) FROM downbeat.worker
+                  WHERE role = 'worker' AND queues ? queue.name AND last_seen_at > now() - interval '1 minute'),
+                now()
+           FROM (SELECT DISTINCT name FROM unnest($1::text[]) AS name) queue",
     )
-    .bind(&row.queue)
-    .bind(row.run_at)
-    .fetch_one(pool)
+    .bind(&queues)
+    .fetch_all(pool)
     .await?;
+    let now = counted.first().map(|(_, _, now)| *now);
+    let serving: HashMap<String, i64> = counted.into_iter().map(|(queue, count, _)| (queue, count)).collect();
+    for (row, reason) in rows.iter().zip(&mut reasons).filter(|(row, reason)| waiting(row) && reason.is_none()) {
+        let due_later = now.is_some_and(|now| row.run_at > now);
+        *reason = Some(stored_or_no_free_worker(row, serving.get(&row.queue).copied().unwrap_or(0), due_later));
+    }
+    Ok(reasons)
+}
+
+/// A queued run that is neither paused nor waiting its turn: its stored reason while it is due
+/// later, otherwise whether any worker serves its queue.
+fn stored_or_no_free_worker(row: &RunRow, serving: i64, due_later: bool) -> (String, String) {
     let stored =
         row.queued_because.as_deref().filter(|because| *because != "no_free_worker" && *because != "waiting_turn");
     if let (Some(because), true) = (stored, due_later) {
-        return Ok((
+        return (
             because.to_owned(),
             row.queued_reason.clone().unwrap_or_else(|| format!("Queued until {}.", row.run_at.format("%H:%M:%S UTC"))),
-        ));
+        );
     }
     let waited = since(row.run_at.min(Utc::now()));
     let reason = if serving == 0 {
@@ -165,11 +222,13 @@ async fn queued_reason(pool: &PgPool, registry: &Registry, row: &RunRow) -> sqlx
     } else {
         format!("Queued {waited}: every slot on queue {} is busy.", row.queue)
     };
-    Ok(("no_free_worker".to_owned(), reason))
+    ("no_free_worker".to_owned(), reason)
 }
 
 #[derive(sqlx::FromRow)]
 struct PauseRow {
+    kind: String,
+    name: String,
     by: String,
     note: String,
     until: Option<DateTime<Utc>>,
@@ -178,17 +237,30 @@ struct PauseRow {
 
 /// An active pause, if there is one.
 pub(crate) async fn pause_of(pool: &PgPool, kind: &str, name: &str) -> sqlx::Result<Option<PauseView>> {
-    sqlx::query_as(
-        "SELECT paused_by AS by, note, until, created_at AS since FROM downbeat.pause
-          WHERE kind = $1 AND name = $2 AND (until IS NULL OR until > now())",
+    let key = (kind.to_owned(), name.to_owned());
+    Ok(active_pauses(pool, std::slice::from_ref(&key)).await?.remove(&key))
+}
+
+/// The active pauses among these kinds and names, in one query.
+async fn active_pauses(
+    pool: &PgPool,
+    asked: &[(String, String)],
+) -> sqlx::Result<HashMap<(String, String), PauseView>> {
+    let (kinds, names): (Vec<&str>, Vec<&str>) =
+        asked.iter().map(|(kind, name)| (kind.as_str(), name.as_str())).unzip();
+    let rows: Vec<PauseRow> = sqlx::query_as(
+        "SELECT kind, name, paused_by AS by, note, until, created_at AS since FROM downbeat.pause
+          WHERE (kind, name) IN (SELECT * FROM unnest($1::text[], $2::text[]))
+            AND (until IS NULL OR until > now())",
     )
-    .bind(kind)
-    .bind(name)
-    .fetch_optional(pool)
-    .await
-    .map(|row: Option<PauseRow>| {
-        row.map(|row| PauseView { by: row.by, note: row.note, until: row.until, since: row.since })
-    })
+    .bind(&kinds)
+    .bind(&names)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ((row.kind, row.name), PauseView { by: row.by, note: row.note, until: row.until, since: row.since }))
+        .collect())
 }
 
 /// The detail only the single-run view returns.

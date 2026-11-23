@@ -71,8 +71,7 @@ pub(crate) async fn queues(
         let longest = queued.iter().map(|run| run.run_at).min().map(|at| (Utc::now() - at).num_seconds().max(0));
         let mut because: BTreeMap<String, i64> = BTreeMap::new();
         let count = i64::try_from(queued.len()).unwrap_or(i64::MAX);
-        for row in queued {
-            let view = views::unfinished(&state.pool, &state.registry, row, None).await?;
+        for view in views::unfinished(&state.pool, &state.registry, queued).await? {
             *because.entry(view.queued_because.unwrap_or_default()).or_default() += 1;
         }
         let serving = workers

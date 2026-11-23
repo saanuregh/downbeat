@@ -187,6 +187,22 @@ pub async fn with_api_in(database: &Database, environment: &str) -> (App, downbe
     }
 }
 
+/// The test product as a scheduler with the `--local` API and no worker, so runs stay queued.
+pub async fn without_worker(database: &Database) -> (App, downbeat_client::Client) {
+    let listen = format!("127.0.0.1:{}", free_port());
+    let app = App::with(database, &["scheduler", "--local", "--listen", &listen], "test");
+    let deadline = tokio::time::Instant::now() + SOON;
+    loop {
+        match downbeat_client::Client::builder(&format!("http://{listen}")).local().connect().await {
+            Ok(client) => return (app, client),
+            Err(error) => {
+                assert!(tokio::time::Instant::now() < deadline, "the API did not come up: {error}");
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+}
+
 /// A finished run, as the tests look at it.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Finished {

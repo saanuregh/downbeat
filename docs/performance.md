@@ -22,6 +22,7 @@ carries over.
 | 2,000 queued runs on one worker with 8 slots | 0.81 s, about 2,500 runs a second |
 | One run alone, from the request to its end, on a reused child | mean 203 ms |
 | The same on a fresh child (`fresh_process`) | mean 213 ms; 95th percentile 404 ms |
+| A `/runs` page of 100 queued runs | mean 3.4 ms, 95th percentile 10.2 ms, 5 statements (release build, 2026-11-23; 31.5 ms and 601 statements before reasons were worked out for the whole page at once) |
 | One pruning pass over 60,000 chains past their retention | 2.4 s, in debug and release builds alike, measured 2026-11-23 over TCP; every chain removed except the one holding the job's latest success. The code before decision 71 took 8.4 s in a debug build but 2.3–2.6 s in a release build, so the rewrite made no difference to an optimized build |
 
 ## What the numbers say
